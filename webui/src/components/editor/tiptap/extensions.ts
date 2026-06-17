@@ -245,6 +245,16 @@ export function getExtensions(options: GetExtensionsOptions = {}) {
     Link.configure({
       openOnClick: false,
       HTMLAttributes: { class: "editor-link" },
+      // Auto-link bare domains too — by default the Link extension's
+      // `shouldAutoLink` requires a protocol prefix (`https://example.com`
+      // autolinks, `example.com` doesn't). Users expect a typed
+      // `wordpress.com ` to become a link without the scheme; linkifyjs's
+      // tokenizer already screens out non-URL-looking strings (it checks
+      // against the IANA TLD list under the hood), so widening to "trust
+      // linkify's detection" produces the natural behavior. Bare matches
+      // get the `https://` scheme via `defaultProtocol`.
+      shouldAutoLink: () => true,
+      defaultProtocol: "https",
     }),
     Typography,
     Markdown.configure({
