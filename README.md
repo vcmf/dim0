@@ -61,7 +61,7 @@ You already have a chat assistant, a whiteboard, and a doc tool. Dim0 is what yo
 
 **The short version:** mini-apps and agent output *live on the board* next to your notes and data (editable, persistent, and shared with your team in real time), instead of being buried in a chat thread you'll never find again.
 
-## Quickstart (under a minute)
+## Quickstart
 
 Run the published images. Docker is the only prerequisite.
 
