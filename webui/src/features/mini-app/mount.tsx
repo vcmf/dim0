@@ -30,6 +30,7 @@ import { toast } from "sonner"
 
 import { useTheme } from "@/components/theme-provider"
 import { cn } from "@/lib/utils"
+import { isTauri } from "@/platform"
 
 import { createMessageHandler } from "./dispatch"
 import { fetchMiniAppState, saveMiniAppState } from "./state-client"
@@ -53,9 +54,17 @@ const HANDSHAKE_TIMEOUT_MS = 5000
 //     we fall back to the build-time value.
 // See mini-app-archi.md §6.1.
 const injectedConfig = typeof window !== "undefined" ? window.__APP_CONFIG__ : undefined
-const RUNTIME_ORIGIN = injectedConfig
-  ? injectedConfig.miniAppOrigin ?? ""
-  : import.meta.env.VITE_MINI_APP_ORIGIN || ""
+const RUNTIME_ORIGIN = isTauri()
+  // Desktop is a compiled, offline-first app: the runtime is BUNDLED under
+  // `/mini-app` and served same-origin by Tauri, with no runtime config.js to
+  // inject an origin. Force single-frontend and IGNORE any baked
+  // VITE_MINI_APP_ORIGIN — `.env.sample` (which the desktop build bakes) points
+  // it at a dev localhost port that doesn't exist on a user's machine, so a
+  // cross-origin load just fails ("loading failed").
+  ? ""
+  : injectedConfig
+    ? injectedConfig.miniAppOrigin ?? ""
+    : import.meta.env.VITE_MINI_APP_ORIGIN || ""
 
 
 // Single-frontend (default): no separate runtime origin configured, so load the
