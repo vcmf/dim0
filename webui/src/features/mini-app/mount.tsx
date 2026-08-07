@@ -42,18 +42,20 @@ import { fetchMiniAppState, saveMiniAppState } from "./state-client"
 const HANDSHAKE_TIMEOUT_MS = 5000
 
 
-// Runtime origin resolution priority:
-//   1. window.__APP_CONFIG__.miniAppOrigin  — set by docker-entrypoint.sh
-//      from VITE_MINI_APP_ORIGIN at container start. Lets one image
-//      ship to dev / staging / prod without rebuilding.
-//   2. import.meta.env.VITE_MINI_APP_ORIGIN — build-time fallback for
-//      vite-dev (no entrypoint runs there).
-//   3. "" — empty string makes the broken state obvious in devtools.
+// Runtime origin resolution:
+//   - If runtime config was injected (docker-entrypoint's `/config.js` on web),
+//     it is AUTHORITATIVE — including an intentional empty string, which means
+//     single-frontend mode (load `/mini-app` same-origin). We must NOT let a
+//     build-time-baked `VITE_MINI_APP_ORIGIN` (e.g. a dev `localhost` port) leak
+//     through when the config says empty — that's what made a single-frontend
+//     prod deploy try to load the iframe from an unreachable localhost origin.
+//   - Only when there's no injected config at all (vite-dev, no entrypoint) do
+//     we fall back to the build-time value.
 // See mini-app-archi.md §6.1.
-const RUNTIME_ORIGIN =
-  (typeof window !== "undefined" ? window.__APP_CONFIG__?.miniAppOrigin : undefined) ||
-  import.meta.env.VITE_MINI_APP_ORIGIN ||
-  ""
+const injectedConfig = typeof window !== "undefined" ? window.__APP_CONFIG__ : undefined
+const RUNTIME_ORIGIN = injectedConfig
+  ? injectedConfig.miniAppOrigin ?? ""
+  : import.meta.env.VITE_MINI_APP_ORIGIN || ""
 
 
 // Single-frontend (default): no separate runtime origin configured, so load the
