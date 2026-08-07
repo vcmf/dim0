@@ -84,16 +84,22 @@ jobs:
         run: npm ci
         working-directory: webui
 
-      # Bake VITE_API_URL (the server users sign in to) from the API_ORIGIN repo
-      # variable — the same server-origin var `.env` uses. Unset ⇒ drop it entirely
-      # → a local-only build. bash so it runs the same on the Windows runner (git-bash).
+      # Write a MINIMAL build .env from GitHub repo variables — do NOT copy the
+      # dev `.env.sample` (localhost origins + empty secret placeholders) into a
+      # release artifact. The desktop app is compiled: Vite bakes only `VITE_*`
+      # into the client, and the only one that matters is VITE_API_URL (the
+      # server users sign in to; a public URL → a repo VARIABLE, not a secret).
+      # Mini-app/host origins are unused on desktop (bundled single-frontend), and
+      # every real secret lives on the backend, so nothing else is baked. Unset
+      # API_ORIGIN ⇒ empty .env ⇒ a local-only build (VITE_API_URL falls back in
+      # code). bash so it runs the same on the Windows runner (git-bash).
       - name: Prepare build env
         shell: bash
         run: |
-          cp .env.sample .env
-          grep -v '^VITE_API_URL=' .env > .env.tmp && mv .env.tmp .env
           if [ -n "${API_ORIGIN}" ]; then
-            echo "VITE_API_URL=${API_ORIGIN}" >> .env
+            echo "VITE_API_URL=${API_ORIGIN}" > .env
+          else
+            : > .env
           fi
         env:
           API_ORIGIN: ${{ vars.API_ORIGIN }}

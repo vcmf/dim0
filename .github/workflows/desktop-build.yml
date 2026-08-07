@@ -56,10 +56,13 @@ jobs:
         run: npm ci
         working-directory: webui
 
-      # The frontend build script loads ../.env via dotenv; the desktop app
-      # resolves its server URL at runtime, so the sample values suffice to build.
+      # The frontend build loads ../.env via dotenv, so one must exist. This is
+      # only the compile check (nothing is distributed), so an empty file is
+      # enough — VITE_* fall back in code. The release workflow bakes the real
+      # VITE_API_URL from the API_ORIGIN repo variable.
       - name: Provide build env
-        run: cp .env.sample .env
+        shell: bash
+        run: ': > .env'
 
       - name: Build desktop app (installers)
         uses: tauri-apps/tauri-action@v0
