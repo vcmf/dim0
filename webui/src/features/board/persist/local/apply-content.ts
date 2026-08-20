@@ -1,6 +1,7 @@
 import { asBatchId } from "@canvas-harness/core"
 import type { CanvasStore, Node, Op } from "@canvas-harness/core"
 import type { BoardContent } from "@/features/board/model"
+import { normalizeBoardContent } from "@/features/board/model"
 import { filterContentByLayer } from "@/features/board/model/layer"
 import {
   adaptEdgeColors,
@@ -37,7 +38,11 @@ export const applyContentToStore = (
   content: BoardContent,
   rootId?: string | null,
 ): void => {
-  const scoped = rootId === undefined ? content : filterContentByLayer(content, rootId)
+  // Defensive: callers normally pass `persistence.load()` output (already
+  // normalized), but this is exported — normalize here too so the store's
+  // canonical-label invariant holds regardless of the source. Idempotent + cheap.
+  const normalized = normalizeBoardContent(content)
+  const scoped = rootId === undefined ? normalized : filterContentByLayer(normalized, rootId)
   const mode = getBoardThemeMode()
   const ops: Op[] = []
 

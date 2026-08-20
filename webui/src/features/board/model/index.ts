@@ -178,9 +178,10 @@ export const normalizeBoardContent = (content: BoardContent): BoardContent => {
   })
   const edges = content.edges.map((e) => {
     const data = e.data as (DimEdgeData & { label?: unknown }) | undefined
-    const hasLegacy = !!data && "label" in data
-    const migrated = e.content || labelText(data?.label as string | { markdown?: string } | undefined) || undefined
-    if (!hasLegacy) return e.content === migrated ? e : { ...e, content: migrated }
+    // No legacy label → nothing to migrate; keep the edge as-is (identity, so a
+    // label-less edge with content:"" isn't rewritten to undefined every load).
+    if (!data || !("label" in data)) return e
+    const migrated = e.content || labelText(data.label as string | { markdown?: string } | undefined) || undefined
     const rest = { ...data } as DimEdgeData & { label?: unknown }
     delete rest.label // drop the dead field (edge label lives in `content`)
     return { ...e, content: migrated, data: rest }
