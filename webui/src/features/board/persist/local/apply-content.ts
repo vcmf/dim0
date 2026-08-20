@@ -1,7 +1,7 @@
 import { asBatchId } from "@canvas-harness/core"
 import type { CanvasStore, Node, Op } from "@canvas-harness/core"
-import type { BoardContent } from "@/features/board/model"
-import { asRichLabel } from "@/features/board/model"
+import type { BoardContent, DimEdgeData } from "@/features/board/model"
+import { asRichLabel, labelText } from "@/features/board/model"
 import { filterContentByLayer } from "@/features/board/model/layer"
 import {
   adaptEdgeColors,
@@ -60,14 +60,20 @@ export const applyContentToStore = (
   }
 
   for (const edge of scoped.edges) {
-    const data = edge.data as { _storedColors?: { strokeColor?: string; textColor?: string }; label?: string } | undefined
+    const data = edge.data as (DimEdgeData & { label?: unknown }) | undefined
     const stored = data?._storedColors ?? { strokeColor: edge.style?.strokeColor, textColor: edge.style?.textColor }
     const display = mode === "dark" ? adaptEdgeColors(stored, "dark") : stored
     const style = applyColorsToEdgeStyle(edge.style ?? {}, display)
-    // Migrate a legacy edge label from the never-rendered `data.label` to
-    // `content` (the field the harness draws), so old agent links show their label.
-    const content = edge.content || (typeof data?.label === "string" ? data.label : undefined)
-    ops.push({ type: "edge.add", edge: { ...edge, style, content } })
+    // Migrate a legacy edge label from the never-rendered `data.label` (string OR
+    // RichText) to `content`, the field the harness draws — existing content wins.
+    // Strip the dead field so it doesn't persist and re-migrate on every load.
+    const content = edge.content || labelText(data?.label as string | { markdown?: string } | undefined) || undefined
+    let nextData = edge.data
+    if (data && "label" in data) {
+      const { label: _legacy, ...rest } = data
+      nextData = rest
+    }
+    ops.push({ type: "edge.add", edge: { ...edge, style, content, data: nextData } })
   }
 
   if (ops.length > 0) {
