@@ -1,7 +1,6 @@
 import { asBatchId } from "@canvas-harness/core"
 import type { CanvasStore, Node, Op } from "@canvas-harness/core"
-import type { BoardContent, DimEdgeData } from "@/features/board/model"
-import { asRichLabel, labelText } from "@/features/board/model"
+import type { BoardContent } from "@/features/board/model"
 import { filterContentByLayer } from "@/features/board/model/layer"
 import {
   adaptEdgeColors,
@@ -49,31 +48,21 @@ export const applyContentToStore = (
 
   for (const group of scoped.groups) ops.push({ type: "group.upsert", group })
 
+  // Label shape is already normalized upstream (BoardPersistence.materialize →
+  // normalizeBoardContent), so this only re-projects theme colors.
   for (const node of scoped.nodes) {
     const stored = storedNodeColorsOf(node as unknown as Node)
     const display = mode === "dark" ? adaptNodeColors(stored, "dark") : stored
     const style = applyColorsToStyle(node.style ?? {}, display)
-    // Normalize a legacy bare-string label to RichText so the store invariant
-    // (data.label is RichText) holds — older local boards persisted strings.
-    const data = node.data ? { ...node.data, label: asRichLabel(node.data.label) } : node.data
-    ops.push({ type: "node.add", node: { ...node, style, data } })
+    ops.push({ type: "node.add", node: { ...node, style } })
   }
 
   for (const edge of scoped.edges) {
-    const data = edge.data as (DimEdgeData & { label?: unknown }) | undefined
+    const data = edge.data as { _storedColors?: { strokeColor?: string; textColor?: string } } | undefined
     const stored = data?._storedColors ?? { strokeColor: edge.style?.strokeColor, textColor: edge.style?.textColor }
     const display = mode === "dark" ? adaptEdgeColors(stored, "dark") : stored
     const style = applyColorsToEdgeStyle(edge.style ?? {}, display)
-    // Migrate a legacy edge label from the never-rendered `data.label` (string OR
-    // RichText) to `content`, the field the harness draws — existing content wins.
-    // Strip the dead field so it doesn't persist and re-migrate on every load.
-    const content = edge.content || labelText(data?.label as string | { markdown?: string } | undefined) || undefined
-    let nextData = edge.data
-    if (data && "label" in data) {
-      const { label: _legacy, ...rest } = data
-      nextData = rest
-    }
-    ops.push({ type: "edge.add", edge: { ...edge, style, content, data: nextData } })
+    ops.push({ type: "edge.add", edge: { ...edge, style } })
   }
 
   if (ops.length > 0) {

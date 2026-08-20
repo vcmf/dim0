@@ -394,7 +394,8 @@ describe("E1.4 conflict resolution", () => {
     // land on BBB too (not A's local-append order, which would give AAA).
     const reloaded = new BoardPersistence(BOARD, { engine: a.engine })
     const content = await reloaded.load()
-    expect(content.nodes.find((n) => n.id === "n1")?.data?.label).toBe("BBB")
+    // load() normalizes labels to RichText, so read via labelText.
+    expect(labelText(content.nodes.find((n) => n.id === "n1")?.data?.label)).toBe("BBB")
     a.sync.detach()
     b.sync.detach()
   })

@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest"
 import { asNodeId } from "@canvas-harness/core"
 import { freshStore } from "@/test/canvas"
 import type { BoardContent, DimNode } from "@/features/board/model"
-import { labelText } from "@/features/board/model"
-import type { DimNodeData } from "@/features/board/model"
 import { applyContentToStore } from "./apply-content"
 
 
@@ -25,56 +23,6 @@ describe("applyContentToStore", () => {
     const store = freshStore("c")
     applyContentToStore(store, content([rectNode("a"), rectNode("child", "f1")]), null)
     expect(store.getAllNodes().map((n) => n.id)).toEqual(["a"])
-  })
-
-
-  it("normalizes a legacy bare-string label to RichText on load", () => {
-    const store = freshStore("c")
-    const legacy = rectNode("a")
-    ;(legacy.data as { label?: unknown }).label = "Legacy Title" // older boards persisted a string
-    applyContentToStore(store, content([legacy]), null)
-    const stored = (store.getAllNodes()[0]?.data as DimNodeData | undefined)?.label
-    expect(stored).toEqual({ markdown: "Legacy Title" }) // coerced to the canonical shape
-    expect(labelText(stored)).toBe("Legacy Title")
-  })
-
-
-  it("migrates a legacy edge label from data.label to content (the rendered field)", () => {
-    const store = freshStore("c")
-    const [a, b] = [rectNode("a"), rectNode("b")]
-    const edge = {
-      id: "e1",
-      source: { nodeId: asNodeId("a"), localOffset: { x: 0, y: 0 } },
-      target: { nodeId: asNodeId("b"), localOffset: { x: 0, y: 0 } },
-      pathStyle: "bezier", z: 0, groups: [], data: { label: "causes", meta: { v: 1, createdAt: 0, updatedAt: 0 } },
-    }
-    const c = { schemaVersion: 1, nodes: [a, b], edges: [edge], groups: [] } as unknown as BoardContent
-    applyContentToStore(store, c, null)
-    const migrated = store.getAllEdges()[0]
-    expect(migrated?.content).toBe("causes") // now the harness will render it
-    expect((migrated?.data as { label?: unknown })?.label).toBeUndefined() // dead field stripped
-  })
-
-
-  it("migrates a legacy RichText edge label and lets existing content win", () => {
-    const store = freshStore("c")
-    const [a, b] = [rectNode("a"), rectNode("b")]
-    const edgeAt = (id: string, ends: [string, string], data: object, content?: string) => ({
-      id, source: { nodeId: asNodeId(ends[0]), localOffset: { x: 0, y: 0 } },
-      target: { nodeId: asNodeId(ends[1]), localOffset: { x: 0, y: 0 } },
-      pathStyle: "bezier", z: 0, groups: [], content, data,
-    })
-    const c = {
-      schemaVersion: 1, nodes: [a, b], groups: [],
-      edges: [
-        edgeAt("rich", ["a", "b"], { label: { markdown: "leads to" }, meta: { v: 1, createdAt: 0, updatedAt: 0 } }),
-        edgeAt("both", ["b", "a"], { label: "stale", meta: { v: 1, createdAt: 0, updatedAt: 0 } }, "real"),
-      ],
-    } as unknown as BoardContent
-    applyContentToStore(store, c, null)
-    const byId = new Map(store.getAllEdges().map((e) => [String(e.id), e]))
-    expect(byId.get("rich")?.content).toBe("leads to") // RichText legacy label migrated
-    expect(byId.get("both")?.content).toBe("real") // present content wins over data.label
   })
 
 

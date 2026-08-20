@@ -18,6 +18,7 @@
 import { createCanvasStore } from "@canvas-harness/core"
 import type { CanvasStore, OpBatch } from "@canvas-harness/core"
 import type { BoardContent } from "@/features/board/model"
+import { normalizeBoardContent } from "@/features/board/model"
 import { contentToScene, emptyContent, readContent } from "./codec"
 import { pruneDanglingEdges } from "./integrity"
 import { IndexedDbEngine } from "./indexeddb-engine"
@@ -229,7 +230,7 @@ export class BoardPersistence {
       range: { lower: [this.boardId, baseSeq], upper: [this.boardId, Number.MAX_SAFE_INTEGER], lowerOpen: true },
     })
     const seq = records.length > 0 ? records[records.length - 1].seq : baseSeq
-    if (records.length === 0) return { content: base, seq }
+    if (records.length === 0) return { content: normalizeBoardContent(base), seq }
     // Replay in relay (`serverSeq`) order so a reload converges the same way live
     // sync did; unacked-local ops (no `serverSeq`) sort last, then by local seq.
     // Stable within a serverSeq bucket, so all-local logs keep append order.
@@ -244,7 +245,7 @@ export class BoardPersistence {
       store.applyBatch({ ...r.batch, origin: "remote" })
     }
     pruneDanglingEdges(store)
-    return { content: readContent(store), seq }
+    return { content: normalizeBoardContent(readContent(store)), seq }
   }
 
 

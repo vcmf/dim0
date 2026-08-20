@@ -159,6 +159,36 @@ export type BoardContent = {
 }
 
 
+/**
+ * Normalize board content to the canonical label shape at the READ source (called
+ * from `BoardPersistence.materialize`, so display hydrate, whole-board search, and
+ * the enable-sync `capture()` all get migrated content — a legacy label isn't lost
+ * when a local board is promoted to synced). Idempotent and churn-free: unchanged
+ * nodes/edges keep their identity.
+ *   - node `data.label`: coerce a legacy bare string → RichText.
+ *   - edge label: the harness renders `edge.content`; migrate a legacy
+ *     `data.label` (string OR RichText, from an older link tool) → `content` and
+ *     strip the dead field. Existing `content` wins.
+ */
+export const normalizeBoardContent = (content: BoardContent): BoardContent => {
+  const nodes = content.nodes.map((n) => {
+    if (!n.data) return n
+    const label = asRichLabel(n.data.label)
+    return label === n.data.label ? n : { ...n, data: { ...n.data, label } }
+  })
+  const edges = content.edges.map((e) => {
+    const data = e.data as (DimEdgeData & { label?: unknown }) | undefined
+    const hasLegacy = !!data && "label" in data
+    const migrated = e.content || labelText(data?.label as string | { markdown?: string } | undefined) || undefined
+    if (!hasLegacy) return e.content === migrated ? e : { ...e, content: migrated }
+    const rest = { ...data } as DimEdgeData & { label?: unknown }
+    delete rest.label // drop the dead field (edge label lives in `content`)
+    return { ...e, content: migrated, data: rest }
+  })
+  return { ...content, nodes, edges }
+}
+
+
 /** How a board is hosted. `local-only` = IndexedDB only, no account, no relay. */
 export type BoardKind = "local-only" | "synced"
 
