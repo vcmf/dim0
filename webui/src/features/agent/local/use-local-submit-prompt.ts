@@ -318,7 +318,7 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
         // (the live store holds only the current folder) + an id→node map so a
         // cross-folder hit is readable. Falls back to the layer-scoped shared index
         // if the whole-board load fails.
-        const wholeBoard = await buildWholeBoardSearch(boardId).catch((e) => {
+        const wholeBoard = await buildWholeBoardSearch(boardId, store).catch((e) => {
           agentLog.error("buildWholeBoardSearch", e)
           return null
         })

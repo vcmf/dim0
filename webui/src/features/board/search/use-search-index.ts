@@ -11,19 +11,21 @@ export type WholeBoardSearch = { index: LocalSearchIndex; notes: ReadonlyMap<str
 
 
 /**
- * Build a WHOLE-board note search for one agent turn: load the board's entire
- * persisted content (all layers, not the layer-scoped live store) and index it,
- * plus an id→node map so `search_notes`/`get_note` can resolve a cross-folder hit
- * (the live store only holds the current layer). Read-only; built fresh per turn
- * from persistence (current, since the prior turn's writes are flushed at its end).
+ * Build a WHOLE-board note search for one agent turn: the board's entire persisted
+ * content (all layers — the live store holds only the current one) OVERLAID with
+ * the live store's nodes (freshest: current-layer edits/creates made this turn,
+ * before the debounced flush), so both a cross-folder note AND a just-created one
+ * are findable + resolvable. Read-only; built fresh per turn.
  */
-export const buildWholeBoardSearch = async (boardId: string): Promise<WholeBoardSearch> => {
+export const buildWholeBoardSearch = async (boardId: string, store: CanvasStore): Promise<WholeBoardSearch> => {
   const { engine } = await getLocalStores()
-  const content = await new BoardPersistence(boardId, { engine }).load()
-  const nodes = content.nodes as unknown as Node[]
+  const persisted = (await new BoardPersistence(boardId, { engine }).load()).nodes as unknown as Node[]
+  const byId = new Map<string, Node>(persisted.map((n) => [String(n.id), n]))
+  for (const n of store.getAllNodes()) byId.set(String(n.id), n) // live current-layer wins
+  const nodes = [...byId.values()]
   const index = new LocalSearchIndex()
   await index.indexNodes(nodes)
-  return { index, notes: new Map(nodes.map((n) => [String(n.id), n])) }
+  return { index, notes: byId }
 }
 
 
