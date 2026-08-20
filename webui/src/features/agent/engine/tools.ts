@@ -224,9 +224,12 @@ export const linkNotes = defineTool({
         target: { nodeId: tgt, localOffset: center(tgt) },
         pathStyle: "bezier",
         groups: [],
+        // The edge label is `content` — the field the harness renders and the
+        // convert layer round-trips to `Link.label` (previously written to a
+        // never-rendered `data.label`, so agent link labels were invisible).
+        content: label || undefined,
         style,
         data: {
-          label: label || undefined,
           parentId: ctx.rootId ?? undefined,
           meta: meta(),
           _storedColors: storedColors,

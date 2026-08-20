@@ -39,6 +39,21 @@ describe("applyContentToStore", () => {
   })
 
 
+  it("migrates a legacy edge label from data.label to content (the rendered field)", () => {
+    const store = freshStore("c")
+    const [a, b] = [rectNode("a"), rectNode("b")]
+    const edge = {
+      id: "e1",
+      source: { nodeId: asNodeId("a"), localOffset: { x: 0, y: 0 } },
+      target: { nodeId: asNodeId("b"), localOffset: { x: 0, y: 0 } },
+      pathStyle: "bezier", z: 0, groups: [], data: { label: "causes", meta: { v: 1, createdAt: 0, updatedAt: 0 } },
+    }
+    const c = { schemaVersion: 1, nodes: [a, b], edges: [edge], groups: [] } as unknown as BoardContent
+    applyContentToStore(store, c, null)
+    expect(store.getAllEdges()[0]?.content).toBe("causes") // now the harness will render it
+  })
+
+
   it("replaces the previous layer on switch — no accumulation across layers", () => {
     const store = freshStore("c")
     const c = content([rectNode("root1"), rectNode("c1", "folder"), rectNode("c2", "folder")])

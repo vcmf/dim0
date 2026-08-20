@@ -120,7 +120,9 @@ export type DimNodeData = {
 
 /** dim0 payload carried in a canvas-harness `edge.data`. */
 export type DimEdgeData = {
-  label?: string
+  // NOTE: the edge label is `edge.content` (what the harness renders + the convert
+  // layer round-trips to `Link.label`), NOT a `data.label`. A legacy `data.label`
+  // written by an older link tool is migrated to `content` on load.
   parentId?: Id | null
   props?: Record<string, DataProperty>
   meta: SyncMeta
