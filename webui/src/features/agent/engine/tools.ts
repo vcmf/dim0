@@ -375,8 +375,9 @@ const asText = (value: unknown): string => (typeof value === "string" ? value : 
 export const searchNotes = defineTool({
   name: "search_notes",
   description:
-    "Full-text search the board's existing notes. Returns each match's id, title," +
-    " and a content snippet — usually enough to answer without a separate get_note.",
+    "Full-text search the board's existing notes across ALL folders/layers (not just the" +
+    " current one). Returns each match's id, title, and a content snippet — usually enough" +
+    " to answer without a separate get_note.",
   parameters: z.object({
     query: z.string().describe("Full-text query matched against note titles and bodies."),
   }),

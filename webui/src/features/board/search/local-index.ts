@@ -42,15 +42,31 @@ export class LocalSearchIndex {
   private queue: Promise<void> = Promise.resolve()
 
 
-  /** Subscribe to store changes, keeping the index in sync. Returns unsubscribe. */
+  /**
+   * Subscribe to store changes, keeping the index in sync. Returns unsubscribe.
+   * SKIPS `remote` batches: a layer switch reloads the store as a `remote`
+   * hydrate batch (node.remove of the old layer + node.add of the new), and
+   * processing that would evict every OTHER layer from this whole-board index.
+   * Live local edits (agent/user) are `local`/`history` and flow through. Mirrors
+   * `BoardPersistence`, which skips remote on its own 'change' path for the same reason.
+   */
   attach(store: CanvasStore): () => void {
     return store.subscribe("change", (batch) => {
+      if (batch.origin === "remote") return
       for (const op of batch.ops) {
         if (op.type === "node.add") this.enqueue(() => this.upsert(store, op.node.id))
         else if (op.type === "node.update") this.enqueue(() => this.upsert(store, op.id))
         else if (op.type === "node.remove") this.enqueue(() => this.removeDoc(op.node.id))
       }
     })
+  }
+
+
+  /** Merge a set of nodes (the whole board, across layers) into the index — the
+   *  whole-board build so search spans every folder, not just the current layer. */
+  async indexNodes(nodes: Node[]): Promise<void> {
+    for (const node of nodes) this.enqueue(() => this.upsertNode(node))
+    await this.queue
   }
 
 
@@ -95,11 +111,15 @@ export class LocalSearchIndex {
 
   private async upsert(store: CanvasStore, id: NodeId): Promise<void> {
     const node = store.getNode(id)
-    if (!node) return
+    if (node) await this.upsertNode(node)
+  }
+
+
+  private async upsertNode(node: Node): Promise<void> {
     // remove-then-insert (not Orama `update`): insert preserves the doc's `id`
     // field, whereas `update` reassigns a fresh id — which would break getByID.
-    if (getByID(this.db, id) !== undefined) {
-      await remove(this.db, id)
+    if (getByID(this.db, node.id) !== undefined) {
+      await remove(this.db, node.id)
     }
     await insert(this.db, docOf(node))
   }

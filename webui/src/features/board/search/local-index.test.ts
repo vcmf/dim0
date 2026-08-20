@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest"
 import fc from "fast-check"
-import { asNodeId } from "@canvas-harness/core"
+import { asBatchId, asNodeId } from "@canvas-harness/core"
+import type { Node, NodeId } from "@canvas-harness/core"
 import { addNode, freshStore } from "@/test/canvas"
 import { LocalSearchIndex } from "./local-index"
+
+
+const richNode = (id: string, label: string, content = ""): Node =>
+  ({
+    id: id as NodeId, type: "rect", x: 0, y: 0, w: 100, h: 50, angle: 0, z: 0, groups: [],
+    content, data: { label: { markdown: label }, meta: { v: 1, createdAt: 0, updatedAt: 0 } },
+  }) as unknown as Node
 
 
 describe("LocalSearchIndex", () => {
@@ -130,6 +138,32 @@ describe("LocalSearchIndex", () => {
       }),
       { numRuns: 40 },
     )
+  })
+
+
+  it("indexNodes seeds the whole board (all layers) so search spans folders", async () => {
+    // Nodes from DIFFERENT layers — never all present in the layer-scoped store at once.
+    const index = new LocalSearchIndex()
+    await index.indexNodes([richNode("root", "root note"), richNode("deep", "buried in a folder")])
+    expect(await index.query("root")).toContain("root")
+    expect(await index.query("buried")).toContain("deep") // a note in another folder is findable
+  })
+
+
+  it("ignores a remote layer-switch batch so other layers aren't evicted", async () => {
+    const store = freshStore("c")
+    const index = new LocalSearchIndex()
+    index.attach(store)
+    addNode(store, "keep", "findme") // a live LOCAL edit → indexed
+    await index.idle()
+    expect(await index.query("findme")).toContain("keep")
+
+    // A layer switch reloads the store as a `remote` hydrate batch (removes the
+    // current layer). The index must NOT evict — those nodes live in another layer.
+    const node = store.getNode(asNodeId("keep")) as Node
+    store.applyBatch({ id: asBatchId("local-hydrate"), clientId: store.clientId, ts: 1, origin: "remote", ops: [{ type: "node.remove", node }] })
+    await index.idle()
+    expect(await index.query("findme")).toContain("keep") // still searchable across the switch
   })
 })
 
