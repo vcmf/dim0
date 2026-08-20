@@ -179,7 +179,7 @@ export function HarnessCanvas({ local = false }: { local?: boolean } = {}) {
   // Memoized: the flag is reload-stable, so don't read localStorage every render
   // of this hot canvas component.
   const agentLocalIndexes = useMemo(() => isBrowserAgentActive(local), [local])
-  useLocalSearchIndex(store, boardId ?? "", agentLocalIndexes)
+  useLocalSearchIndex(store, agentLocalIndexes)
   useLocalDocIndex(boardId ?? "", agentLocalIndexes)
   useDocNodeCascade(store, boardId ?? "", agentLocalIndexes)
   useBlockFolderCopy(store)

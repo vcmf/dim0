@@ -15,7 +15,6 @@ import { count, create, getByID, insert, remove, search } from "@orama/orama"
 import type { CanvasStore, Node, NodeId } from "@canvas-harness/core"
 import type { DimNodeData } from "@/features/board/model"
 import { labelText } from "@/features/board/model"
-import { HYDRATE_BATCH_ID } from "@/features/board/persist/local/apply-content"
 
 
 const SCHEMA = { title: "string", body: "string" } as const
@@ -43,17 +42,10 @@ export class LocalSearchIndex {
   private queue: Promise<void> = Promise.resolve()
 
 
-  /**
-   * Subscribe to store changes, keeping the index in sync. Returns unsubscribe.
-   * SKIPS only the layer-switch hydrate batch (`HYDRATE_BATCH_ID`): that batch
-   * removes the old layer + adds the new, which would evict every OTHER layer from
-   * this whole-board index. Genuine remote batches (collab peer-ops, the welcome
-   * snapshot) keep their own ids and ARE processed, so a collaborator's add/edit/
-   * delete still updates the index. Live local edits flow through as normal.
-   */
+  /** Subscribe to store changes, keeping the index in sync with the live (current-
+   *  layer) store. Returns unsubscribe. */
   attach(store: CanvasStore): () => void {
     return store.subscribe("change", (batch) => {
-      if (String(batch.id) === HYDRATE_BATCH_ID) return
       for (const op of batch.ops) {
         if (op.type === "node.add") this.enqueue(() => this.upsert(store, op.node.id))
         else if (op.type === "node.update") this.enqueue(() => this.upsert(store, op.id))

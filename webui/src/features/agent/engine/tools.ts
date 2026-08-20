@@ -122,6 +122,16 @@ const NODE_TYPE: Record<string, string> = {
 const toNodeType = (t: string): string => NODE_TYPE[t] ?? "rect"
 
 
+/**
+ * Resolve a note by id across the WHOLE board: the layer-scoped `store` (freshest,
+ * for the current folder's live edits) first, then the per-turn whole-board
+ * `boardNotes` snapshot for notes in other folders. Without the fallback,
+ * search_notes / get_note can't read a cross-folder hit.
+ */
+const resolveBoardNode = (ctx: ToolContext, id: string): Node | undefined =>
+  ctx.store.getNode(asNodeId(id)) ?? ctx.boardNotes?.get(id)
+
+
 export const createNote = defineTool({
   name: "create_note",
   description: "Create a note on the board with a title and optional body.",
@@ -314,11 +324,12 @@ export const getNote = defineTool({
     note_id: z.string().describe("Id of the note to read."),
   }),
   run: async ({ note_id }, ctx) => {
-    const id = asNodeId(note_id)
-    const node = ctx.store.getNode(id)
+    // Whole-board resolve so a note in another folder (not in the layer-scoped
+    // store) is still readable — search_notes can surface cross-folder ids.
+    const node = resolveBoardNode(ctx, note_id)
     if (!node) return { error: "note not found" }
     return {
-      id: String(id),
+      id: note_id,
       label: labelText((node.data as DimNodeData | undefined)?.label),
       content: node.content ?? "",
       note_type: node.type,
@@ -385,7 +396,8 @@ export const searchNotes = defineTool({
     if (!ctx.search) return { results: [] }
     const ids = (await ctx.search.query(query)).slice(0, SEARCH_MAX_HITS)
     const results = ids.map((id) => {
-      const node = ctx.store.getNode(asNodeId(id))
+      // Resolve whole-board: a cross-folder hit isn't in the layer-scoped store.
+      const node = resolveBoardNode(ctx, id)
       // Title is `data.label`; the body lives in the native `node.content`.
       const title = labelText((node?.data as DimNodeData | undefined)?.label)
       const content = asText(node?.content).slice(0, SEARCH_SNIPPET_CHARS)

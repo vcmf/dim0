@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import fc from "fast-check"
-import { asBatchId, asNodeId } from "@canvas-harness/core"
+import { asNodeId } from "@canvas-harness/core"
 import type { Node, NodeId } from "@canvas-harness/core"
 import { addNode, freshStore } from "@/test/canvas"
 import { LocalSearchIndex } from "./local-index"
@@ -141,46 +141,13 @@ describe("LocalSearchIndex", () => {
   })
 
 
-  it("indexNodes seeds the whole board (all layers) so search spans folders", async () => {
-    // Nodes from DIFFERENT layers — never all present in the layer-scoped store at once.
+  it("indexNodes seeds a whole-board node list (all layers) so search spans folders", async () => {
+    // Nodes from DIFFERENT layers — never all present in the layer-scoped store at
+    // once; the agent's per-turn whole-board index is built from a list like this.
     const index = new LocalSearchIndex()
     await index.indexNodes([richNode("root", "root note"), richNode("deep", "buried in a folder")])
     expect(await index.query("root")).toContain("root")
     expect(await index.query("buried")).toContain("deep") // a note in another folder is findable
-  })
-
-
-  it("ignores a remote layer-switch batch so other layers aren't evicted", async () => {
-    const store = freshStore("c")
-    const index = new LocalSearchIndex()
-    index.attach(store)
-    addNode(store, "keep", "findme") // a live LOCAL edit → indexed
-    await index.idle()
-    expect(await index.query("findme")).toContain("keep")
-
-    // A layer switch reloads the store as a `remote` hydrate batch (removes the
-    // current layer). The index must NOT evict — those nodes live in another layer.
-    const node = store.getNode(asNodeId("keep")) as Node
-    store.applyBatch({ id: asBatchId("local-hydrate"), clientId: store.clientId, ts: 1, origin: "remote", ops: [{ type: "node.remove", node }] })
-    await index.idle()
-    expect(await index.query("findme")).toContain("keep") // still searchable across the switch
-  })
-
-
-  it("DOES process a genuine remote batch (collab) — only the hydrate id is skipped", async () => {
-    const store = freshStore("c")
-    const index = new LocalSearchIndex()
-    index.attach(store)
-    addNode(store, "n1", "collabword")
-    await index.idle()
-    expect(await index.query("collabword")).toContain("n1")
-
-    // A collaborator's delete arrives as a remote batch with its OWN id (not the
-    // hydrate id) — it must update the index (else search returns a stale id).
-    const node = store.getNode(asNodeId("n1")) as Node
-    store.applyBatch({ id: asBatchId("peer-op-1"), clientId: store.clientId, ts: 1, origin: "remote", ops: [{ type: "node.remove", node }] })
-    await index.idle()
-    expect(await index.query("collabword")).toHaveLength(0) // evicted — collab edit applied
   })
 })
 

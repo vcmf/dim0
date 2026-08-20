@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest"
 import { asNodeId } from "@canvas-harness/core"
-import type { CanvasStore } from "@canvas-harness/core"
+import type { CanvasStore, Node } from "@canvas-harness/core"
 import { freshStore, resetIdb } from "@/test/canvas"
 import type { DimEdgeData, DimNodeData } from "@/features/board/model"
 import { labelText } from "@/features/board/model"
@@ -316,6 +316,17 @@ describe("getNote", () => {
     expect(await getNote.run({ note_id: "ghost" }, ctx)).toEqual({ error: "note not found" })
   })
 
+  it("reads a cross-folder note via boardNotes (not in the layer-scoped store)", async () => {
+    const other = {
+      id: asNodeId("other"), type: "rect", x: 0, y: 0, w: 100, h: 50, angle: 0, z: 0, groups: [],
+      content: "body in another folder", data: { label: { markdown: "Elsewhere" }, meta: { v: 1, createdAt: 0, updatedAt: 0 } },
+    } as unknown as Node
+    const c = { store, rootId: null, boardNotes: new Map([["other", other]]) } as unknown as ToolContext
+    expect(await getNote.run({ note_id: "other" }, c)).toEqual({
+      id: "other", label: "Elsewhere", content: "body in another folder", note_type: "rect",
+    })
+  })
+
   it("returns the label as a plain string for both RichText and legacy-string labels", async () => {
     // RichText (production shape) — must be unwrapped to a string, not the object.
     seed(store, "rich", { label: "Rich Title", content: "b" })
@@ -404,6 +415,18 @@ describe("searchNotes", () => {
     ctx = { store, rootId: null, search: fakeSearch(["missing"]) }
     expect(await searchNotes.run({ query: "x" }, ctx)).toEqual({
       results: [{ id: "missing", title: "", content: "" }],
+    })
+  })
+
+  it("resolves a cross-folder hit via boardNotes (absent from the layer-scoped store)", async () => {
+    // The note lives in another folder → not in the store; the whole-board map has it.
+    const other = {
+      id: asNodeId("other"), type: "rect", x: 0, y: 0, w: 100, h: 50, angle: 0, z: 0, groups: [],
+      content: "cross folder body", data: { label: { markdown: "Other Folder Note" }, meta: { v: 1, createdAt: 0, updatedAt: 0 } },
+    } as unknown as Node
+    ctx = { store, rootId: null, search: fakeSearch(["other"]), boardNotes: new Map([["other", other]]) }
+    expect(await searchNotes.run({ query: "cross" }, ctx)).toEqual({
+      results: [{ id: "other", title: "Other Folder Note", content: "cross folder body" }],
     })
   })
 

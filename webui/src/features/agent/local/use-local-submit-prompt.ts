@@ -15,6 +15,7 @@ import { useIsSignedIn } from "@/lib/auth"
 import { agentBuildTools, memoryTools, searchNotes } from "@/features/agent/engine/tools"
 import { skillTools } from "@/features/agent/engine/skills"
 import { getSearchIndexRef } from "@/features/board/search/search-index-ref"
+import { buildWholeBoardSearch } from "@/features/board/search/use-search-index"
 import { getDocIndexRef } from "@/features/board/search/doc-index-ref"
 import { rebuildDocIndex } from "@/features/board/search/use-doc-index"
 import { getLocalStores } from "@/features/local-stores"
@@ -313,7 +314,16 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
           if (covers(chat)) history = compactHistory(history)
         }
         const systemWithConversation = systemWith(conversationBlock)
-        const search = getSearchIndexRef() ?? undefined
+        // Whole-board note search for this turn: index ALL layers from persistence
+        // (the live store holds only the current folder) + an id→node map so a
+        // cross-folder hit is readable. Falls back to the layer-scoped shared index
+        // if the whole-board load fails.
+        const wholeBoard = await buildWholeBoardSearch(boardId).catch((e) => {
+          agentLog.error("buildWholeBoardSearch", e)
+          return null
+        })
+        const search = wholeBoard?.index ?? getSearchIndexRef() ?? undefined
+        const boardNotes = wholeBoard?.notes
         // External services are managed (signed in); include each tool only when
         // resolvable, so a signed-out user isn't offered an unavailable capability.
         const webSearch = resolveSearchClient({ signedIn, runId, engine: searchEngine, byok: searchByok() })
@@ -356,7 +366,7 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
             () => useToolConfirm.getState().request(req),
           )
         const memory = (await getLocalStores()).memories
-        for await (const ev of runAgent({ system: systemWithDocs, userMessage: userMessageForAgent, history, tools, llm, ctx: { store, rootId, boardId, search, memory, confirmTool } })) {
+        for await (const ev of runAgent({ system: systemWithDocs, userMessage: userMessageForAgent, history, tools, llm, ctx: { store, rootId, boardId, search, boardNotes, memory, confirmTool } })) {
           // Streaming yields cumulative assistant_text / reasoning per token —
           // replace the previous snapshot in place instead of appending one event
           // per token. (assistant_text renders live; reasoning is shown at turn-end.)
