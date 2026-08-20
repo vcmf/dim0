@@ -165,6 +165,23 @@ describe("LocalSearchIndex", () => {
     await index.idle()
     expect(await index.query("findme")).toContain("keep") // still searchable across the switch
   })
+
+
+  it("DOES process a genuine remote batch (collab) — only the hydrate id is skipped", async () => {
+    const store = freshStore("c")
+    const index = new LocalSearchIndex()
+    index.attach(store)
+    addNode(store, "n1", "collabword")
+    await index.idle()
+    expect(await index.query("collabword")).toContain("n1")
+
+    // A collaborator's delete arrives as a remote batch with its OWN id (not the
+    // hydrate id) — it must update the index (else search returns a stale id).
+    const node = store.getNode(asNodeId("n1")) as Node
+    store.applyBatch({ id: asBatchId("peer-op-1"), clientId: store.clientId, ts: 1, origin: "remote", ops: [{ type: "node.remove", node }] })
+    await index.idle()
+    expect(await index.query("collabword")).toHaveLength(0) // evicted — collab edit applied
+  })
 })
 
 

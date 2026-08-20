@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react"
+import { useEffect } from "react"
 import type { CanvasStore, Node } from "@canvas-harness/core"
 import { getLocalStores } from "@/features/local-stores"
 import { BoardPersistence } from "@/features/board/persist/local/board-persistence"
@@ -42,17 +42,26 @@ export const wireSearchIndex = (store: CanvasStore, index: LocalSearchIndex): ((
  * browser-agent engine (backend boards use server-side search).
  */
 export const useLocalSearchIndex = (store: CanvasStore, boardId: string, enabled: boolean): void => {
-  const ref = useRef<LocalSearchIndex | null>(null)
-
   useEffect(() => {
     if (!enabled) return
-    if (!ref.current) ref.current = new LocalSearchIndex()
-    const index = ref.current
-    // Attach FIRST (catch live edits during the async whole-board load), then
-    // merge in every layer from persistence. Both paths go through the index's
-    // internal queue, so they serialize without clobbering.
-    const detach = wireSearchIndex(store, index)
-    if (boardId) void rebuildNoteIndex(index, boardId).catch(() => undefined)
-    return detach
+    // A FRESH index per (board, store): reusing one across board switches would
+    // leak board A's notes into board B, because `attach` deliberately ignores the
+    // layer/board hydrate batch (so it never evicts other layers).
+    const index = new LocalSearchIndex()
+    setSearchIndexRef(index)
+    let detach = () => {}
+    let cancelled = false
+    // Seed the WHOLE board (all layers) FIRST, THEN attach — attaching first would
+    // let a persisted (pre-edit) node re-inserted by the seed clobber a fresh live
+    // edit made during the async load. Errors are logged, not swallowed.
+    void (async () => {
+      if (boardId) await rebuildNoteIndex(index, boardId)
+      if (!cancelled) detach = index.attach(store)
+    })().catch((e) => console.error("[search] note index seed failed", e))
+    return () => {
+      cancelled = true
+      detach()
+      setSearchIndexRef(null)
+    }
   }, [store, boardId, enabled])
 }

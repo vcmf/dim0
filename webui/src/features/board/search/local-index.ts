@@ -15,6 +15,7 @@ import { count, create, getByID, insert, remove, search } from "@orama/orama"
 import type { CanvasStore, Node, NodeId } from "@canvas-harness/core"
 import type { DimNodeData } from "@/features/board/model"
 import { labelText } from "@/features/board/model"
+import { HYDRATE_BATCH_ID } from "@/features/board/persist/local/apply-content"
 
 
 const SCHEMA = { title: "string", body: "string" } as const
@@ -44,15 +45,15 @@ export class LocalSearchIndex {
 
   /**
    * Subscribe to store changes, keeping the index in sync. Returns unsubscribe.
-   * SKIPS `remote` batches: a layer switch reloads the store as a `remote`
-   * hydrate batch (node.remove of the old layer + node.add of the new), and
-   * processing that would evict every OTHER layer from this whole-board index.
-   * Live local edits (agent/user) are `local`/`history` and flow through. Mirrors
-   * `BoardPersistence`, which skips remote on its own 'change' path for the same reason.
+   * SKIPS only the layer-switch hydrate batch (`HYDRATE_BATCH_ID`): that batch
+   * removes the old layer + adds the new, which would evict every OTHER layer from
+   * this whole-board index. Genuine remote batches (collab peer-ops, the welcome
+   * snapshot) keep their own ids and ARE processed, so a collaborator's add/edit/
+   * delete still updates the index. Live local edits flow through as normal.
    */
   attach(store: CanvasStore): () => void {
     return store.subscribe("change", (batch) => {
-      if (batch.origin === "remote") return
+      if (String(batch.id) === HYDRATE_BATCH_ID) return
       for (const op of batch.ops) {
         if (op.type === "node.add") this.enqueue(() => this.upsert(store, op.node.id))
         else if (op.type === "node.update") this.enqueue(() => this.upsert(store, op.id))

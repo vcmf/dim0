@@ -13,6 +13,12 @@ import { storedNodeColorsOf } from "@/features/board/harness/theme/apply-node-co
 import { getBoardThemeMode } from "@/features/board/harness/theme/theme-mode-ref"
 
 
+/** Batch id of the local layer-switch/board hydrate. Derived read-models (the
+ *  search index) skip THIS id so a layer switch doesn't evict other layers, while
+ *  still processing genuine remote (collab/welcome) batches. */
+export const HYDRATE_BATCH_ID = "local-hydrate"
+
+
 /**
  * Replace the store's contents with persisted content — the local analog of the
  * backend `hydrateBoardStore` "replace" mode. Existing nodes/edges are cleared
@@ -69,7 +75,7 @@ export const applyContentToStore = (
 
   if (ops.length > 0) {
     store.applyBatch({
-      id: asBatchId("local-hydrate"),
+      id: asBatchId(HYDRATE_BATCH_ID),
       clientId: store.clientId,
       ts: Date.now(),
       origin: "remote",
