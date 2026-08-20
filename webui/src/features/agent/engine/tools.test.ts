@@ -177,14 +177,14 @@ describe("linkNotes", () => {
     expect(String(tgt.nodeId)).toBe("b")
     // seeded nodes are 100x50 → center offset 50,25
     expect(src.localOffset).toEqual({ x: 50, y: 25 })
-    expect((e.data as { label?: string }).label).toBe("then")
+    expect(e.content).toBe("then") // the label lives in edge.content (what the harness renders)
   })
 
   it("omits the edge label when none is given", async () => {
     seed(store, "a")
     seed(store, "b")
     await linkNotes.run({ sourceId: "a", targetId: "b" }, ctx)
-    expect((store.getAllEdges()[0].data as { label?: string }).label).toBeUndefined()
+    expect(store.getAllEdges()[0].content).toBeUndefined()
   })
 
   it("stamps the current rootId as the edge parentId", async () => {

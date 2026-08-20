@@ -1,7 +1,7 @@
 import { asBatchId } from "@canvas-harness/core"
 import type { CanvasStore, Node, Op } from "@canvas-harness/core"
 import type { BoardContent } from "@/features/board/model"
-import { asRichLabel } from "@/features/board/model"
+import { normalizeBoardContent } from "@/features/board/model"
 import { filterContentByLayer } from "@/features/board/model/layer"
 import {
   adaptEdgeColors,
@@ -38,7 +38,11 @@ export const applyContentToStore = (
   content: BoardContent,
   rootId?: string | null,
 ): void => {
-  const scoped = rootId === undefined ? content : filterContentByLayer(content, rootId)
+  // Defensive: callers normally pass `persistence.load()` output (already
+  // normalized), but this is exported — normalize here too so the store's
+  // canonical-label invariant holds regardless of the source. Idempotent + cheap.
+  const normalized = normalizeBoardContent(content)
+  const scoped = rootId === undefined ? normalized : filterContentByLayer(normalized, rootId)
   const mode = getBoardThemeMode()
   const ops: Op[] = []
 
@@ -49,14 +53,13 @@ export const applyContentToStore = (
 
   for (const group of scoped.groups) ops.push({ type: "group.upsert", group })
 
+  // Label shape is already normalized upstream (BoardPersistence.materialize →
+  // normalizeBoardContent), so this only re-projects theme colors.
   for (const node of scoped.nodes) {
     const stored = storedNodeColorsOf(node as unknown as Node)
     const display = mode === "dark" ? adaptNodeColors(stored, "dark") : stored
     const style = applyColorsToStyle(node.style ?? {}, display)
-    // Normalize a legacy bare-string label to RichText so the store invariant
-    // (data.label is RichText) holds — older local boards persisted strings.
-    const data = node.data ? { ...node.data, label: asRichLabel(node.data.label) } : node.data
-    ops.push({ type: "node.add", node: { ...node, style, data } })
+    ops.push({ type: "node.add", node: { ...node, style } })
   }
 
   for (const edge of scoped.edges) {

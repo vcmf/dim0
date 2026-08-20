@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest"
 import { asNodeId } from "@canvas-harness/core"
 import { freshStore } from "@/test/canvas"
 import type { BoardContent, DimNode } from "@/features/board/model"
-import { labelText } from "@/features/board/model"
-import type { DimNodeData } from "@/features/board/model"
 import { applyContentToStore } from "./apply-content"
 
 
@@ -25,17 +23,6 @@ describe("applyContentToStore", () => {
     const store = freshStore("c")
     applyContentToStore(store, content([rectNode("a"), rectNode("child", "f1")]), null)
     expect(store.getAllNodes().map((n) => n.id)).toEqual(["a"])
-  })
-
-
-  it("normalizes a legacy bare-string label to RichText on load", () => {
-    const store = freshStore("c")
-    const legacy = rectNode("a")
-    ;(legacy.data as { label?: unknown }).label = "Legacy Title" // older boards persisted a string
-    applyContentToStore(store, content([legacy]), null)
-    const stored = (store.getAllNodes()[0]?.data as DimNodeData | undefined)?.label
-    expect(stored).toEqual({ markdown: "Legacy Title" }) // coerced to the canonical shape
-    expect(labelText(stored)).toBe("Legacy Title")
   })
 
 

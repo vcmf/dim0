@@ -120,7 +120,9 @@ export type DimNodeData = {
 
 /** dim0 payload carried in a canvas-harness `edge.data`. */
 export type DimEdgeData = {
-  label?: string
+  // NOTE: the edge label is `edge.content` (what the harness renders + the convert
+  // layer round-trips to `Link.label`), NOT a `data.label`. A legacy `data.label`
+  // written by an older link tool is migrated to `content` on load.
   parentId?: Id | null
   props?: Record<string, DataProperty>
   meta: SyncMeta
@@ -154,6 +156,37 @@ export type BoardContent = {
   edges: DimEdge[]
   groups: Group[]
   frameOrder?: NodeId[]
+}
+
+
+/**
+ * Normalize board content to the canonical label shape at the READ source (called
+ * from `BoardPersistence.materialize`, so display hydrate, whole-board search, and
+ * the enable-sync `capture()` all get migrated content — a legacy label isn't lost
+ * when a local board is promoted to synced). Idempotent and churn-free: unchanged
+ * nodes/edges keep their identity.
+ *   - node `data.label`: coerce a legacy bare string → RichText.
+ *   - edge label: the harness renders `edge.content`; migrate a legacy
+ *     `data.label` (string OR RichText, from an older link tool) → `content` and
+ *     strip the dead field. Existing `content` wins.
+ */
+export const normalizeBoardContent = (content: BoardContent): BoardContent => {
+  const nodes = content.nodes.map((n) => {
+    if (!n.data) return n
+    const label = asRichLabel(n.data.label)
+    return label === n.data.label ? n : { ...n, data: { ...n.data, label } }
+  })
+  const edges = content.edges.map((e) => {
+    const data = e.data as (DimEdgeData & { label?: unknown }) | undefined
+    // No legacy label → nothing to migrate; keep the edge as-is (identity, so a
+    // label-less edge with content:"" isn't rewritten to undefined every load).
+    if (!data || !("label" in data)) return e
+    const migrated = e.content || labelText(data.label as string | { markdown?: string } | undefined) || undefined
+    const rest = { ...data } as DimEdgeData & { label?: unknown }
+    delete rest.label // drop the dead field (edge label lives in `content`)
+    return { ...e, content: migrated, data: rest }
+  })
+  return { ...content, nodes, edges }
 }
 
 
