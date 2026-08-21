@@ -48,6 +48,7 @@ const TOOL_SHORTCUTS: Record<string, string> = {
  *  - M                            → toggle Slides panel
  *  - G                            → open Icons search dialog
  *  - I                            → open Images search dialog
+ *  - Escape                       → close open dialog, else drop to select tool
  *
  * Skipped when focus is in an input / textarea / contentEditable so
  * inline editing keeps the native shortcuts. canvas-harness already
@@ -57,6 +58,17 @@ export const useBoardKeyboard = (store: CanvasStore): void => {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (isTypingTarget(e.target)) return
+
+      // Escape peels back to a neutral state: close an open chrome dialog
+      // first, otherwise drop any active create tool back to `select`. Left
+      // un-prevented so canvas-harness's own Escape handler still runs to
+      // clear the selection + abort an in-progress drag / marquee / draft edge.
+      if (e.key === "Escape") {
+        const app = useBoardAppStore.getState()
+        if (app.chromeDialog) app.setChromeDialog(null)
+        else app.setTool("select")
+        return
+      }
 
       // Reserve Space for hold-to-pan: stop a focused button from
       // re-firing its click on each Space press (e.g. the sidebar
