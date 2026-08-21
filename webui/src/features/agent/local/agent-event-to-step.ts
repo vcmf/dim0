@@ -97,6 +97,26 @@ const toOutput = (name: string, args: unknown, result: unknown, boardId: string)
       .filter((r) => r.docId !== "")
     return { type: "doc_search", references }
   }
+  if (name === "search_notes" || name === "get_note") {
+    // Notes the agent surfaced → structured references the message-level Notes
+    // card renders + jumps to (keyed by noteId, with parentId for its layer).
+    // search_notes: { results: [{ id, title, content, parentId, graphUid }] };
+    // get_note: a single { id, label, content, parentId, graphUid }.
+    const rows = name === "get_note" ? [result] : Array.isArray(field(result, "results")) ? (field(result, "results") as unknown[]) : []
+    const references = rows
+      .map((r) => {
+        const parent = field(r, "parentId")
+        return {
+          noteId: asStr(field(r, "id")) ?? "",
+          graphUid: asStr(field(r, "graphUid")) ?? boardId,
+          label: asStr(field(r, "title")) ?? asStr(field(r, "label")) ?? "",
+          snippet: (asStr(field(r, "content")) ?? "").slice(0, 200),
+          parentId: typeof parent === "string" ? parent : null,
+        }
+      })
+      .filter((r) => r.noteId !== "")
+    return { type: "note_search", references }
+  }
   if (name.startsWith("learn_generate")) {
     return `Loaded ${name.replace("learn_generate_", "").replace(/_/g, " ")} guidance`
   }

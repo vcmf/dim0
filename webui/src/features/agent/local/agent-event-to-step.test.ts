@@ -300,6 +300,41 @@ describe("stepsFromEvents", () => {
   })
 
 
+  it("maps search_notes hits to a note_search output with node ids + parentId (not a JSON string)", () => {
+    const steps = stepsFromEvents(
+      [
+        { type: "tool_start", toolName: "search_notes", args: { query: "cats" } },
+        {
+          type: "tool_result",
+          toolName: "search_notes",
+          result: { results: [{ id: "n1", title: "Cats", content: "meow", parentId: "folder-1", graphUid: "board-1" }] },
+        },
+      ],
+      "board-1",
+    )
+    const step = steps[0]
+    expect(step.type === "tool_call" && typeof step.output !== "string" && step.output).toEqual({
+      type: "note_search",
+      references: [{ noteId: "n1", graphUid: "board-1", label: "Cats", snippet: "meow", parentId: "folder-1" }],
+    })
+  })
+
+
+  it("maps a get_note result to a single note_search reference", () => {
+    const [step] = stepsFromEvents(
+      [
+        { type: "tool_start", toolName: "get_note", args: { note_id: "n9" } },
+        { type: "tool_result", toolName: "get_note", result: { id: "n9", label: "Root note", content: "body", parentId: null, graphUid: "board-1" } },
+      ],
+      "board-1",
+    )
+    expect(step.type === "tool_call" && typeof step.output !== "string" && step.output).toEqual({
+      type: "note_search",
+      references: [{ noteId: "n9", graphUid: "board-1", label: "Root note", snippet: "body", parentId: null }],
+    })
+  })
+
+
   it("latestAssistantText ignores reasoning (answer body only)", () => {
     expect(
       latestAssistantText([

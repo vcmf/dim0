@@ -333,6 +333,10 @@ export const getNote = defineTool({
       label: labelText((node.data as DimNodeData | undefined)?.label),
       content: node.content ?? "",
       note_type: node.type,
+      // For the chat citation: the note's folder/layer + board, so a click can
+      // open the right layer and center the node (see NoteSourcesView).
+      parentId: (node.data as DimNodeData | undefined)?.parentId ?? null,
+      graphUid: ctx.boardId ?? "",
     }
   },
 })
@@ -401,7 +405,9 @@ export const searchNotes = defineTool({
       // Title is `data.label`; the body lives in the native `node.content`.
       const title = labelText((node?.data as DimNodeData | undefined)?.label)
       const content = asText(node?.content).slice(0, SEARCH_SNIPPET_CHARS)
-      return { id, title, content }
+      // parentId/graphUid let the chat cite the hit + jump to its layer + node.
+      const parentId = (node?.data as DimNodeData | undefined)?.parentId ?? null
+      return { id, title, content, parentId, graphUid: ctx.boardId ?? "" }
     })
     return { results }
   },
