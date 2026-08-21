@@ -9,9 +9,9 @@ import type { AgentResponse } from "../types/stream"
 import { isToolCallStep } from "../types/stream"
 
 
-/** A cited board note: its node id, label, folder (`parentId`) + board for
- *  navigation, and the snippets the agent saw. */
-export type NoteSource = { noteId: string; graphUid: string; label: string; parentId: string | null; snippets: string[] }
+/** A cited board note: its node id, label, folder (`parentId`) for navigation,
+ *  and the snippets the agent saw. */
+export type NoteSource = { noteId: string; label: string; parentId: string | null; snippets: string[] }
 
 
 /**
@@ -34,7 +34,6 @@ export const extractNoteSources = (answer: AgentResponse): NoteSource[] => {
       } else {
         byId.set(ref.noteId, {
           noteId: ref.noteId,
-          graphUid: ref.graphUid,
           label: ref.label,
           parentId: ref.parentId,
           snippets: snippet ? [snippet] : [],

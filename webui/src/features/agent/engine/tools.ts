@@ -333,10 +333,6 @@ export const getNote = defineTool({
       label: labelText((node.data as DimNodeData | undefined)?.label),
       content: node.content ?? "",
       note_type: node.type,
-      // For the chat citation: the note's folder/layer + board, so a click can
-      // open the right layer and center the node (see NoteSourcesView).
-      parentId: (node.data as DimNodeData | undefined)?.parentId ?? null,
-      graphUid: ctx.boardId ?? "",
     }
   },
 })
@@ -399,15 +395,18 @@ export const searchNotes = defineTool({
   run: async ({ query }, ctx) => {
     if (!ctx.search) return { results: [] }
     const ids = (await ctx.search.query(query)).slice(0, SEARCH_MAX_HITS)
-    const results = ids.map((id) => {
+    const results = ids.flatMap((id) => {
       // Resolve whole-board: a cross-folder hit isn't in the layer-scoped store.
       const node = resolveBoardNode(ctx, id)
+      // A stale index entry (node deleted from the store) resolves to nothing —
+      // drop it so neither the model nor the chat cites a phantom empty note.
+      if (!node) return []
       // Title is `data.label`; the body lives in the native `node.content`.
-      const title = labelText((node?.data as DimNodeData | undefined)?.label)
-      const content = asText(node?.content).slice(0, SEARCH_SNIPPET_CHARS)
-      // parentId/graphUid let the chat cite the hit + jump to its layer + node.
-      const parentId = (node?.data as DimNodeData | undefined)?.parentId ?? null
-      return { id, title, content, parentId, graphUid: ctx.boardId ?? "" }
+      const title = labelText((node.data as DimNodeData | undefined)?.label)
+      const content = asText(node.content).slice(0, SEARCH_SNIPPET_CHARS)
+      // parentId lets the chat cite the hit + jump to its layer + node.
+      const parentId = (node.data as DimNodeData | undefined)?.parentId ?? null
+      return [{ id, title, content, parentId }]
     })
     return { results }
   },

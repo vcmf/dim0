@@ -9,7 +9,7 @@ const noteSearchStep = (refs: NoteRef[]): ReasoningStep =>
 
 
 const ref = (over: Partial<NoteRef> = {}): NoteRef =>
-  ({ noteId: "n1", graphUid: "b", label: "Cats", snippet: "meow", parentId: "f1", ...over })
+  ({ noteId: "n1", label: "Cats", snippet: "meow", parentId: "f1", ...over })
 
 
 describe("extractNoteSources", () => {

@@ -307,7 +307,7 @@ describe("stepsFromEvents", () => {
         {
           type: "tool_result",
           toolName: "search_notes",
-          result: { results: [{ id: "n1", title: "Cats", content: "meow", parentId: "folder-1", graphUid: "board-1" }] },
+          result: { results: [{ id: "n1", title: "Cats", content: "meow", parentId: "folder-1" }] },
         },
       ],
       "board-1",
@@ -315,23 +315,21 @@ describe("stepsFromEvents", () => {
     const step = steps[0]
     expect(step.type === "tool_call" && typeof step.output !== "string" && step.output).toEqual({
       type: "note_search",
-      references: [{ noteId: "n1", graphUid: "board-1", label: "Cats", snippet: "meow", parentId: "folder-1" }],
+      references: [{ noteId: "n1", label: "Cats", snippet: "meow", parentId: "folder-1" }],
     })
   })
 
 
-  it("maps a get_note result to a single note_search reference", () => {
+  it("does NOT cite a get_note read as a note_search source (read-by-id is often read-before-edit)", () => {
     const [step] = stepsFromEvents(
       [
         { type: "tool_start", toolName: "get_note", args: { note_id: "n9" } },
-        { type: "tool_result", toolName: "get_note", result: { id: "n9", label: "Root note", content: "body", parentId: null, graphUid: "board-1" } },
+        { type: "tool_result", toolName: "get_note", result: { id: "n9", label: "Root note", content: "body" } },
       ],
       "board-1",
     )
-    expect(step.type === "tool_call" && typeof step.output !== "string" && step.output).toEqual({
-      type: "note_search",
-      references: [{ noteId: "n9", graphUid: "board-1", label: "Root note", snippet: "body", parentId: null }],
-    })
+    // Falls through to the raw-JSON output; never becomes a note_search citation.
+    expect(step.type === "tool_call" && typeof step.output === "string").toBe(true)
   })
 
 

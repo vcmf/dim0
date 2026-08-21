@@ -57,20 +57,18 @@ export interface DocSearchOutput {
 }
 
 
-/** One note the agent surfaced (a `search_notes` / `get_note` hit) — the node's
- *  id + label so the chat can render it as a card and jump to it on the board.
- *  `parentId` is the note's folder/layer (for cross-folder navigation), `graphUid`
- *  the board. */
+/** One note `search_notes` surfaced — the node's id + label so the chat can
+ *  render it as a card and jump to it on the board. `parentId` is the note's
+ *  folder/layer (for cross-folder navigation). */
 export interface NoteRef {
   noteId: string
-  graphUid: string
   label: string
   snippet: string
   parentId: string | null
 }
 
 
-/** The `search_notes` / `get_note` output: the board notes the agent found. */
+/** The `search_notes` output: the board notes retrieval surfaced this turn. */
 export interface NoteSearchOutput {
   type: "note_search"
   references: NoteRef[]

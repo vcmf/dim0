@@ -13,6 +13,7 @@ import { getLocalStores } from "@/features/local-stores"
 import { BoardPersistence } from "@/features/board/persist/local/board-persistence"
 import { useBoardAppStore } from "@/features/board/harness/store/board-app-store"
 import { toSearchRows, type SearchRow } from "@/features/board/search/notes-search"
+import { centerNoteSearch } from "@/features/board/utils/center-note"
 
 
 /**
@@ -50,7 +51,7 @@ export function NotesSearchDialog({ boardId }: { boardId: string }) {
     void navigate({
       to: LocalBoardUrl,
       params: { boardId },
-      search: (prev: Record<string, unknown>) => ({ ...prev, root_id: row.parentId ?? undefined, center: row.id }),
+      search: centerNoteSearch(row.parentId, row.id),
     })
   }
 

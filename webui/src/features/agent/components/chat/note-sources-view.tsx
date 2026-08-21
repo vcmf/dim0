@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router"
 import { MapPinIcon, NoteIcon } from "@/components/icons"
+import { centerNoteSearch } from "@/features/board/utils/center-note"
 import type { NoteSource } from "../../utils/note-sources"
 
 
@@ -15,12 +16,9 @@ export const NoteSourcesView = ({ sources }: { sources: NoteSource[] }) => {
   if (sources.length === 0) return null
 
   const locate = (s: NoteSource): void => {
-    void navigate({
-      to: ".",
-      replace: true,
-      // root_id opens the note's layer; center selects + centers it.
-      search: (prev: Record<string, unknown>) => ({ ...prev, root_id: s.parentId ?? undefined, center: s.noteId }),
-    })
+    // Shared jump contract: root_id opens the note's layer, center selects +
+    // centers it (cross-folder aware; same helper the notes search dialog uses).
+    void navigate({ to: ".", replace: true, search: centerNoteSearch(s.parentId, s.noteId) })
   }
 
   return (

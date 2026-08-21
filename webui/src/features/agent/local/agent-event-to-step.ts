@@ -97,19 +97,20 @@ const toOutput = (name: string, args: unknown, result: unknown, boardId: string)
       .filter((r) => r.docId !== "")
     return { type: "doc_search", references }
   }
-  if (name === "search_notes" || name === "get_note") {
-    // Notes the agent surfaced → structured references the message-level Notes
-    // card renders + jumps to (keyed by noteId, with parentId for its layer).
-    // search_notes: { results: [{ id, title, content, parentId, graphUid }] };
-    // get_note: a single { id, label, content, parentId, graphUid }.
-    const rows = name === "get_note" ? [result] : Array.isArray(field(result, "results")) ? (field(result, "results") as unknown[]) : []
+  if (name === "search_notes") {
+    // Retrieval hits → structured references the message-level Notes card renders
+    // + jumps to (keyed by noteId, with parentId for its layer). Result shape:
+    // { results: [{ id, title, content, parentId }] }. get_note is deliberately
+    // NOT cited here: a targeted read-by-id is usually read-before-edit, not a
+    // source that grounded the answer — a note it read after finding via search
+    // is already cited by that search step.
+    const rows = Array.isArray(field(result, "results")) ? (field(result, "results") as unknown[]) : []
     const references = rows
       .map((r) => {
         const parent = field(r, "parentId")
         return {
           noteId: asStr(field(r, "id")) ?? "",
-          graphUid: asStr(field(r, "graphUid")) ?? boardId,
-          label: asStr(field(r, "title")) ?? asStr(field(r, "label")) ?? "",
+          label: asStr(field(r, "title")) ?? "",
           snippet: (asStr(field(r, "content")) ?? "").slice(0, 200),
           parentId: typeof parent === "string" ? parent : null,
         }

@@ -388,11 +388,11 @@ describe("searchNotes", () => {
     expect(await searchNotes.run({ query: "x" }, { store, rootId: null })).toEqual({ results: [] })
   })
 
-  it("maps hit ids to {id, title, content} from the store", async () => {
+  it("maps hit ids to {id, title, content, parentId} from the store", async () => {
     seed(store, "n1", { label: "Title one", content: "body one" })
     ctx = { store, rootId: null, search: fakeSearch(["n1"]) }
     expect(await searchNotes.run({ query: "one" }, ctx)).toEqual({
-      results: [{ id: "n1", title: "Title one", content: "body one" }],
+      results: [{ id: "n1", title: "Title one", content: "body one", parentId: null }],
     })
   })
 
@@ -411,11 +411,9 @@ describe("searchNotes", () => {
     expect(res.results).toHaveLength(8)
   })
 
-  it("yields empty strings for a hit whose node is gone", async () => {
+  it("drops a stale hit whose node no longer resolves (no phantom empty citation)", async () => {
     ctx = { store, rootId: null, search: fakeSearch(["missing"]) }
-    expect(await searchNotes.run({ query: "x" }, ctx)).toEqual({
-      results: [{ id: "missing", title: "", content: "" }],
-    })
+    expect(await searchNotes.run({ query: "x" }, ctx)).toEqual({ results: [] })
   })
 
   it("resolves a cross-folder hit via boardNotes (absent from the layer-scoped store)", async () => {
@@ -426,7 +424,7 @@ describe("searchNotes", () => {
     } as unknown as Node
     ctx = { store, rootId: null, search: fakeSearch(["other"]), boardNotes: new Map([["other", other]]) }
     expect(await searchNotes.run({ query: "cross" }, ctx)).toEqual({
-      results: [{ id: "other", title: "Other Folder Note", content: "cross folder body" }],
+      results: [{ id: "other", title: "Other Folder Note", content: "cross folder body", parentId: null }],
     })
   })
 
