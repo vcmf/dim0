@@ -48,7 +48,7 @@ const TOOL_SHORTCUTS: Record<string, string> = {
  *  - M                            → toggle Slides panel
  *  - G                            → open Icons search dialog
  *  - I                            → open Images search dialog
- *  - Escape                       → close open dialog, else drop to select tool
+ *  - Escape                       → return to select tool (unless an overlay owns it)
  *
  * Skipped when focus is in an input / textarea / contentEditable so
  * inline editing keeps the native shortcuts. canvas-harness already
@@ -58,17 +58,6 @@ export const useBoardKeyboard = (store: CanvasStore): void => {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (isTypingTarget(e.target)) return
-
-      // Escape peels back to a neutral state: close an open chrome dialog
-      // first, otherwise drop any active create tool back to `select`. Left
-      // un-prevented so canvas-harness's own Escape handler still runs to
-      // clear the selection + abort an in-progress drag / marquee / draft edge.
-      if (e.key === "Escape") {
-        const app = useBoardAppStore.getState()
-        if (app.chromeDialog) app.setChromeDialog(null)
-        else app.setTool("select")
-        return
-      }
 
       // Reserve Space for hold-to-pan: stop a focused button from
       // re-firing its click on each Space press (e.g. the sidebar
@@ -132,7 +121,34 @@ export const useBoardKeyboard = (store: CanvasStore): void => {
       }
     }
 
+    // Escape returns the canvas to the `select` tool (matches tldraw/excalidraw),
+    // so a create tool (rect / note / arrow / …) isn't left stuck after one shape.
+    // Registered in the CAPTURE phase on purpose: it must read overlay state
+    // BEFORE the same Escape is consumed by a handler that clears it — Radix
+    // dialogs/menus close on a document-level capture handler (clearing
+    // `chromeDialog`), and the presentation / node-surface handlers are window
+    // bubble listeners that clear their own flags. Reading in bubble phase would
+    // race all of them. When an overlay owns the Escape we defer to its close and
+    // leave the tool untouched; canvas-harness's own Escape handler still clears
+    // the selection + aborts an in-progress drag / marquee / draft edge.
+    const onEscape = (e: KeyboardEvent): void => {
+      if (e.key !== "Escape") return
+      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
+      if (isTypingTarget(e.target)) return
+      const app = useBoardAppStore.getState()
+      if (app.chromeDialog || app.activeNodeSurface || app.presentationMode) return
+      // Store-less Radix overlays (view menu, context menu, chat sheet) keep their
+      // open-state locally — skip when the Escape is focused inside one.
+      const target = e.target
+      if (target instanceof HTMLElement && target.closest("[role='menu'],[role='dialog']")) return
+      if (app.tool !== "select") app.setTool("select")
+    }
+
     window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
+    window.addEventListener("keydown", onEscape, true)
+    return () => {
+      window.removeEventListener("keydown", onKey)
+      window.removeEventListener("keydown", onEscape, true)
+    }
   }, [store])
 }
