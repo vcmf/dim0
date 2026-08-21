@@ -68,7 +68,7 @@ export const NoteWidgetPreview = ({
           to='/boards/$id'
           params={{ id: boardId }}
           search={{
-            center_around: noteId,
+            center: noteId, // the param useCenterFromUrl consumes (center_around had no reader)
             current_chat_id: chatId || undefined,
             root_id: rootId || undefined,
           }}

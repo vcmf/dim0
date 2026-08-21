@@ -106,7 +106,9 @@ export function MarkdownLink({ children, href, ...rest }: MarkdownLinkProps) {
     navigate({
       to: "/boards/$id",
       params: { id: boardId },
-      search: (prev: Record<string, unknown>) => ({ ...prev, center_around: targetId }),
+      // `center` is the param useCenterFromUrl actually consumes (selects + centers
+      // the node); `center_around` was a dead param with no reader.
+      search: (prev: Record<string, unknown>) => ({ ...prev, center: targetId }),
     })
   }
 
