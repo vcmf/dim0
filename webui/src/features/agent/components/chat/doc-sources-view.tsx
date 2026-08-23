@@ -26,6 +26,7 @@ const DocSourceItem = ({ source, anchorId }: { source: DocSource; anchorId: stri
           type="button"
           onClick={locate}
           title="Find on board"
+          aria-label={`Find "${source.docTitle || "Document"}" on board`}
           className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left hover:text-secondary-foreground"
         >
           <DocumentFileIcon className="size-3.5 shrink-0 text-primary" strokeWidth={2} />

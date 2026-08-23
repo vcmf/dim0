@@ -12,6 +12,11 @@ const field = (o: unknown, k: string): unknown =>
 const asStr = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined)
 
 
+/** Per-snippet cap for the compact note-citation card — deliberately shorter
+ *  than the full snippet the tool feeds the model (SEARCH_SNIPPET_CHARS). */
+const NOTE_CARD_SNIPPET_CHARS = 200
+
+
 /**
  * Map an engine tool name to the UI ToolName the chat renderers switch on. An
  * unmapped tool keeps its own name (rendered as a generic tool card with a
@@ -111,7 +116,7 @@ const toOutput = (name: string, args: unknown, result: unknown, boardId: string)
         return {
           noteId: asStr(field(r, "id")) ?? "",
           label: asStr(field(r, "title")) ?? "",
-          snippet: (asStr(field(r, "content")) ?? "").slice(0, 200),
+          snippet: (asStr(field(r, "content")) ?? "").slice(0, NOTE_CARD_SNIPPET_CHARS),
           parentId: typeof parent === "string" ? parent : null,
         }
       })

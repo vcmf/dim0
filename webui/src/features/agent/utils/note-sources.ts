@@ -1,9 +1,11 @@
 /**
  * Note-citation helpers — pure, render-time, non-mutating. Sources are derived
- * from what `search_notes` / `get_note` actually surfaced this turn (keyed by the
+ * from what `search_notes` retrieval actually surfaced this turn (keyed by the
  * node's `noteId`), NOT parsed from the answer — so a citation always points at a
- * real hit. Unlike documents, note TITLES aren't unique per board, so we key on
- * id and don't linkify title mentions (that ambiguity is left to a later phase).
+ * real hit. get_note reads are deliberately not cited (a read-by-id is usually
+ * read-before-edit, not a source). Unlike documents, note TITLES aren't unique
+ * per board, so we key on id and don't linkify title mentions (left to a later
+ * phase).
  */
 import type { AgentResponse } from "../types/stream"
 import { isToolCallStep } from "../types/stream"
@@ -15,9 +17,9 @@ export type NoteSource = { noteId: string; label: string; parentId: string | nul
 
 
 /**
- * Collect the distinct notes `search_notes` / `get_note` surfaced across an
- * answer's steps, in first-seen order, keyed by `noteId` so same-title notes
- * never merge. Grounded by construction — only ids the tools actually returned.
+ * Collect the distinct notes `search_notes` surfaced across an answer's steps,
+ * in first-seen order, keyed by `noteId` so same-title notes never merge.
+ * Grounded by construction — only ids the tool actually returned.
  */
 export const extractNoteSources = (answer: AgentResponse): NoteSource[] => {
   const byId = new Map<string, NoteSource>()

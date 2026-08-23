@@ -21,12 +21,13 @@ const NoteSourceItem = ({ source }: { source: NoteSource }) => {
   }
 
   return (
-    <div className="rounded-lg border border-border/60 bg-transparent">
+    <div className="scroll-mt-16 rounded-lg border border-border/60 bg-transparent">
       <div className="flex items-center gap-2 px-2 py-1.5 text-xs">
         <button
           type="button"
           onClick={locate}
           title="Find on board"
+          aria-label={`Find "${source.label || "Untitled note"}" on board`}
           className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left hover:text-secondary-foreground"
         >
           <NoteIcon className="size-3.5 shrink-0 text-primary" strokeWidth={2} />
