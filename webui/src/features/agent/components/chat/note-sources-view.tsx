@@ -2,6 +2,7 @@ import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { ChevronDownIcon, NoteIcon } from "@/components/icons"
 import { centerNoteSearch } from "@/features/board/utils/center-note"
+import { useBoardAppStore } from "@/features/board/harness/store/board-app-store"
 import type { NoteSource } from "../../utils/note-sources"
 
 
@@ -14,9 +15,14 @@ import type { NoteSource } from "../../utils/note-sources"
  */
 const NoteSourceItem = ({ source }: { source: NoteSource }) => {
   const navigate = useNavigate()
+  const setViewMode = useBoardAppStore((s) => s.setViewMode)
   const [open, setOpen] = useState(false)
 
   const locate = (): void => {
+    // Surface the board first — the chat can be open over files/list view, where
+    // the canvas (and useCenterFromUrl) isn't showing, so the URL patch alone
+    // would no-op.
+    setViewMode("board")
     void navigate({ to: ".", replace: true, search: centerNoteSearch(source.parentId, source.noteId) })
   }
 

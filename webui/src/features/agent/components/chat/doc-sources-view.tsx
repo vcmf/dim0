@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { ChevronDownIcon, DocumentFileIcon } from "@/components/icons"
 import { REVEAL_SOURCE_EVENT } from "@/components/markdown/markdown-link"
+import { useBoardAppStore } from "@/features/board/harness/store/board-app-store"
 import { docAnchorId, type DocSource } from "../../utils/doc-sources"
 
 
@@ -16,6 +17,7 @@ import { docAnchorId, type DocSource } from "../../utils/doc-sources"
  */
 const DocSourceItem = ({ source, anchorId }: { source: DocSource; anchorId: string }) => {
   const navigate = useNavigate()
+  const setViewMode = useBoardAppStore((s) => s.setViewMode)
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -28,6 +30,10 @@ const DocSourceItem = ({ source, anchorId }: { source: DocSource; anchorId: stri
   }, [])
 
   const locate = (): void => {
+    // Surface the board first — the chat can be open over files/list view, where
+    // the canvas (and useCenterFromUrl) isn't showing, so the URL patch alone
+    // would no-op.
+    setViewMode("board")
     void navigate({ to: ".", replace: true, search: (prev: Record<string, unknown>) => ({ ...prev, center: source.docId }) })
   }
 
