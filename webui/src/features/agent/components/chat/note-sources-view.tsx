@@ -21,7 +21,7 @@ const NoteSourceItem = ({ source }: { source: NoteSource }) => {
   }
 
   return (
-    <div className="scroll-mt-16 rounded-lg border border-border/60 bg-transparent">
+    <div className="rounded-lg border border-border/60 bg-transparent">
       <div className="flex items-center gap-2 px-2 py-1.5 text-xs">
         <button
           type="button"

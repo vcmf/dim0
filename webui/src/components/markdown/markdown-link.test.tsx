@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => () => {} }))
 
-import { MarkdownLink } from "./markdown-link"
+import { MarkdownLink, REVEAL_SOURCE_EVENT } from "./markdown-link"
 
 
 describe("MarkdownLink — #doc- citation", () => {
@@ -52,6 +52,22 @@ describe("MarkdownLink — #doc- citation", () => {
 
     expect(details.open).toBe(true)
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
+  })
+
+
+  it("dispatches REVEAL_SOURCE_EVENT on a non-<details> target (React-controlled card) and scrolls", () => {
+    const card = document.createElement("div")
+    card.id = "doc-abc"
+    document.body.appendChild(card)
+    const onReveal = vi.fn()
+    card.addEventListener(REVEAL_SOURCE_EVENT, onReveal)
+
+    act(() => root.render(<MarkdownLink href="#doc-abc">Report.pdf</MarkdownLink>))
+    act(() => container.querySelector("a")?.click())
+
+    expect(onReveal).toHaveBeenCalledTimes(1)
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
+    card.remove()
   })
 })
 

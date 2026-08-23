@@ -1,6 +1,7 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { ChevronDownIcon, DocumentFileIcon } from "@/components/icons"
+import { REVEAL_SOURCE_EVENT } from "@/components/markdown/markdown-link"
 import { docAnchorId, type DocSource } from "../../utils/doc-sources"
 
 
@@ -9,18 +10,29 @@ import { docAnchorId, type DocSource } from "../../utils/doc-sources"
  * IS the docId, so `?center=<docId>` centers it via useCenterFromUrl); the
  * chevron expands the passages that grounded the answer, kept separate so a row
  * click always navigates. The `anchorId` lets a linkified title in the answer
- * scroll to THIS message's source card (not an older one's).
+ * scroll to THIS message's source card (not an older one's) and dispatches
+ * `REVEAL_SOURCE_EVENT` on it — the listener below opens the passages, since the
+ * card is React-controlled and can't be revealed via a DOM `open` attribute.
  */
 const DocSourceItem = ({ source, anchorId }: { source: DocSource; anchorId: string }) => {
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const reveal = (): void => setOpen(true)
+    el.addEventListener(REVEAL_SOURCE_EVENT, reveal)
+    return () => el.removeEventListener(REVEAL_SOURCE_EVENT, reveal)
+  }, [])
 
   const locate = (): void => {
     void navigate({ to: ".", replace: true, search: (prev: Record<string, unknown>) => ({ ...prev, center: source.docId }) })
   }
 
   return (
-    <div id={anchorId} className="scroll-mt-16 rounded-lg border border-border/60 bg-transparent">
+    <div ref={ref} id={anchorId} className="scroll-mt-16 rounded-lg border border-border/60 bg-transparent">
       <div className="flex items-center gap-2 px-2 py-1.5 text-xs">
         <button
           type="button"
