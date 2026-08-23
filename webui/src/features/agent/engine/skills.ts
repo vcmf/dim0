@@ -22,19 +22,19 @@ const skillTool = (name: SkillName, description: string): Tool =>
 
 export const learnGenerateDiagram = skillTool(
   "learn_generate_diagram",
-  "Load guidance before composing a structured multi-note answer (mindmap, taxonomy, schema, flowchart).",
+  "REQUIRED before a multi-note structured answer: call this ONCE to learn the brevity rule and shape vocabulary, then issue the parallel write_note + link_notes calls (mindmap, taxonomy, schema, flowchart).",
 )
 
 
 export const learnGenerateMiniApp = skillTool(
   "learn_generate_mini_app",
-  "Load guidance before authoring a sandboxed interactive React mini-app — the default custom-rendered artifact.",
+  'REQUIRED before authoring a sandboxed interactive React mini-app (the default custom-rendered artifact): call this first, then write one with write_note(note_type="mini-app").',
 )
 
 
 export const learnGenerateHtmlWidget = skillTool(
   "learn_generate_html_widget",
-  "Load guidance before authoring a raw-HTML widget note (legacy — prefer learn_generate_mini_app).",
+  'REQUIRED before authoring a legacy raw-HTML widget: call this first, then write one with write_note(note_type="widget") (legacy — prefer learn_generate_mini_app).',
 )
 
 
