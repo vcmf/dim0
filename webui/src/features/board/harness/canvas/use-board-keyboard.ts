@@ -48,7 +48,8 @@ const TOOL_SHORTCUTS: Record<string, string> = {
  *  - M                            → toggle Slides panel
  *  - G                            → open Icons search dialog
  *  - I                            → open Images search dialog
- *  - Escape                       → return to select tool (unless an overlay owns it)
+ *  - Escape                       → put the active create tool away (→ select),
+ *                                   then deselect on a 2nd press (overlays win)
  *
  * Skipped when focus is in an input / textarea / contentEditable so
  * inline editing keeps the native shortcuts. canvas-harness already
@@ -121,16 +122,19 @@ export const useBoardKeyboard = (store: CanvasStore): void => {
       }
     }
 
-    // Escape returns the canvas to the `select` tool (matches tldraw/excalidraw),
-    // so a create tool (rect / note / arrow / …) isn't left stuck after one shape.
+    // Escape implements the tldraw/excalidraw two-step cancel on the board:
+    //   1st press — put an active create tool (rect / note / arrow / …) away
+    //               (→ select) and abort any in-progress draft, KEEPING the
+    //               current selection.
+    //   2nd press — with the tool already `select`, deselect.
+    //
     // Registered in the CAPTURE phase on purpose: it must read overlay state
     // BEFORE the same Escape is consumed by a handler that clears it — Radix
     // dialogs/menus close on a document-level capture handler (clearing
     // `chromeDialog`), and the presentation / node-surface handlers are window
     // bubble listeners that clear their own flags. Reading in bubble phase would
     // race all of them. When an overlay owns the Escape we defer to its close and
-    // leave the tool untouched; canvas-harness's own Escape handler still clears
-    // the selection + aborts an in-progress drag / marquee / draft edge.
+    // leave the tool untouched.
     //
     // "Is an overlay open?" is a hand-maintained enumeration (store flags below +
     // the focused-overlay DOM guard). A shared open-overlay signal would be less
@@ -154,15 +158,29 @@ export const useBoardKeyboard = (store: CanvasStore): void => {
         app.chatSheetOpen
       )
         return
-      // Store-less Radix overlays (view menu, context menu, delete-confirm alert)
-      // keep open-state locally — skip when the Escape is focused inside one.
+      // Store-less Radix overlays (dropdown / context menu, dialog, alert, and
+      // popper-based Select / combobox / listbox / popover) keep open-state
+      // locally — skip when the Escape is focused inside one so it closes the
+      // overlay instead of resetting the tool. `[data-radix-popper-content-wrapper]`
+      // is the generic wrapper Radix renders around all popper content.
       const target = e.target
       if (
         target instanceof HTMLElement &&
-        target.closest("[role='menu'],[role='dialog'],[role='alertdialog']")
+        target.closest(
+          "[role='menu'],[role='dialog'],[role='alertdialog'],[role='listbox'],[data-radix-popper-content-wrapper]",
+        )
       )
         return
-      if (app.tool !== "select") app.setTool("select")
+      // Step 1: put the create tool away. canvas-harness couples abort + deselect
+      // into its own (bubble-phase) Escape handler, so to keep the selection we
+      // abort the in-progress draft ourselves and stopPropagation to suppress it.
+      // With the tool already `select` we fall through — the harness handles the
+      // 2nd Escape as the deselect step.
+      if (app.tool !== "select") {
+        app.setTool("select")
+        store.resetInteractionState()
+        e.stopPropagation()
+      }
     }
 
     window.addEventListener("keydown", onKey)
