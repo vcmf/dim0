@@ -148,9 +148,9 @@ version-check: ## Check whether repo manifests match VERSION
 	python3 scripts/sync_version.py --check
 
 .PHONY: version-bump
-version-bump: ## Bump repo version with commitizen, then sync manifests
+version-bump: ## Bump repo version with commitizen (updates all manifests) and verify sync
 	uv run --with commitizen cz bump
-	python3 scripts/sync_version.py
+	python3 scripts/sync_version.py --check
 
 # -------- CI / Tests --------
 # Lightweight targets so GitHub Actions and local dev share one entry point.

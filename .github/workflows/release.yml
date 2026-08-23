@@ -43,36 +43,23 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Bump version and sync manifests
+      - name: Bump version, sync manifests, and tag
         run: |
+          # cz bump updates every manifest listed in .cz.toml's version_files
+          # (VERSION + backend/webui/tauri) and creates the commit + tag in one
+          # step, so the tag points at a tree where all manifests already match.
           uv run --with commitizen cz bump --increment "${{ inputs.bump }}" --yes
-          python3 scripts/sync_version.py
-
-      - name: Check for release changes
-        id: release_changes
-        run: |
-          if git diff --quiet; then
-            echo "has_changes=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_changes=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Commit release artifacts
-        if: steps.release_changes.outputs.has_changes == 'true'
-        run: |
-          VERSION="$(cat VERSION)"
-          git add VERSION CHANGELOG.md backend/pyproject.toml webui/package.json webui/src-tauri/Cargo.toml
-          git commit -m "chore(repo): release v${VERSION}"
+          # Guard: fail the release if any tracked manifest drifted from VERSION
+          # (e.g. sync_version.py grew a manifest that version_files didn't).
+          python3 scripts/sync_version.py --check
 
       - name: Push release commit and tag
-        if: steps.release_changes.outputs.has_changes == 'true'
         run: |
           VERSION="$(cat VERSION)"
           git push origin HEAD:main
           git push origin "v${VERSION}"
 
       - name: Create GitHub release
-        if: steps.release_changes.outputs.has_changes == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -81,16 +68,13 @@ jobs:
 
       - name: Save version for downstream jobs
         id: version
-        if: steps.release_changes.outputs.has_changes == 'true'
         run: echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
 
     outputs:
-      has_changes: ${{ steps.release_changes.outputs.has_changes }}
       version: ${{ steps.version.outputs.version }}
 
   docker:
     needs: release
-    if: needs.release.outputs.has_changes == 'true'
     uses: ./.github/workflows/docker-publish.yml
     with:
       version: ${{ needs.release.outputs.version }}
@@ -103,7 +87,6 @@ jobs:
   # `push: tags` in other workflows.
   desktop:
     needs: release
-    if: needs.release.outputs.has_changes == 'true'
     uses: ./.github/workflows/desktop-release.yml
     with:
       tag: v${{ needs.release.outputs.version }}

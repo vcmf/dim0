@@ -4,6 +4,9 @@ version_scheme = "semver2"
 version = "0.3.86"
 version_files = [
   "VERSION",
+  "backend/pyproject.toml:^version = ",
+  'webui/package.json:"version":',
+  "webui/src-tauri/Cargo.toml:^version = ",
 ]
 tag_format = "v$version"
 update_changelog_on_bump = true
