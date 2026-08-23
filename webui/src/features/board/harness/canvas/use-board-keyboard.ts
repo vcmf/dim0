@@ -1,7 +1,7 @@
 import { useEffect } from "react"
 import type { CanvasStore } from "@canvas-harness/core"
 import { isTypingTarget } from "@/lib/dom/is-typing-target"
-import { useBoardAppStore } from "../store/board-app-store"
+import { useBoardAppStore, type BoardAppState } from "../store/board-app-store"
 
 
 /**
@@ -43,15 +43,15 @@ const OVERLAY_ROLE_SELECTOR =
   "[role='menu'],[role='dialog'],[role='alertdialog'],[role='listbox'],[data-radix-popper-content-wrapper]"
 
 
-/** Board-app state the Escape decision reads (a testable subset of the store). */
-export type EscapeAppState = {
-  viewMode: string
-  chromeDialog: unknown
-  activeNodeSurface: unknown
-  presentationMode: boolean
-  chatSheetOpen: boolean
-  tool: string
-}
+/**
+ * Board-app state the Escape decision reads — a `Pick` of the real store type so
+ * the literal comparisons (`viewMode !== "board"`, `tool !== "select"`) stay
+ * checked against the store's precise unions and can't drift out of sync.
+ */
+export type EscapeAppState = Pick<
+  BoardAppState,
+  "viewMode" | "chromeDialog" | "activeNodeSurface" | "presentationMode" | "chatSheetOpen" | "tool"
+>
 
 
 /** Outcome of an Escape press on the board. */
@@ -189,6 +189,9 @@ export const useBoardKeyboard = (store: CanvasStore): void => {
     // document-capture handler, and the presentation / node-surface handlers are
     // window bubble listeners; a bubble-phase read would race all of them.
     const onEscape = (e: KeyboardEvent): void => {
+      // Fires for every keydown (capture, window-wide) — bail before the DOM walk
+      // + store read so only actual Escape presses pay for them.
+      if (e.key !== "Escape") return
       const target = e.target
       const insideOverlayDom =
         target instanceof HTMLElement && target.closest(OVERLAY_ROLE_SELECTOR) !== null
