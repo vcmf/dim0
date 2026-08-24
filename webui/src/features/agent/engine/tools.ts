@@ -41,8 +41,8 @@ const resolveBoardNode = (ctx: ToolContext, id: string): Node | undefined =>
 
 // Model-facing color params — a color NAME (scheme + a few examples, not the full
 // list, so the tool schema stays lean). Resolved leniently by the mutator.
-const BG_COLOR_DESC = "Optional fill color by name: a Tailwind family (e.g. amber, sky, rose, slate, emerald) or white/black. Omit for an automatic color."
-const BORDER_COLOR_DESC = "Optional border color by name (same scheme as background). Omit for no border."
+const BG_COLOR_DESC = "Fill color by name — a Tailwind family (amber, sky, rose, slate, emerald, …) or white/black/transparent. Applies to plain notes and (as a light tint) sheets; mini-app/widget/code notes ignore it. Omit for an automatic color; 'transparent' for no fill."
+const BORDER_COLOR_DESC = "Border color, same scheme as background (plain notes only). Omit for no border."
 const colorsFor = (background?: string, border?: string): { background?: string; border?: string } | undefined =>
   background || border ? { background, border } : undefined
 

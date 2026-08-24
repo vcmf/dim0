@@ -92,6 +92,23 @@ describe("StoreMutator", () => {
     expect(colors?.strokeColor).toBe("#00000000") // border omitted → transparent
   })
 
+  it("resolves a sheet's color at the light shade (100) and projects it onto style so the sheet view honors it", async () => {
+    const store = freshStore("b")
+    const m = new StoreMutator(store, null)
+    const { id } = await m.createNote({ content: "x", type: "sheet", colors: { background: "amber" } })
+    // Sheets honor only a shade-100 tint → resolve there, not 200.
+    expect(stored(store, id)?.backgroundColor).toBe(resolveFamilyShade("amber", 100))
+    // Projected onto node.style so the sheet view's honoredBg path paints it.
+    expect(store.getNode(asNodeId(id))?.style?.backgroundColor).toBeTruthy()
+  })
+
+  it("derives white text on a dark fill for contrast (background=black)", async () => {
+    const store = freshStore("b")
+    const m = new StoreMutator(store, null)
+    const { id } = await m.createNote({ content: "x", colors: { background: "black" } })
+    expect(stored(store, id)?.textColor).toBe("#ffffff")
+  })
+
   it("createLink attaches an edge at node centers with the parent layer", async () => {
     const store = freshStore("b")
     const m = new StoreMutator(store, "folder-1")
