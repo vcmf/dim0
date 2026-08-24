@@ -30,11 +30,16 @@ export const useHarnessApplyMindMap = (
   store: CanvasStore,
   boardId: string | null,
   rootId: string | null,
+  ready: boolean,
 ): void => {
   const drainingRef = useRef(false)
 
   useEffect(() => {
-    if (!boardId) return
+    // Wait for hydration: draining into an empty (not-yet-loaded) store would
+    // place the cluster at {0,0} (originBeneath of nothing) and then be overlapped
+    // by the existing nodes that hydrate a moment later. When `ready` flips true
+    // this effect re-runs and drains anything staged in the meantime.
+    if (!boardId || !ready) return
 
     const drain = (): void => {
       if (drainingRef.current) return
@@ -92,7 +97,7 @@ export const useHarnessApplyMindMap = (
       const b = next.mindmaps.get(boardId)?.length ?? 0
       if (b > a) drain()
     })
-  }, [store, boardId, rootId])
+  }, [store, boardId, rootId, ready])
 }
 
 

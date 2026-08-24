@@ -183,7 +183,7 @@ export function HarnessCanvas({ local = false }: { local?: boolean } = {}) {
   useLocalDocIndex(boardId ?? "", agentLocalIndexes)
   useDocNodeCascade(store, boardId ?? "", agentLocalIndexes)
   useBlockFolderCopy(store)
-  useHarnessApplyMindMap(store, boardId, rootId)
+  useHarnessApplyMindMap(store, boardId, rootId, ready)
   useHydrateIconNodes(store, boardId, rootId, ready)
   useThemeColorProjection(store, ready)
   // Local boards store the thumbnail in IndexedDB; capture only at the root

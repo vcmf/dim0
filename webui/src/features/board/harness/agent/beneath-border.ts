@@ -18,9 +18,16 @@ type Box = { x: number; y: number; h: number }
  */
 export const originBeneath = (nodes: ReadonlyArray<Box>): XY => {
   if (nodes.length === 0) return { x: 0, y: 0 }
-  const x = Math.min(...nodes.map((n) => n.x))
-  const y = Math.max(...nodes.map((n) => n.y + n.h)) + NOTE_TAIL_GAP
-  return { x, y }
+  // Reduce (not Math.min/max spread) — this runs over the whole board, which can
+  // be large enough to exceed the engine's call-argument limit when spread.
+  let minX = Infinity
+  let maxBottom = -Infinity
+  for (const n of nodes) {
+    if (n.x < minX) minX = n.x
+    const bottom = n.y + n.h
+    if (bottom > maxBottom) maxBottom = bottom
+  }
+  return { x: minX, y: maxBottom + NOTE_TAIL_GAP }
 }
 
 
