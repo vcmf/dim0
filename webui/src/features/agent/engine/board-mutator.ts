@@ -1,0 +1,251 @@
+/**
+ * BoardMutator — the agent's content-level write port (S1 of the board-authoring
+ * plan). Tools express intent in domain verbs (createNote / rewriteNote /
+ * patchNote / createLink); the *implementation* owns how that reaches the board.
+ *
+ * `StoreMutator` is the current impl: it writes through the live canvas `store`
+ * exactly as the tools did inline before this port existed — so a write still
+ * flows through the same undo + persistence + sync pipeline as a human edit, with
+ * identical bytes. This is a pure decoupling: later impls (e.g. a headless,
+ * off-screen, cross-layer writer) can satisfy the same interface without the tool
+ * code changing.
+ */
+import { asEdgeId, asNodeId } from "@canvas-harness/core"
+import type { CanvasStore, Node } from "@canvas-harness/core"
+import type { DimEdgeData, DimNodeData } from "@/features/board/model"
+import { pickRandomColorOfShade } from "@/features/board/lib/colors/tailwind"
+import { AUTOFIT_DISABLED_TYPES } from "@/features/board/harness/convert/note-to-node"
+import { dim0LinkStyleToCanvas, dim0StyleToCanvas } from "@/features/board/harness/convert/style"
+import {
+  adaptEdgeColors,
+  adaptNodeColors,
+  applyColorsToEdgeStyle,
+  applyColorsToStyle,
+  pickStoredEdgeColors,
+  type StoredColors,
+  type StoredEdgeColors,
+} from "@/features/board/harness/theme/color-adapter"
+import { getBoardThemeMode } from "@/features/board/harness/theme/theme-mode-ref"
+import { createDefaultLinkStyle, createDefaultStyle } from "@/features/board/types/style"
+import { beneathBorderOrigin } from "@/features/board/harness/agent/beneath-border"
+import { estimateNoteSize } from "./note-size"
+
+
+/** A note to create or fully rewrite. `type` is the prompt-level note_type. */
+export type NoteSpec = {
+  id?: string
+  content: string
+  label?: string
+  type?: string
+  /** Optional explicit position; omitted → beneath the current board border. */
+  x?: number
+  y?: number
+}
+
+
+/** A directed link between two existing notes. */
+export type LinkSpec = {
+  sourceId: string
+  targetId: string
+  label?: string
+}
+
+
+/**
+ * Content-level board write port. Domain verbs only — no ops, batches, or seq in
+ * the signature; the impl decides how the write reaches persistence + sync.
+ */
+export interface BoardMutator {
+  createNote(spec: NoteSpec): Promise<{ id: string; created: true }>
+  rewriteNote(id: string, spec: NoteSpec): Promise<{ id: string; created: boolean }>
+  patchNote(id: string, patch: { content?: string; label?: string }): Promise<void>
+  createLink(spec: LinkSpec): Promise<{ id: string }>
+}
+
+
+// ---- construction helpers (moved verbatim from tools.ts) -------------------
+
+/**
+ * A random Tailwind-200 fill per note (mirrors the backend's
+ * `random.choice(TAILWIND_200_ADAPTED)`). Stored as `_storedColors` so the theme
+ * hooks project the display style for the current mode.
+ */
+const randomNoteColors = (): StoredColors => ({
+  backgroundColor: pickRandomColorOfShade(200)?.hex ?? "#dbeafe",
+  strokeColor: "#00000000",
+  textColor: "#000000",
+})
+
+
+// Default box size per canvas node type (mirrors backend get_default_note_size).
+const DEFAULT_SIZE: Record<string, { w: number; h: number }> = {
+  rect: { w: 320, h: 180 },
+  ellipse: { w: 320, h: 320 },
+  diamond: { w: 340, h: 340 },
+  sheet: { w: 440, h: 440 },
+  "mini-app": { w: 720, h: 440 },
+  widget: { w: 480, h: 320 },
+  "code-sandbox": { w: 560, h: 360 },
+}
+
+
+/** Content-fit size for a note, falling back to the type's default box. */
+const noteGeometry = (nodeType: string, content: string): { w: number; h: number } => {
+  const base = DEFAULT_SIZE[nodeType] ?? { w: 320, h: 180 }
+  const fitted = estimateNoteSize(nodeType, base.w, content)
+  return fitted ? { w: fitted.width, h: fitted.height } : base
+}
+
+
+/** Fresh SyncMeta stamp for a created/updated entity. */
+const meta = (): DimNodeData["meta"] => {
+  const t = Date.now()
+  return { v: 1, createdAt: t, updatedAt: t }
+}
+
+
+/**
+ * Canonical canvas style for a live-created rectangle — mirrors the convert layer
+ * so a freshly inserted node renders identically to its reloaded / peer-synced form.
+ */
+const canonicalNodeStyle = (colors: StoredColors) => {
+  const base = dim0StyleToCanvas(createDefaultStyle({ type: "rectangle" }))
+  const mode = getBoardThemeMode()
+  const display = mode === "dark" ? adaptNodeColors(colors, "dark") : colors
+  return applyColorsToStyle(base, display)
+}
+
+
+/** Canonical edge `style` (theme-adapted) + the light-space `_storedColors`. */
+const canonicalEdge = (): { style: ReturnType<typeof dim0LinkStyleToCanvas>; storedColors: StoredEdgeColors } => {
+  const base = dim0LinkStyleToCanvas(createDefaultLinkStyle())
+  const storedColors = pickStoredEdgeColors(base)
+  const mode = getBoardThemeMode()
+  const style = mode === "light" ? base : applyColorsToEdgeStyle(base, adaptEdgeColors(storedColors, mode))
+  return { style, storedColors }
+}
+
+
+// Map a prompt-level note_type to a canvas node type. Unknown → rectangle.
+const NODE_TYPE: Record<string, string> = {
+  rectangle: "rect",
+  rect: "rect",
+  sheet: "sheet",
+  "mini-app": "mini-app",
+  widget: "widget",
+  "code-sandbox": "code-sandbox",
+}
+const toNodeType = (t: string): string => NODE_TYPE[t] ?? "rect"
+
+
+// ---- StoreMutator: writes through the live store (today's behavior) ---------
+
+/**
+ * Writes through the live canvas store — the current-layer producer. Reproduces
+ * the exact node/edge construction the tools did inline, so behavior is identical
+ * (same undo + persistence + sync pipeline).
+ */
+export class StoreMutator implements BoardMutator {
+  private readonly store: CanvasStore
+  private readonly rootId: string | null
+
+  constructor(store: CanvasStore, rootId: string | null) {
+    this.store = store
+    this.rootId = rootId
+  }
+
+  async createNote(spec: NoteSpec): Promise<{ id: string; created: true }> {
+    const nodeType = toNodeType(spec.type ?? "")
+    const autoFitStyle = AUTOFIT_DISABLED_TYPES.has(nodeType) ? { autoFit: false } : undefined
+    const storedColors = randomNoteColors()
+    const { w, h } = noteGeometry(nodeType, spec.content)
+    const origin = beneathBorderOrigin(this.store)
+    // Plain rectangles are painted by the lib from `style`; custom types paint via
+    // their own view and only need autoFit disabled at birth.
+    const style = nodeType === "rect"
+      ? { ...canonicalNodeStyle(storedColors), ...(autoFitStyle ?? {}) }
+      : autoFitStyle
+    const id = asNodeId(spec.id || this.store.generateId())
+    this.store.batch(() => {
+      this.store.addNode({
+        id,
+        type: nodeType,
+        x: spec.x ?? origin.x,
+        y: spec.y ?? origin.y,
+        w,
+        h,
+        angle: 0,
+        groups: [],
+        content: spec.content,
+        ...(style ? { style } : {}),
+        data: {
+          label: { markdown: spec.label ?? "" },
+          parentId: this.rootId ?? undefined,
+          meta: meta(),
+          _storedColors: storedColors,
+        } satisfies DimNodeData,
+      })
+    })
+    return { id: String(id), created: true }
+  }
+
+  async rewriteNote(id: string, spec: NoteSpec): Promise<{ id: string; created: boolean }> {
+    const nid = asNodeId(id)
+    const node = this.store.getNode(nid)
+    // No such node → treat as a create with this id (mirrors write_note fallthrough).
+    if (!node) return this.createNote({ ...spec, id })
+    const nodeType = toNodeType(spec.type ?? "")
+    const autoFitStyle = AUTOFIT_DISABLED_TYPES.has(nodeType) ? { autoFit: false } : undefined
+    const prev = node.data as DimNodeData | undefined
+    this.store.batch(() =>
+      this.store.updateNode(nid, {
+        type: nodeType,
+        content: spec.content,
+        data: { ...prev, label: spec.label ? { markdown: spec.label } : (prev?.label ?? { markdown: "" }), meta: meta() },
+        ...(autoFitStyle ? { style: { ...(node.style ?? {}), ...autoFitStyle } } : {}),
+      }),
+    )
+    return { id: String(nid), created: false }
+  }
+
+  async patchNote(id: string, patch: { content?: string; label?: string }): Promise<void> {
+    const nid = asNodeId(id)
+    const node = this.store.getNode(nid)
+    if (!node) return
+    const prev = node.data as DimNodeData | undefined
+    const next: Partial<Node> = {}
+    if (patch.content !== undefined) next.content = patch.content
+    if (patch.label !== undefined) next.data = { ...prev, label: { markdown: patch.label }, meta: meta() }
+    this.store.batch(() => this.store.updateNode(nid, next))
+  }
+
+  async createLink(spec: LinkSpec): Promise<{ id: string }> {
+    const id = asEdgeId(this.store.generateId())
+    const src = asNodeId(spec.sourceId)
+    const tgt = asNodeId(spec.targetId)
+    // Attach at each node's CENTER (local frame from top-left); canvas-harness
+    // auto-clips the center→center line to each node's border.
+    const center = (nodeId: typeof src): { x: number; y: number } => {
+      const node = this.store.getNode(nodeId)
+      return node ? { x: node.w / 2, y: node.h / 2 } : { x: 0, y: 0 }
+    }
+    const { style, storedColors } = canonicalEdge()
+    this.store.batch(() => {
+      this.store.addEdge({
+        id,
+        source: { nodeId: src, localOffset: center(src) },
+        target: { nodeId: tgt, localOffset: center(tgt) },
+        pathStyle: "bezier",
+        groups: [],
+        style,
+        data: {
+          label: spec.label || undefined,
+          parentId: this.rootId ?? undefined,
+          meta: meta(),
+          _storedColors: storedColors,
+        } satisfies DimEdgeData,
+      })
+    })
+    return { id: String(id) }
+  }
+}

@@ -6,6 +6,7 @@ import { arrangeCreatedNodes } from "@/features/board/harness/agent/arrange-crea
 import { getSearchIndexRef } from "@/features/board/search/search-index-ref"
 import { runAgent } from "@/features/agent/engine/agent-loop"
 import { linkNotes, writeNote } from "@/features/agent/engine/tools"
+import { StoreMutator } from "@/features/agent/engine/board-mutator"
 import { resolveAgentLlm } from "@/features/agent/engine/services/local-llm"
 import type { AgentEvent } from "@/features/agent/engine/types"
 import { useByokStore } from "@/features/agent/byok/byok-store"
@@ -44,7 +45,7 @@ export function useLocalTransform() {
       if (!store || !sourceText.trim()) return { ok: false, createdIds: [] }
       const rootId = useBoardAppStore.getState().rootId
       const search = getSearchIndexRef() ?? undefined
-      const ctx = { store, rootId, search }
+      const ctx = { store, rootId, search, board: new StoreMutator(store, rootId) }
 
       const recenter = (ids: string[]): void => {
         if (ids.length === 0) return

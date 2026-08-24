@@ -13,6 +13,7 @@ import { isOverQuotaError } from "@/features/agent/engine/services/run"
 import { createFlushGate } from "@/features/agent/utils/stream/throttle"
 import { useIsSignedIn } from "@/lib/auth"
 import { agentBuildTools, memoryTools, searchNotes } from "@/features/agent/engine/tools"
+import { StoreMutator } from "@/features/agent/engine/board-mutator"
 import { skillTools } from "@/features/agent/engine/skills"
 import { getSearchIndexRef } from "@/features/board/search/search-index-ref"
 import { buildWholeBoardSearch } from "@/features/board/search/use-search-index"
@@ -366,7 +367,7 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
             () => useToolConfirm.getState().request(req),
           )
         const memory = (await getLocalStores()).memories
-        for await (const ev of runAgent({ system: systemWithDocs, userMessage: userMessageForAgent, history, tools, llm, ctx: { store, rootId, boardId, search, boardNotes, memory, confirmTool } })) {
+        for await (const ev of runAgent({ system: systemWithDocs, userMessage: userMessageForAgent, history, tools, llm, ctx: { store, rootId, boardId, search, boardNotes, memory, confirmTool, board: new StoreMutator(store, rootId) } })) {
           // Streaming yields cumulative assistant_text / reasoning per token —
           // replace the previous snapshot in place instead of appending one event
           // per token. (assistant_text renders live; reasoning is shown at turn-end.)

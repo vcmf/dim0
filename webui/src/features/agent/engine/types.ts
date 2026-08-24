@@ -10,6 +10,7 @@ import { z } from "zod"
 import type { CanvasStore, Node } from "@canvas-harness/core"
 import type { BoardRegistry } from "@/features/board/persist/local/board-registry"
 import type { MemoryRepo } from "@/features/board/persist/local/memory-repo"
+import type { BoardMutator } from "./board-mutator"
 import type { LocalSearchIndex } from "@/features/board/search/local-index"
 
 
@@ -81,6 +82,12 @@ export interface LlmClient {
 /** Capabilities a tool may need. Search/registry are optional (board-scoped). */
 export type ToolContext = {
   store: CanvasStore
+  /**
+   * Content-level write port (S1). Tools write through this, not `store`
+   * directly, so the runtime is decoupled from the collab op pipeline. Defaults
+   * (via `mutatorFor`) to a `StoreMutator` over `store`+`rootId` when absent.
+   */
+  board?: BoardMutator
   /**
    * Current folder layer new notes/links belong to (null = root). Tools stamp
    * it as `parentId` AT CREATION — the local analog of the backend passing
