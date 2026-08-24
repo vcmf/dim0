@@ -2,7 +2,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type RefObject,
 } from "react"
@@ -17,14 +16,24 @@ import {
 import {
   ArticleSummaryIcon,
   ChatTranslateIcon,
-  ChevronDownIcon,
-  ChevronRightIcon,
   DrawIcon,
   ImagePlaceholderIcon,
   SchemaMapIcon,
   SparklesIcon,
   TreeMapIcon,
 } from "@/components/icons"
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { buildContextTextFromNodes } from "@/features/board/utils/context-text"
 import { useAiSparkActions } from "@/features/board/hooks/use-ai-spark-actions"
 import { useIsLocalBoard } from "@/features/board/lib/use-is-local-board"
@@ -48,7 +57,7 @@ export type CanvasContextMenuProps = {
 }
 
 
-/** Common languages shown as one-click chips in the Translate submenu. */
+/** Common languages shown as one-click items in the Translate submenu. */
 const COMMON_LANGUAGES: ReadonlyArray<string> = [
   "English",
   "French",
@@ -78,6 +87,17 @@ const AI_SPARK_VISUALS: ReadonlyArray<AiSparkVisual> = [
 ]
 
 
+// Canvas AI-action key → the local (in-browser) transform kind. Actions with no
+// local equivalent (drawify, translate) are omitted and stay backend-only.
+const LOCAL_TRANSFORM_BY_ACTION: Record<string, LocalTransformKind> = {
+  summarize: "summify",
+  mapify: "mapify",
+  schemify: "schemify",
+  quizify: "quizify",
+  explain: "mapify",
+}
+
+
 /**
  * Build the structured context text for the agent from the current
  * canvas selection. Skips edges (the agent only consumes nodes).
@@ -100,37 +120,28 @@ const buildSelectedContextText = (
 
 
 /**
- * Right-click context menu for the canvas-harness board. Mirrors
- * prod's `graph-context-menu.tsx` — Position / Export / AI Spark /
- * Translate sections — wired entirely against the harness store +
- * lib export helpers (no react-flow).
+ * Right-click context menu for the canvas-harness board — Position / Export /
+ * AI / Translate. Built on the real Radix menu (via `ui/dropdown-menu`), so
+ * positioning collides-and-flips against the viewport (no more part-hidden
+ * menus) and AI/Translate are proper hover submenus.
+ *
+ * The canvas owns pointer events, so a Radix ContextMenuTrigger can't overlay
+ * it; instead the canvas-aware right-click detection (selection-gated, skips
+ * editor inputs) sets the anchor point, and the menu opens (controlled) against
+ * a zero-size trigger placed there.
  */
-// Canvas AI-action key → the local (in-browser) transform kind. Actions with no
-// local equivalent (drawify, translate) are omitted and stay backend-only.
-const LOCAL_TRANSFORM_BY_ACTION: Record<string, LocalTransformKind> = {
-  summarize: "summify",
-  mapify: "mapify",
-  schemify: "schemify",
-  quizify: "quizify",
-  explain: "mapify",
-}
-
-
 export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContextMenuProps) {
   const boardId = useBoardAppStore((s) => s.boardId)
-  // AI Spark / Translate are backend-only — hidden on local boards for now.
+  // AI actions need an in-browser LLM on local boards; hide the section when no
+  // model key is usable (parity with the floating island) instead of offering
+  // actions that can only fail. Online boards use the backend, so unaffected.
   const isLocal = useIsLocalBoard()
-  // Local transforms need an in-browser LLM; hide the AI section when no model
-  // key is usable (parity with the floating island) instead of offering actions
-  // that can only fail. Online boards use the backend, so they're unaffected.
   const hasUsableModel = useHasUsableModel()
   const showAiSection = !isLocal || hasUsableModel
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null)
-  const [aiOpen, setAiOpen] = useState(false)
-  const [translateOpen, setTranslateOpen] = useState(false)
   const [exportTransparent, setExportTransparent] = useState(false)
   const [customLanguage, setCustomLanguage] = useState("")
-  const menuRef = useRef<HTMLDivElement | null>(null)
+
   const { actions: aiActions, processingKey, runAction } = useAiSparkActions()
   const runLocalTransform = useLocalTransform()
 
@@ -140,19 +151,15 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
     [aiActions, isLocal],
   )
 
-  const closeMenu = useCallback(() => {
-    setMenuPos(null)
-    setAiOpen(false)
-    setTranslateOpen(false)
-  }, [])
+  const closeMenu = useCallback(() => setMenuPos(null), [])
 
-  // Right-click trigger — only opens when something is selected.
+  // Right-click trigger — only opens when something is selected, and never over
+  // an editor input (so native text editing keeps its own menu).
   useEffect(() => {
     const wrap = wrapRef.current
     if (!wrap) return
     const onContext = (e: MouseEvent): void => {
       const target = e.target as HTMLElement | null
-      // Skip when right-clicking inside an editor input.
       if (
         target &&
         (target.tagName === "INPUT" ||
@@ -164,51 +171,18 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
       if (store.getSelection().length === 0) return
       e.preventDefault()
       setMenuPos({ x: e.clientX, y: e.clientY })
-      setAiOpen(false)
-      setTranslateOpen(false)
     }
     wrap.addEventListener("contextmenu", onContext)
     return () => wrap.removeEventListener("contextmenu", onContext)
   }, [wrapRef, store])
 
-  // Close on outside click / Esc.
-  useEffect(() => {
-    if (!menuPos) return
-    const onDown = (e: MouseEvent): void => {
-      const target = e.target as HTMLElement | null
-      if (target && menuRef.current?.contains(target)) return
-      closeMenu()
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") closeMenu()
-    }
-    window.addEventListener("mousedown", onDown, true)
-    window.addEventListener("keydown", onKey)
-    return () => {
-      window.removeEventListener("mousedown", onDown, true)
-      window.removeEventListener("keydown", onKey)
-    }
-  }, [menuPos, closeMenu])
-
   const selection = useCallback(() => store.getSelection(), [store])
 
   // ---- Position ---------------------------------------------------------
-  const handleSendBackward = useCallback(() => {
-    store.sendBackward(selection())
-    closeMenu()
-  }, [store, selection, closeMenu])
-  const handleSendForward = useCallback(() => {
-    store.bringForward(selection())
-    closeMenu()
-  }, [store, selection, closeMenu])
-  const handleSendToBack = useCallback(() => {
-    store.sendToBack(selection())
-    closeMenu()
-  }, [store, selection, closeMenu])
-  const handleSendToFront = useCallback(() => {
-    store.bringToFront(selection())
-    closeMenu()
-  }, [store, selection, closeMenu])
+  const handleSendBackward = useCallback(() => store.sendBackward(selection()), [store, selection])
+  const handleSendForward = useCallback(() => store.bringForward(selection()), [store, selection])
+  const handleSendToBack = useCallback(() => store.sendToBack(selection()), [store, selection])
+  const handleSendToFront = useCallback(() => store.bringToFront(selection()), [store, selection])
 
   // ---- Export -----------------------------------------------------------
   const handleExportPng = useCallback(async () => {
@@ -239,10 +213,8 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
     } catch (err) {
       console.error("[context-menu] PNG export failed", err)
       toast.error("Couldn't export selection")
-    } finally {
-      closeMenu()
     }
-  }, [store, exportTransparent, closeMenu, rendererRef])
+  }, [store, exportTransparent, rendererRef])
 
   const handleExportSvg = useCallback(() => {
     try {
@@ -257,12 +229,10 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
     } catch (err) {
       console.error("[context-menu] SVG export failed", err)
       toast.error("Couldn't export selection")
-    } finally {
-      closeMenu()
     }
-  }, [store, closeMenu])
+  }, [store])
 
-  // ---- AI Spark / Translate ---------------------------------------------
+  // ---- AI / Translate ---------------------------------------------------
   const handleAiAction = useCallback(
     async (actionKey: string) => {
       if (!boardId) {
@@ -274,7 +244,6 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
         toast.error("Select at least one node with content.")
         return
       }
-      closeMenu()
       // Local board: run the in-browser transform instead of the backend /tools.
       if (isLocal) {
         const kind = LOCAL_TRANSFORM_BY_ACTION[actionKey]
@@ -297,7 +266,7 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
       }
       await runAction({ boardId, contextText, actionKey })
     },
-    [boardId, store, runAction, closeMenu, isLocal, runLocalTransform],
+    [boardId, store, runAction, isLocal, runLocalTransform],
   )
 
   const handleTranslate = useCallback(
@@ -311,7 +280,6 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
         toast.error("Select at least one node with content.")
         return
       }
-      closeMenu()
       await runAction({
         boardId,
         contextText,
@@ -319,205 +287,140 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
         targetLanguage: language,
       })
     },
-    [boardId, store, runAction, closeMenu],
+    [boardId, store, runAction],
   )
 
-  if (!menuPos) return null
-
   return (
-    <div
-      ref={menuRef}
-      role="menu"
-      className="fixed z-[60] min-w-[200px] max-w-[320px] rounded-lg border bg-popover p-1 text-sm text-popover-foreground shadow-lg"
-      style={{ top: menuPos.y, left: menuPos.x }}
-      onContextMenu={(e) => e.preventDefault()}
-      onMouseDown={(e) => e.stopPropagation()}
-    >
-      <SectionLabel>Position</SectionLabel>
-      <MenuButton icon={StackMinusIcon} label="Send backward" onClick={handleSendBackward} />
-      <MenuButton icon={StackPlusIcon} label="Send forward" onClick={handleSendForward} />
-      <MenuButton icon={StackMinusIcon} label="Send to back" onClick={handleSendToBack} />
-      <MenuButton icon={StackPlusIcon} label="Send to front" onClick={handleSendToFront} />
+    <DropdownMenu open={!!menuPos} onOpenChange={(open) => { if (!open) closeMenu() }} modal={false}>
+      {/* Zero-size anchor placed at the click point; Radix positions the menu
+          against it (with viewport collision) while the canvas keeps its own
+          pointer events. */}
+      <DropdownMenuTrigger asChild>
+        <span
+          aria-hidden="true"
+          style={{ position: "fixed", left: menuPos?.x ?? 0, top: menuPos?.y ?? 0, width: 0, height: 0 }}
+        />
+      </DropdownMenuTrigger>
 
-      <Divider />
-      <SectionLabel>Export</SectionLabel>
-      <MenuButton
-        icon={ClipboardIcon}
-        label="Copy selected as PNG"
-        onClick={() => void handleExportPng()}
-      />
-      <div className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs text-muted-foreground">
-        <span>Transparent background</span>
-        <div className="inline-flex items-center rounded-md border border-border bg-background p-0.5">
-          <button
-            type="button"
-            className={`h-6 rounded-sm px-2 transition-colors ${
-              exportTransparent
-                ? "text-muted-foreground hover:text-foreground"
-                : "bg-muted text-foreground"
-            }`}
-            onClick={() => setExportTransparent(false)}
-          >
-            Off
-          </button>
-          <button
-            type="button"
-            className={`h-6 rounded-sm px-2 transition-colors ${
-              exportTransparent
-                ? "bg-muted text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-            onClick={() => setExportTransparent(true)}
-          >
-            On
-          </button>
-        </div>
-      </div>
-      <MenuButton
-        icon={ImagePlaceholderIcon}
-        label="Download as SVG"
-        onClick={handleExportSvg}
-      />
-
-      {showAiSection && (<>
-      <Divider />
-      <button
-        type="button"
-        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left hover:bg-muted"
-        onClick={() => setAiOpen((o) => !o)}
+      <DropdownMenuContent
+        align="start"
+        side="bottom"
+        sideOffset={2}
+        collisionPadding={8}
+        className="min-w-[200px]"
+        // Don't yank focus to the invisible anchor when closing.
+        onCloseAutoFocus={(e) => e.preventDefault()}
       >
-        <SparklesIcon className="size-4 text-secondary-foreground" weight="fill" />
-        <span>AI</span>
-        <span className="ml-auto text-xs text-muted-foreground">
-          {aiOpen ? (
-            <ChevronDownIcon className="size-3" />
-          ) : (
-            <ChevronRightIcon className="size-3" />
-          )}
-        </span>
-      </button>
-      {aiOpen && (
-        <div className="ml-2 border-l border-border/60 pl-1">
-          {aiMenuActions.map((action) => {
-            const visual = AI_SPARK_VISUALS.find((v) => v.key === action.key)
-            const Icon = visual?.Icon ?? SparklesIcon
-            return (
-              <MenuButton
-                key={action.key}
-                icon={Icon}
-                label={action.label}
-                disabled={!!processingKey}
-                badge={action.key === "drawify" ? "Beta" : undefined}
-                iconClassName="text-secondary-foreground"
-                onClick={() => void handleAiAction(action.key)}
-              />
-            )
-          })}
-          {!isLocal && (<>
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left hover:bg-muted"
-            onClick={() => setTranslateOpen((o) => !o)}
-          >
-            <ChatTranslateIcon className="size-4 text-secondary-foreground" />
-            <span>Translate</span>
-            <span className="ml-auto text-xs text-muted-foreground">
-              {translateOpen ? (
-                <ChevronDownIcon className="size-3" />
-              ) : (
-                <ChevronRightIcon className="size-3" />
-              )}
-            </span>
-          </button>
-          {translateOpen && (
-            <div className="flex flex-col gap-2 px-3 pb-2 pt-1">
-              <div className="flex items-center gap-2">
-                <input
-                  className="h-7 flex-1 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary-foreground/30"
-                  placeholder="Custom language…"
-                  value={customLanguage}
-                  onChange={(e) => setCustomLanguage(e.target.value)}
-                  onMouseDown={(e) => e.stopPropagation()}
-                />
-                <button
-                  type="button"
-                  className="h-7 rounded-sm border border-border bg-muted/70 px-2 text-xs font-medium hover:text-secondary-foreground"
-                  onClick={() =>
-                    void handleTranslate(customLanguage.trim() || "English")
-                  }
-                >
-                  Go
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {COMMON_LANGUAGES.map((language) => (
-                  <button
-                    key={language}
-                    type="button"
-                    className="rounded-sm bg-muted px-2 py-1 text-xs font-medium hover:bg-muted/70"
-                    onClick={() => void handleTranslate(language)}
+        <DropdownMenuLabel className="text-muted-foreground">Position</DropdownMenuLabel>
+        <DropdownMenuItem onSelect={() => handleSendBackward()}>
+          <StackMinusIcon className="size-4" />
+          Send backward
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => handleSendForward()}>
+          <StackPlusIcon className="size-4" />
+          Send forward
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => handleSendToBack()}>
+          <StackMinusIcon className="size-4" />
+          Send to back
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => handleSendToFront()}>
+          <StackPlusIcon className="size-4" />
+          Send to front
+        </DropdownMenuItem>
+
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-muted-foreground">Export</DropdownMenuLabel>
+        <DropdownMenuItem onSelect={() => void handleExportPng()}>
+          <ClipboardIcon className="size-4" />
+          Copy selected as PNG
+        </DropdownMenuItem>
+        <DropdownMenuCheckboxItem
+          checked={exportTransparent}
+          onCheckedChange={(v) => setExportTransparent(v === true)}
+          // Toggling shouldn't dismiss the menu.
+          onSelect={(e) => e.preventDefault()}
+        >
+          Transparent background
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuItem onSelect={() => handleExportSvg()}>
+          <ImagePlaceholderIcon className="size-4" />
+          Download as SVG
+        </DropdownMenuItem>
+
+        {showAiSection && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <SparklesIcon className="size-4 text-secondary-foreground" weight="fill" />
+                AI
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="min-w-[190px]">
+                {aiMenuActions.map((action) => {
+                  const Icon = AI_SPARK_VISUALS.find((v) => v.key === action.key)?.Icon ?? SparklesIcon
+                  return (
+                    <DropdownMenuItem
+                      key={action.key}
+                      disabled={!!processingKey}
+                      onSelect={() => void handleAiAction(action.key)}
+                    >
+                      <Icon className="size-4 text-secondary-foreground" />
+                      <span>{action.label}</span>
+                      {action.key === "drawify" && (
+                        <span className="ml-auto rounded-sm border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                          Beta
+                        </span>
+                      )}
+                    </DropdownMenuItem>
+                  )
+                })}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
+            {!isLocal && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <ChatTranslateIcon className="size-4 text-secondary-foreground" />
+                  Translate
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="min-w-[190px]">
+                  {COMMON_LANGUAGES.map((language) => (
+                    <DropdownMenuItem key={language} onSelect={() => void handleTranslate(language)}>
+                      {language}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  {/* Plain row (not a menu item) so it doesn't close on click;
+                      stop keydown so Radix's menu typeahead doesn't eat typing. */}
+                  <div
+                    className="flex items-center gap-1 px-1 py-1"
+                    onKeyDown={(e) => e.stopPropagation()}
                   >
-                    {language}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          </>)}
-        </div>
-      )}
-      </>)}
-    </div>
+                    <input
+                      className="h-7 min-w-0 flex-1 rounded-sm border border-input bg-background px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                      placeholder="Custom language…"
+                      value={customLanguage}
+                      onChange={(e) => setCustomLanguage(e.target.value)}
+                      onPointerDown={(e) => e.stopPropagation()}
+                    />
+                    <button
+                      type="button"
+                      className="h-7 shrink-0 rounded-sm border border-border bg-muted/70 px-2 text-xs font-medium hover:text-secondary-foreground"
+                      onClick={() => {
+                        void handleTranslate(customLanguage.trim() || "English")
+                        closeMenu()
+                      }}
+                    >
+                      Go
+                    </button>
+                  </div>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
-}
-
-
-type MenuButtonProps = {
-  icon: typeof ArticleSummaryIcon
-  label: string
-  onClick: () => void
-  disabled?: boolean
-  badge?: string
-  iconClassName?: string
-}
-
-
-function MenuButton({
-  icon: Icon,
-  label,
-  onClick,
-  disabled,
-  badge,
-  iconClassName = "",
-}: MenuButtonProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-    >
-      <Icon className={`size-4 shrink-0 ${iconClassName}`} />
-      <span>{label}</span>
-      {badge ? (
-        <span className="ml-auto rounded-sm border border-border px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-          {badge}
-        </span>
-      ) : null}
-    </button>
-  )
-}
-
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="px-3 py-1 text-xs font-medium text-muted-foreground">
-      {children}
-    </div>
-  )
-}
-
-
-function Divider() {
-  return <div className="my-1 h-px bg-border" />
 }
