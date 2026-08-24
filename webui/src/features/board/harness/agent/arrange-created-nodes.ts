@@ -2,7 +2,7 @@ import { asNodeId, type CanvasStore, type Edge } from "@canvas-harness/core"
 import type { LinkEdge, NoteNode } from "@/features/board/types/flow"
 import { autoLayout } from "@/features/board/lib/graph/auto-layout"
 import { defaultLayoutOptions, type Direction } from "@/features/board/lib/graph/settings"
-import { NOTE_TAIL_GAP } from "./beneath-border"
+import { offsetToOrigin, originBeneath } from "./beneath-border"
 
 
 type XY = { x: number; y: number }
@@ -201,14 +201,10 @@ export const arrangeCreatedNodes = async (store: CanvasStore, createdIds: string
     (await layoutBidirectional(present, edges, sizeOf)) ?? (await runDagre(present, edges, sizeOf, "LR"))
   if (positions.size === 0) return
 
-  // Translate the laid-out cluster below existing (non-created) content.
+  // Translate the laid-out cluster below existing (non-created) content — the
+  // same placement rule the mindmap-apply drain uses (originBeneath).
   const others = store.getAllNodes().filter((n) => !ids.has(String(n.id)))
-  const originX = others.length ? Math.min(...others.map((n) => n.x)) : 0
-  const originY = others.length ? Math.max(...others.map((n) => n.y + n.h)) + NOTE_TAIL_GAP : 0
-  const xs = [...positions.values()].map((p) => p.x)
-  const ys = [...positions.values()].map((p) => p.y)
-  const dx = originX - Math.min(...xs)
-  const dy = originY - Math.min(...ys)
+  const { x: dx, y: dy } = offsetToOrigin([...positions.values()], originBeneath(others))
 
   store.batch(() => {
     for (const [id, p] of positions) {
