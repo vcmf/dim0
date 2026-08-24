@@ -4,6 +4,7 @@ import type { CanvasStore } from "@canvas-harness/core"
 import { freshStore, resetIdb } from "@/test/canvas"
 import type { DimNodeData } from "@/features/board/model"
 import { labelText } from "@/features/board/model"
+import { resolveFamilyShade } from "@/features/board/lib/colors/tailwind"
 import { StoreMutator } from "./board-mutator"
 
 
@@ -13,6 +14,8 @@ beforeEach(() => resetIdb())
 const label = (store: CanvasStore, id: string): string =>
   labelText((store.getNode(asNodeId(id))?.data as DimNodeData | undefined)?.label)
 const body = (store: CanvasStore, id: string): string => store.getNode(asNodeId(id))?.content ?? ""
+const stored = (store: CanvasStore, id: string) =>
+  (store.getNode(asNodeId(id))?.data as DimNodeData | undefined)?._storedColors
 
 
 describe("StoreMutator", () => {
@@ -67,6 +70,26 @@ describe("StoreMutator", () => {
     await m.patchNote(id, { label: "Renamed" })
     expect(label(store, id)).toBe("Renamed")
     expect(body(store, id)).toBe("changed") // untouched
+  })
+
+  it("createNote resolves named colors to _storedColors (family→shade-200, border, black text)", async () => {
+    const store = freshStore("b")
+    const m = new StoreMutator(store, null)
+    const { id } = await m.createNote({ content: "x", colors: { background: "amber", border: "black" } })
+    expect(stored(store, id)).toEqual({
+      backgroundColor: resolveFamilyShade("amber", 200),
+      strokeColor: "#000000",
+      textColor: "#000000",
+    })
+  })
+
+  it("createNote falls back to a random fill for an unknown color name (never throws)", async () => {
+    const store = freshStore("b")
+    const m = new StoreMutator(store, null)
+    const { id } = await m.createNote({ content: "x", colors: { background: "not-a-color" } })
+    const colors = stored(store, id)
+    expect(colors?.backgroundColor).toMatch(/^#/) // some hex, not empty
+    expect(colors?.strokeColor).toBe("#00000000") // border omitted → transparent
   })
 
   it("createLink attaches an edge at node centers with the parent layer", async () => {

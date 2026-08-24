@@ -39,6 +39,14 @@ const resolveBoardNode = (ctx: ToolContext, id: string): Node | undefined =>
   ctx.store.getNode(asNodeId(id)) ?? ctx.boardNotes?.get(id)
 
 
+// Model-facing color params — a color NAME (scheme + a few examples, not the full
+// list, so the tool schema stays lean). Resolved leniently by the mutator.
+const BG_COLOR_DESC = "Optional fill color by name: a Tailwind family (e.g. amber, sky, rose, slate, emerald) or white/black. Omit for an automatic color."
+const BORDER_COLOR_DESC = "Optional border color by name (same scheme as background). Omit for no border."
+const colorsFor = (background?: string, border?: string): { background?: string; border?: string } | undefined =>
+  background || border ? { background, border } : undefined
+
+
 export const createNote = defineTool({
   name: "create_note",
   description: "Create a note on the board with a title and optional body.",
@@ -48,9 +56,11 @@ export const createNote = defineTool({
     body: z.string().optional().describe("The note body — prose or markdown."),
     x: z.number().optional().describe("Optional x canvas position; defaults beneath existing content (auto-arranged after the turn)."),
     y: z.number().optional().describe("Optional y canvas position; defaults beneath existing content (auto-arranged after the turn)."),
+    background_color: z.string().optional().describe(BG_COLOR_DESC),
+    border_color: z.string().optional().describe(BORDER_COLOR_DESC),
   }),
-  run: async ({ id, title = "", body = "", x, y }, ctx) =>
-    mutatorFor(ctx).createNote({ id, content: body, label: title, type: "rect", x, y }),
+  run: async ({ id, title = "", body = "", x, y, background_color, border_color }, ctx) =>
+    mutatorFor(ctx).createNote({ id, content: body, label: title, type: "rect", x, y, colors: colorsFor(background_color, border_color) }),
 })
 
 
@@ -93,8 +103,10 @@ export const writeNote = defineTool({
     label: z.string().optional().describe("Optional short title, stored separately from the body."),
     note_type: z.string().optional().describe("Visual note type: rectangle | sheet | mini-app | widget."),
     note_id: z.string().optional().describe("Existing note id to fully rewrite; omit to create a new note."),
+    background_color: z.string().optional().describe(BG_COLOR_DESC),
+    border_color: z.string().optional().describe(BORDER_COLOR_DESC),
   }),
-  run: async ({ content, label, note_type, note_id }, ctx) => {
+  run: async ({ content, label, note_type, note_id, background_color, border_color }, ctx) => {
     // Validate a mini-app before persisting, so a malformed one is rejected with
     // line/col for the agent to fix this turn (not a silently-broken note).
     if (note_type === "mini-app") {
@@ -107,10 +119,11 @@ export const writeNote = defineTool({
     const spec = { content, label, type: note_type }
     const board = mutatorFor(ctx)
     // Existing note → full rewrite (NOT a creation, so the turn won't re-arrange or
-    // recenter it); otherwise create (born beneath the border, arranged post-turn).
+    // recenter it; colors are preserved); otherwise create (born beneath the border,
+    // arranged post-turn) with the requested colors.
     return note_id && ctx.store.getNode(asNodeId(note_id))
       ? board.rewriteNote(note_id, spec)
-      : board.createNote({ ...spec, id: note_id })
+      : board.createNote({ ...spec, id: note_id, colors: colorsFor(background_color, border_color) })
   },
 })
 

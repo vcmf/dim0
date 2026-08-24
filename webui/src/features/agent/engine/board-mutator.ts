@@ -13,7 +13,7 @@
 import { asEdgeId, asNodeId } from "@canvas-harness/core"
 import type { CanvasStore, Node } from "@canvas-harness/core"
 import type { DimEdgeData, DimNodeData } from "@/features/board/model"
-import { pickRandomColorOfShade } from "@/features/board/lib/colors/tailwind"
+import { FAMILIES, pickRandomColorOfShade, resolveFamilyShade } from "@/features/board/lib/colors/tailwind"
 import { AUTOFIT_DISABLED_TYPES } from "@/features/board/harness/convert/note-to-node"
 import { dim0LinkStyleToCanvas, dim0StyleToCanvas } from "@/features/board/harness/convert/style"
 import {
@@ -40,6 +40,8 @@ export type NoteSpec = {
   /** Optional explicit position; omitted → beneath the current board border. */
   x?: number
   y?: number
+  /** Optional fill / border by color NAME (a `FAMILIES` id); omitted → random fill. */
+  colors?: { background?: string; border?: string }
 }
 
 
@@ -75,6 +77,42 @@ const randomNoteColors = (): StoredColors => ({
   strokeColor: "#00000000",
   textColor: "#000000",
 })
+
+
+// The note shade the picker + agent colors use — kept fixed so black text stays
+// legible on the fill (see the plan's color decision).
+const NOTE_SHADE = 200
+
+
+/**
+ * Resolve a color NAME (a `FAMILIES` id — a Tailwind family, or the specials
+ * white / black / transparent) to a paper-adapted hex at the note shade. `null`
+ * for an unknown name, so the caller can fall back to a default.
+ */
+const resolveColorName = (name: string): string | null => {
+  const fam = FAMILIES.find((f) => f.id === name)
+  if (!fam) return null
+  if (fam.transparent) return "#00000000"
+  if (fam.fixedHex) return fam.fixedHex
+  return fam.family ? resolveFamilyShade(fam.family, NOTE_SHADE) : null
+}
+
+
+/**
+ * Build a note's stored colors from optional family-name choices, falling back to
+ * a random fill — matching the default note look (shade-200 fill, transparent
+ * border, black text). An unresolvable name is ignored (falls back), never throws.
+ */
+const resolveNoteColors = (colors?: { background?: string; border?: string }): StoredColors => {
+  const random = randomNoteColors()
+  const bg = colors?.background ? resolveColorName(colors.background) : null
+  const border = colors?.border ? resolveColorName(colors.border) : null
+  return {
+    backgroundColor: bg ?? random.backgroundColor,
+    strokeColor: border ?? random.strokeColor,
+    textColor: random.textColor,
+  }
+}
 
 
 // Default box size per canvas node type (mirrors backend get_default_note_size).
@@ -157,7 +195,7 @@ export class StoreMutator implements BoardMutator {
   async createNote(spec: NoteSpec): Promise<{ id: string; created: true }> {
     const nodeType = toNodeType(spec.type ?? "")
     const autoFitStyle = AUTOFIT_DISABLED_TYPES.has(nodeType) ? { autoFit: false } : undefined
-    const storedColors = randomNoteColors()
+    const storedColors = resolveNoteColors(spec.colors)
     const { w, h } = noteGeometry(nodeType, spec.content)
     const origin = beneathBorderOrigin(this.store)
     // Plain rectangles are painted by the lib from `style`; custom types paint via
