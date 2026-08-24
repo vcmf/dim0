@@ -294,15 +294,20 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
     <DropdownMenu open={!!menuPos} onOpenChange={(open) => { if (!open) closeMenu() }} modal={false}>
       {/* Zero-size anchor placed at the click point; Radix positions the menu
           against it (with viewport collision) while the canvas keeps its own
-          pointer events. */}
+          pointer events. Not aria-hidden: Radix makes it the menu trigger (it
+          projects focusable button semantics on), and a focusable aria-hidden
+          node is an a11y violation. */}
       <DropdownMenuTrigger asChild>
         <span
-          aria-hidden="true"
           style={{ position: "fixed", left: menuPos?.x ?? 0, top: menuPos?.y ?? 0, width: 0, height: 0 }}
         />
       </DropdownMenuTrigger>
 
       <DropdownMenuContent
+        // Re-key on the anchor point so a right-click elsewhere while the menu
+        // is already open remounts the content and re-anchors at the new point
+        // (moving the zero-size anchor's CSS position alone won't re-measure).
+        key={menuPos ? `${menuPos.x},${menuPos.y}` : undefined}
         align="start"
         side="bottom"
         sideOffset={2}
@@ -310,6 +315,9 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
         className="min-w-[200px]"
         // Don't yank focus to the invisible anchor when closing.
         onCloseAutoFocus={(e) => e.preventDefault()}
+        // The content is portaled to <body>, outside the canvas wrap whose
+        // listener suppresses the native menu — so suppress it here too.
+        onContextMenu={(e) => e.preventDefault()}
       >
         <DropdownMenuLabel className="text-muted-foreground">Position</DropdownMenuLabel>
         <DropdownMenuItem onSelect={() => handleSendBackward()}>
@@ -356,7 +364,7 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
                 <SparklesIcon className="size-4 text-secondary-foreground" weight="fill" />
                 AI
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="min-w-[190px]">
+              <DropdownMenuSubContent className="min-w-[190px]" onContextMenu={(e) => e.preventDefault()}>
                 {aiMenuActions.map((action) => {
                   const Icon = AI_SPARK_VISUALS.find((v) => v.key === action.key)?.Icon ?? SparklesIcon
                   return (
@@ -384,7 +392,7 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
                   <ChatTranslateIcon className="size-4 text-secondary-foreground" />
                   Translate
                 </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="min-w-[190px]">
+                <DropdownMenuSubContent className="min-w-[190px]" onContextMenu={(e) => e.preventDefault()}>
                   {COMMON_LANGUAGES.map((language) => (
                     <DropdownMenuItem key={language} onSelect={() => void handleTranslate(language)}>
                       {language}
