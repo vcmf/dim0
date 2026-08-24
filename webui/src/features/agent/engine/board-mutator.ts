@@ -10,8 +10,8 @@
  * off-screen, cross-layer writer) can satisfy the same interface without the tool
  * code changing.
  */
-import { asEdgeId, asNodeId } from "@canvas-harness/core"
-import type { CanvasStore, Node } from "@canvas-harness/core"
+import { asEdgeId, asNodeId, midpointToCubicControls } from "@canvas-harness/core"
+import type { CanvasStore, Node, Vec2 } from "@canvas-harness/core"
 import type { DimEdgeData, DimNodeData } from "@/features/board/model"
 import { FAMILIES, pickRandomColorOfShade, resolveFamilyShade } from "@/features/board/lib/colors/tailwind"
 import { AUTOFIT_DISABLED_TYPES } from "@/features/board/harness/convert/note-to-node"
@@ -50,6 +50,12 @@ export type LinkSpec = {
   sourceId: string
   targetId: string
   label?: string
+  /**
+   * Optional bend: a signed perpendicular offset (px) of the curve's midpoint
+   * from the straight source→target line. `+`/`−` pick the side; 0/omitted →
+   * straight. Lets the agent route a link around a node without raw coordinates.
+   */
+  curve?: number
 }
 
 
@@ -257,6 +263,27 @@ export class StoreMutator implements BoardMutator {
     this.store.batch(() => this.store.updateNode(nid, next))
   }
 
+  /**
+   * Cubic control pair for a bent link, or undefined for a straight one. Bends the
+   * midpoint of the source→target center line perpendicularly by `curve` px.
+   */
+  private curveControl(src: ReturnType<typeof asNodeId>, tgt: ReturnType<typeof asNodeId>, curve?: number): Vec2[] | undefined {
+    if (!curve) return undefined
+    const s = this.store.getNode(src)
+    const t = this.store.getNode(tgt)
+    if (!s || !t) return undefined
+    const a: Vec2 = { x: s.x + s.w / 2, y: s.y + s.h / 2 }
+    const b: Vec2 = { x: t.x + t.w / 2, y: t.y + t.h / 2 }
+    const dx = b.x - a.x
+    const dy = b.y - a.y
+    const len = Math.hypot(dx, dy)
+    if (len === 0) return undefined // coincident centers — nothing to bend
+    // Unit perpendicular to the a→b direction; +curve bends toward it.
+    const mid: Vec2 = { x: (a.x + b.x) / 2 + (-dy / len) * curve, y: (a.y + b.y) / 2 + (dx / len) * curve }
+    const { c1, c2 } = midpointToCubicControls(a, mid, b)
+    return [c1, c2]
+  }
+
   async createLink(spec: LinkSpec): Promise<{ id: string }> {
     const id = asEdgeId(this.store.generateId())
     const src = asNodeId(spec.sourceId)
@@ -268,12 +295,18 @@ export class StoreMutator implements BoardMutator {
       return node ? { x: node.w / 2, y: node.h / 2 } : { x: 0, y: 0 }
     }
     const { style, storedColors } = canonicalEdge()
+    // Optional bend: offset the straight-line midpoint perpendicularly by `curve`
+    // px, then convert that single via-point to the cubic control pair the harness
+    // renders (same midpoint→cubic math the convert layer uses). Skipped when the
+    // curve is 0/absent or either endpoint's node/geometry is unavailable.
+    const control = this.curveControl(src, tgt, spec.curve)
     this.store.batch(() => {
       this.store.addEdge({
         id,
         source: { nodeId: src, localOffset: center(src) },
         target: { nodeId: tgt, localOffset: center(tgt) },
         pathStyle: "bezier",
+        ...(control ? { control } : {}),
         groups: [],
         style,
         data: {

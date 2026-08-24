@@ -103,4 +103,32 @@ describe("StoreMutator", () => {
     expect(edge).toBeTruthy()
     expect((edge?.data as { parentId?: string } | undefined)?.parentId).toBe("folder-1")
   })
+
+  it("createLink is straight (no control points) by default", async () => {
+    const store = freshStore("b")
+    const m = new StoreMutator(store, null)
+    const a = await m.createNote({ content: "A" })
+    const c = await m.createNote({ content: "C" })
+    const { id } = await m.createLink({ sourceId: a.id, targetId: c.id })
+    const edge = store.getAllEdges().find((e) => String(e.id) === id)
+    expect(edge?.control).toBeUndefined()
+  })
+
+  it("createLink with curve sets a bent control pair off the straight midpoint", async () => {
+    const store = freshStore("b")
+    const m = new StoreMutator(store, null)
+    // Two nodes on a horizontal line so the perpendicular bend is purely vertical.
+    const a = await m.createNote({ id: "a", content: "A", x: 0, y: 0 })
+    const c = await m.createNote({ id: "c", content: "C", x: 1000, y: 0 })
+    const { id } = await m.createLink({ sourceId: a.id, targetId: c.id, curve: 80 })
+    const edge = store.getAllEdges().find((e) => String(e.id) === id)
+    expect(edge?.control).toHaveLength(2)
+    // Both nodes sit on the same horizontal center line (centerY); a straight
+    // bezier keeps its controls on that line. A +80 bend must push at least one
+    // control point strictly BELOW it (greater y), proving the curve took effect.
+    const node = store.getNode(asNodeId("a"))!
+    const centerY = node.y + node.h / 2
+    const ys = edge?.control?.map((p) => p.y) ?? []
+    expect(Math.max(...ys)).toBeGreaterThan(centerY)
+  })
 })

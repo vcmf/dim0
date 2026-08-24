@@ -90,8 +90,9 @@ export const linkNotes = defineTool({
     sourceId: z.string().describe("Exact id of the note the arrow starts from."),
     targetId: z.string().describe("Exact id of the note the arrow points to."),
     label: z.string().optional().describe("Optional short label on the edge, e.g. 'yes', 'no', 'then', 'reads', 'causes'."),
+    curve: z.number().optional().describe("Optional bend to avoid crossings: perpendicular offset in px (+/- picks the side); omit for a straight line."),
   }),
-  run: async ({ sourceId, targetId, label }, ctx) => mutatorFor(ctx).createLink({ sourceId, targetId, label }),
+  run: async ({ sourceId, targetId, label, curve }, ctx) => mutatorFor(ctx).createLink({ sourceId, targetId, label, curve }),
 })
 
 
