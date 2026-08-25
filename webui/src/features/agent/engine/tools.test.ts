@@ -279,7 +279,7 @@ describe("writeNote", () => {
 
   it("creates a note with the given id when note_id doesn't exist yet", async () => {
     const res = (await writeNote.run({ content: "b", note_id: "brand-new" }, ctx)) as { id: string; created: boolean }
-    expect(res).toEqual({ id: "brand-new", created: true })
+    expect(res).toEqual({ id: "brand-new", created: true, placed: false }) // no position → not pinned
     expect(store.getNode(asNodeId("brand-new"))).toBeDefined()
   })
 

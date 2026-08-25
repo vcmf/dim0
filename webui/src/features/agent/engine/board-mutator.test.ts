@@ -32,13 +32,52 @@ describe("StoreMutator", () => {
     expect((node?.data as DimNodeData | undefined)?.parentId).toBe("folder-1")
   })
 
-  it("createNote honors an explicit id and position", async () => {
+  it("createNote honors an explicit id and position (pinned)", async () => {
     const store = freshStore("b")
     const m = new StoreMutator(store, null)
     const res = await m.createNote({ id: "n-explicit", content: "x", x: 500, y: 640 })
     expect(res.id).toBe("n-explicit")
+    expect(res.placed).toBe(true) // explicit position → pinned (excluded from arrange)
     const node = store.getNode(asNodeId("n-explicit"))
     expect({ x: node?.x, y: node?.y }).toEqual({ x: 500, y: 640 })
+  })
+
+  it("auto placement (no position/near) is NOT pinned", async () => {
+    const store = freshStore("b")
+    const m = new StoreMutator(store, null)
+    const res = await m.createNote({ content: "x" })
+    expect(res.placed).toBe(false)
+  })
+
+  it("near places the note adjacent to its anchor and pins it", async () => {
+    const store = freshStore("b")
+    const m = new StoreMutator(store, null)
+    await m.createNote({ id: "a", content: "A", x: 100, y: 100 })
+    const anchor = store.getNode(asNodeId("a"))!
+    const res = await m.createNote({ content: "B", near: { nodeId: "a", dir: "right", gap: 40 } })
+    expect(res.placed).toBe(true)
+    const b = store.getNode(asNodeId(res.id))!
+    expect(b.x).toBe(anchor.x + anchor.w + 40) // right edge + gap
+  })
+
+  it("near nudges past an occupying note, staying on the requested side", async () => {
+    const store = freshStore("b")
+    const m = new StoreMutator(store, null)
+    await m.createNote({ id: "a", content: "A", x: 0, y: 0 })
+    const anchor = store.getNode(asNodeId("a"))!
+    // Blocker sits exactly where "right of A" would land.
+    await m.createNote({ id: "blk", content: "B", x: anchor.x + anchor.w + 40, y: 0 })
+    const blk = store.getNode(asNodeId("blk"))!
+    const res = await m.createNote({ content: "C", near: { nodeId: "a", dir: "right", gap: 40 } })
+    const c = store.getNode(asNodeId(res.id))!
+    expect(c.x).toBeGreaterThanOrEqual(blk.x + blk.w) // pushed past the blocker
+  })
+
+  it("near falls back to auto placement when the anchor is missing", async () => {
+    const store = freshStore("b")
+    const m = new StoreMutator(store, null)
+    const res = await m.createNote({ content: "x", near: { nodeId: "ghost", dir: "right" } })
+    expect(res.placed).toBe(false)
   })
 
   it("rewriteNote replaces content + label of an existing note (created:false)", async () => {

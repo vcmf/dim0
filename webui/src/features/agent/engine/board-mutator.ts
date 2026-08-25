@@ -32,15 +32,25 @@ import { beneathBorderOrigin } from "@/features/board/harness/agent/beneath-bord
 import { estimateNoteSize } from "./note-size"
 
 
+/** Which side of an anchor note to place a new note on. */
+export type NearDir = "above" | "below" | "left" | "right"
+
+
 /** A note to create or fully rewrite. `type` is the prompt-level note_type. */
 export type NoteSpec = {
   id?: string
   content: string
   label?: string
   type?: string
-  /** Optional explicit position; omitted → beneath the current board border. */
+  /** Explicit position (the raw escape hatch); omitted → auto/near. Pins the note. */
   x?: number
   y?: number
+  /**
+   * Relational placement next to an existing note (preferred over raw x/y): the
+   * new note is placed on `dir` side of `nodeId`, `gap` px away, nudged along
+   * `dir` to avoid overlap. Pins the note (excluded from post-turn auto-arrange).
+   */
+  near?: { nodeId: string; dir: NearDir; gap?: number }
   /** Optional fill / border by color NAME (a `FAMILIES` id); omitted → random fill. */
   colors?: { background?: string; border?: string }
 }
@@ -59,7 +69,8 @@ export type LinkSpec = {
  * the signature; the impl decides how the write reaches persistence + sync.
  */
 export interface BoardMutator {
-  createNote(spec: NoteSpec): Promise<{ id: string; created: true }>
+  /** `placed` = pinned at an explicit/relational position (exclude from arrange). */
+  createNote(spec: NoteSpec): Promise<{ id: string; created: true; placed: boolean }>
   rewriteNote(id: string, spec: NoteSpec): Promise<{ id: string; created: boolean }>
   patchNote(id: string, patch: { content?: string; label?: string }): Promise<void>
   createLink(spec: LinkSpec): Promise<{ id: string }>
@@ -138,6 +149,45 @@ const resolveNoteColors = (colors: NoteSpec["colors"], nodeType: string): Stored
 // Custom (non-rect) types whose view paints a background from the node style, so
 // an agent-set color should be projected onto `style` (not just stored).
 const COLORABLE_CUSTOM_TYPES = new Set(["sheet"])
+
+
+// Gap (px) between a relationally-placed note and its anchor when not specified.
+const NEAR_GAP = 48
+
+
+type Box = { x: number; y: number; w: number; h: number }
+type XYWH = { x: number; y: number; w: number; h: number }
+
+
+/** AABB overlap test. */
+const overlapsBox = (a: Box, n: XYWH): boolean =>
+  a.x < n.x + n.w && a.x + a.w > n.x && a.y < n.y + n.h && a.y + a.h > n.y
+
+
+/** Initial box for a note placed on `dir` side of `anchor`, centered on the
+ *  perpendicular axis, `gap` px away. */
+const adjacentBox = (anchor: XYWH, dir: NearDir, gap: number, w: number, h: number): Box => {
+  const cx = anchor.x + anchor.w / 2
+  const cy = anchor.y + anchor.h / 2
+  switch (dir) {
+    case "right": return { x: anchor.x + anchor.w + gap, y: cy - h / 2, w, h }
+    case "left": return { x: anchor.x - gap - w, y: cy - h / 2, w, h }
+    case "below": return { x: cx - w / 2, y: anchor.y + anchor.h + gap, w, h }
+    case "above": return { x: cx - w / 2, y: anchor.y - gap - h, w, h }
+  }
+}
+
+
+/** Push `box` just past the given blockers along `dir` (+ gap) — the local nudge
+ *  that keeps a relational placement collision-free without leaving the direction. */
+const pushPast = (box: Box, dir: NearDir, hits: XYWH[], gap: number): Box => {
+  switch (dir) {
+    case "right": return { ...box, x: Math.max(...hits.map((n) => n.x + n.w)) + gap }
+    case "left": return { ...box, x: Math.min(...hits.map((n) => n.x)) - gap - box.w }
+    case "below": return { ...box, y: Math.max(...hits.map((n) => n.y + n.h)) + gap }
+    case "above": return { ...box, y: Math.min(...hits.map((n) => n.y)) - gap - box.h }
+  }
+}
 
 
 /**
@@ -250,12 +300,12 @@ export class StoreMutator implements BoardMutator {
     this.rootId = rootId
   }
 
-  async createNote(spec: NoteSpec): Promise<{ id: string; created: true }> {
+  async createNote(spec: NoteSpec): Promise<{ id: string; created: true; placed: boolean }> {
     const nodeType = toNodeType(spec.type ?? "")
     const autoFitStyle = AUTOFIT_DISABLED_TYPES.has(nodeType) ? { autoFit: false } : undefined
     const storedColors = resolveNoteColors(spec.colors, nodeType)
     const { w, h } = noteGeometry(nodeType, spec.content)
-    const origin = beneathBorderOrigin(this.store)
+    const { x, y, placed } = this.placeNote(spec, w, h)
     // Plain rectangles are painted by the lib from `style`. A colorable custom
     // type (sheet) whose FILL was explicitly set gets it projected onto `style`
     // so its own view honors it; other custom types paint via their own view and
@@ -271,8 +321,8 @@ export class StoreMutator implements BoardMutator {
       this.store.addNode({
         id,
         type: nodeType,
-        x: spec.x ?? origin.x,
-        y: spec.y ?? origin.y,
+        x,
+        y,
         w,
         h,
         angle: 0,
@@ -287,7 +337,41 @@ export class StoreMutator implements BoardMutator {
         } satisfies DimNodeData,
       })
     })
-    return { id: String(id), created: true }
+    return { id: String(id), created: true, placed }
+  }
+
+  /**
+   * Resolve a new note's position and whether it is *pinned* (placed at an
+   * explicit/relational spot → excluded from the post-turn auto-arrange):
+   *  - `near` → relational: adjacent to the anchor, nudged along `dir` to avoid
+   *    overlap (falls back to auto if the anchor is gone).
+   *  - explicit `x`+`y` → verbatim, no collision avoidance.
+   *  - neither → auto: beneath the current board border (arranged after the turn).
+   */
+  private placeNote(spec: NoteSpec, w: number, h: number): { x: number; y: number; placed: boolean } {
+    if (spec.near) {
+      const p = this.nearPosition(spec.near, w, h)
+      if (p) return { ...p, placed: true }
+    }
+    if (spec.x !== undefined && spec.y !== undefined) return { x: spec.x, y: spec.y, placed: true }
+    const origin = beneathBorderOrigin(this.store)
+    return { x: origin.x, y: origin.y, placed: false }
+  }
+
+  /** Relational anchor placement + local overlap nudge; null if the anchor is gone. */
+  private nearPosition(near: NonNullable<NoteSpec["near"]>, w: number, h: number): { x: number; y: number } | null {
+    const anchor = this.store.getNode(asNodeId(near.nodeId))
+    if (!anchor) return null
+    const gap = near.gap ?? NEAR_GAP
+    const others = this.store.getAllNodes().filter((n) => n.id !== anchor.id)
+    let box = adjacentBox(anchor, near.dir, gap, w, h)
+    // Step past overlaps ALONG dir (bounded) so the note lands where asked, clear.
+    for (let i = 0; i < 64; i += 1) {
+      const hits = others.filter((n) => overlapsBox(box, n))
+      if (hits.length === 0) break
+      box = pushPast(box, near.dir, hits, gap)
+    }
+    return { x: box.x, y: box.y }
   }
 
   /**

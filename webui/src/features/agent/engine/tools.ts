@@ -47,6 +47,19 @@ const colorsFor = (background?: string, border?: string): { background?: string;
   background || border ? { background, border } : undefined
 
 
+// Relational placement — the LLM-friendly alternative to raw coordinates.
+const NEAR_DESC = "Place next to an existing note instead of auto-placing: give its node_id and a direction. Nudged to avoid overlap, staying on that side. Prefer this over raw x/y. Omit for automatic tidy placement."
+const NEAR_SCHEMA = z.object({
+  node_id: z.string().describe("Id of the existing note to anchor to."),
+  dir: z.enum(["above", "below", "left", "right"]).describe("Which side of the anchor to place on."),
+  gap: z.number().optional().describe("Px gap from the anchor; defaults to a small gap."),
+})
+const nearFor = (
+  near?: { node_id: string; dir: "above" | "below" | "left" | "right"; gap?: number },
+): { nodeId: string; dir: "above" | "below" | "left" | "right"; gap?: number } | undefined =>
+  near ? { nodeId: near.node_id, dir: near.dir, gap: near.gap } : undefined
+
+
 export const createNote = defineTool({
   name: "create_note",
   description: "Create a note on the board with a title and optional body.",
@@ -58,9 +71,10 @@ export const createNote = defineTool({
     y: z.number().optional().describe("Optional y canvas position; defaults beneath existing content (auto-arranged after the turn)."),
     background_color: z.string().optional().describe(BG_COLOR_DESC),
     border_color: z.string().optional().describe(BORDER_COLOR_DESC),
+    near: NEAR_SCHEMA.optional().describe(NEAR_DESC),
   }),
-  run: async ({ id, title = "", body = "", x, y, background_color, border_color }, ctx) =>
-    mutatorFor(ctx).createNote({ id, content: body, label: title, type: "rect", x, y, colors: colorsFor(background_color, border_color) }),
+  run: async ({ id, title = "", body = "", x, y, background_color, border_color, near }, ctx) =>
+    mutatorFor(ctx).createNote({ id, content: body, label: title, type: "rect", x, y, near: nearFor(near), colors: colorsFor(background_color, border_color) }),
 })
 
 
@@ -105,8 +119,9 @@ export const writeNote = defineTool({
     note_id: z.string().optional().describe("Existing note id to fully rewrite; omit to create a new note."),
     background_color: z.string().optional().describe(BG_COLOR_DESC),
     border_color: z.string().optional().describe(BORDER_COLOR_DESC),
+    near: NEAR_SCHEMA.optional().describe(NEAR_DESC),
   }),
-  run: async ({ content, label, note_type, note_id, background_color, border_color }, ctx) => {
+  run: async ({ content, label, note_type, note_id, background_color, border_color, near }, ctx) => {
     const existing = note_id ? ctx.store.getNode(asNodeId(note_id)) : undefined
     // Validate a mini-app before persisting, so a malformed one is rejected with
     // line/col for the agent to fix this turn (not a silently-broken note). Key off
@@ -120,7 +135,7 @@ export const writeNote = defineTool({
       }
     }
 
-    const spec = { content, label, type: note_type, colors: colorsFor(background_color, border_color) }
+    const spec = { content, label, type: note_type, near: nearFor(near), colors: colorsFor(background_color, border_color) }
     const board = mutatorFor(ctx)
     if (note_id) {
       // In the current layer → full rewrite (NOT a creation; the turn won't

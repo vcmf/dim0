@@ -273,6 +273,9 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
       }
 
       const createdNodeIds: string[] = []
+      // Subset of createdNodeIds to auto-arrange: excludes notes the agent PINNED
+      // at an explicit/relational position (result.placed), so `near`/x-y survive.
+      const arrangeNodeIds: string[] = []
       // Coalesce token-delta repaints to ~10fps (shared with the backend-agent
       // stream builder). Structural events (tool start/result) force an
       // immediate repaint; the final frame below always flushes.
@@ -383,7 +386,9 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
             ev.result && typeof ev.result === "object" && "id" in ev.result &&
             (ev.result as { created?: unknown }).created === true
           ) {
-            createdNodeIds.push(String((ev.result as { id: unknown }).id))
+            const id = String((ev.result as { id: unknown }).id)
+            createdNodeIds.push(id)
+            if ((ev.result as { placed?: unknown }).placed !== true) arrangeNodeIds.push(id)
           }
           const now = Date.now()
           // Token streams (assistant_text AND reasoning) ride the ~10fps throttle;
@@ -414,7 +419,8 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
         }
         render(false)
         // Post-turn arrange (frontend analog of backend rearrange_created_notes).
-        await arrangeCreatedNodes(store, createdNodeIds)
+        // Only auto-placed notes — pinned (near/explicit) ones keep their spot.
+        await arrangeCreatedNodes(store, arrangeNodeIds)
         // Recenter the canvas on the freshly created nodes — parity with the
         // online path's `?center=` navigation, which useCenterFromUrl reads to
         // fit the union rect (zoom-capped) and select them.
