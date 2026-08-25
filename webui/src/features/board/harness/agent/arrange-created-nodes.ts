@@ -245,10 +245,13 @@ export const arrangeNodesInPlace = async (store: CanvasStore, ids: string[]): Pr
   const positions = await layoutNodes(store, ids)
   if (positions.size === 0) return 0
 
-  const laid = [...positions.entries()].map(([id, p]) => {
-    const n = store.getNode(asNodeId(id))!
-    return { id, x: p.x, y: p.y, w: n.w, h: n.h, curX: n.x, curY: n.y }
+  // Re-read nodes after the await; drop any removed concurrently (sync/user delete)
+  // so the write-back can't throw on a missing node.
+  const laid = [...positions.entries()].flatMap(([id, p]) => {
+    const n = store.getNode(asNodeId(id))
+    return n ? [{ id, x: p.x, y: p.y, w: n.w, h: n.h, curX: n.x, curY: n.y }] : []
   })
+  if (laid.length === 0) return 0
   const laidCenter = bboxCenter(laid)
   const curCenter = bboxCenter(laid.map((n) => ({ x: n.curX, y: n.curY, w: n.w, h: n.h })))
   const dx = curCenter.x - laidCenter.x

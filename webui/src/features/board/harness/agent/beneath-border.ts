@@ -38,8 +38,14 @@ export const originBeneath = (nodes: ReadonlyArray<Box>): XY => {
  */
 export const offsetToOrigin = (cluster: ReadonlyArray<XY>, origin: XY): XY => {
   if (cluster.length === 0) return { x: 0, y: 0 }
-  const minX = Math.min(...cluster.map((n) => n.x))
-  const minY = Math.min(...cluster.map((n) => n.y))
+  // Reduce (not Math.min spread) — a cluster can be large (whole-board arrange),
+  // and spreading thousands of args risks a call-argument-limit RangeError.
+  let minX = Infinity
+  let minY = Infinity
+  for (const n of cluster) {
+    if (n.x < minX) minX = n.x
+    if (n.y < minY) minY = n.y
+  }
   return { x: origin.x - minX, y: origin.y - minY }
 }
 

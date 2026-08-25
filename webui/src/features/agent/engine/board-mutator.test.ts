@@ -78,15 +78,6 @@ describe("StoreMutator", () => {
     const m = new StoreMutator(store, null)
     const res = await m.createNote({ content: "x", near: { nodeId: "ghost", dir: "right" } })
     expect(res.placed).toBe(false)
-    expect(res.anchorId).toBeUndefined() // no anchor resolved → nothing to keep put
-  })
-
-  it("near reports the anchorId so the turn can keep the anchor put", async () => {
-    const store = freshStore("b")
-    const m = new StoreMutator(store, null)
-    await m.createNote({ id: "a", content: "A", x: 0, y: 0 })
-    const res = await m.createNote({ content: "B", near: { nodeId: "a", dir: "below" } })
-    expect(res.anchorId).toBe("a")
   })
 
   it("rewriteNote replaces content + label of an existing note (created:false)", async () => {

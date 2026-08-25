@@ -196,6 +196,14 @@ describe("linkNotes", () => {
     expect((store.getAllEdges()[0].data as { parentId?: string }).parentId).toBe("folder-1")
   })
 
+  it("errors (no dangling edge) when an endpoint note doesn't exist", async () => {
+    seed(store, "a")
+    const before = store.getAllEdges().length
+    const res = (await linkNotes.run({ sourceId: "a", targetId: "ghost" }, ctx)) as { error?: string }
+    expect(res.error).toMatch(/not found/)
+    expect(store.getAllEdges().length).toBe(before) // nothing created
+  })
+
   it("stamps a canonical edge style so the live edge matches the reloaded one", async () => {
     // Regression: a live edge with no `style` fell back to the lib defaults and
     // looked rougher until reload. The convert layer sets a filled arrowhead.
@@ -359,6 +367,13 @@ describe("arrangeNotes", () => {
     seed(store, "b", { content: "b" })
     const res = (await arrangeNotes.run({}, ctx)) as { arranged: number }
     expect(res.arranged).toBe(2)
+  })
+
+  it("refuses to arrange too many notes at once (whole-board cap)", async () => {
+    for (let i = 0; i < 61; i += 1) seed(store, `n${i}`, { content: `${i}` })
+    const res = (await arrangeNotes.run({}, ctx)) as { error?: string; arranged?: number }
+    expect(res.error).toMatch(/Too many notes/)
+    expect(res.arranged).toBeUndefined()
   })
 })
 

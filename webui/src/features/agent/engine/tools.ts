@@ -106,7 +106,14 @@ export const linkNotes = defineTool({
     targetId: z.string().describe("Exact id of the note the arrow points to."),
     label: z.string().optional().describe("Optional short label on the edge, e.g. 'yes', 'no', 'then', 'reads', 'causes'."),
   }),
-  run: async ({ sourceId, targetId, label }, ctx) => mutatorFor(ctx).createLink({ sourceId, targetId, label }),
+  run: async ({ sourceId, targetId, label }, ctx) => {
+    // Both endpoints must exist in the current layer (edges are layer-scoped) —
+    // otherwise the edge would dangle at (0,0) on a phantom node. Fail clearly.
+    if (!ctx.store.getNode(asNodeId(sourceId)) || !ctx.store.getNode(asNodeId(targetId))) {
+      return { error: "link_notes: source or target note not found in the current board." }
+    }
+    return mutatorFor(ctx).createLink({ sourceId, targetId, label })
+  },
 })
 
 
@@ -152,15 +159,23 @@ export const writeNote = defineTool({
 })
 
 
+// Cap the whole-view arrange so a huge board isn't mass-relocated / re-laid-out on
+// the hot agent path in one shot. Prefer targeting a specific cluster via note_ids.
+const MAX_ARRANGE = 60
+
+
 export const arrangeNotes = defineTool({
   name: "arrange_notes",
   description:
-    "Tidy notes into a clean auto-arranged layout. Pass note_ids to arrange just those (kept centered where they are); omit to tidy the whole current board/folder. Use after creating or editing notes that ended up cluttered or overlapping.",
+    "Tidy notes into a clean auto-arranged layout, kept centered where they already sit. Prefer passing note_ids to arrange a specific cluster; omitting them re-lays-out the whole current board/folder (capped). Use after creating or editing notes that ended up cluttered or overlapping.",
   parameters: z.object({
-    note_ids: z.array(z.string()).optional().describe("Ids of notes to arrange; omit to arrange all notes in the current view."),
+    note_ids: z.array(z.string()).optional().describe("Ids of the notes to arrange (a cluster). Omit to arrange all notes in the current view."),
   }),
   run: async ({ note_ids }, ctx) => {
     const ids = note_ids && note_ids.length > 0 ? note_ids : ctx.store.getAllNodes().map((n) => String(n.id))
+    if (ids.length > MAX_ARRANGE) {
+      return { error: `Too many notes to arrange at once (${ids.length}). Pass a note_ids set for the specific cluster to tidy.` }
+    }
     const arranged = await arrangeNodesInPlace(ctx.store, ids)
     return { arranged }
   },
