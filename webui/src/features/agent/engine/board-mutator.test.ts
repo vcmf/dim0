@@ -60,6 +60,23 @@ describe("StoreMutator", () => {
     expect(body(store, "ghost")).toBe("born here")
   })
 
+  it("rewriteNote preserves the existing type when note_type is omitted", async () => {
+    const store = freshStore("b")
+    const m = new StoreMutator(store, null)
+    const { id } = await m.createNote({ content: "x", type: "sheet" })
+    expect(store.getNode(asNodeId(id))?.type).toBe("sheet")
+    await m.rewriteNote(id, { content: "rewritten" }) // no type → must stay a sheet
+    expect(store.getNode(asNodeId(id))?.type).toBe("sheet")
+  })
+
+  it("rewriteNote recolors an existing note when a color is passed", async () => {
+    const store = freshStore("b")
+    const m = new StoreMutator(store, null)
+    const { id } = await m.createNote({ content: "x" })
+    await m.rewriteNote(id, { content: "x", colors: { background: "amber" } })
+    expect(stored(store, id)?.backgroundColor).toBe(resolveFamilyShade("amber", 200))
+  })
+
   it("patchNote updates only the fields provided", async () => {
     const store = freshStore("b")
     const m = new StoreMutator(store, null)

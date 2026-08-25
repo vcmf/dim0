@@ -116,14 +116,18 @@ export const writeNote = defineTool({
       }
     }
 
-    const spec = { content, label, type: note_type }
+    const spec = { content, label, type: note_type, colors: colorsFor(background_color, border_color) }
     const board = mutatorFor(ctx)
-    // Existing note → full rewrite (NOT a creation, so the turn won't re-arrange or
-    // recenter it; colors are preserved); otherwise create (born beneath the border,
-    // arranged post-turn) with the requested colors.
-    return note_id && ctx.store.getNode(asNodeId(note_id))
-      ? board.rewriteNote(note_id, spec)
-      : board.createNote({ ...spec, id: note_id, colors: colorsFor(background_color, border_color) })
+    if (note_id) {
+      // In the current layer → full rewrite (NOT a creation; the turn won't
+      // re-arrange/recenter it). Existing but in ANOTHER folder → refuse rather
+      // than create a colliding duplicate (cross-folder writes aren't supported
+      // yet). Nowhere → a brand-new note with this explicit id.
+      if (ctx.store.getNode(asNodeId(note_id))) return board.rewriteNote(note_id, spec)
+      if (resolveBoardNode(ctx, note_id)) return { error: "That note is in another folder. Open that folder before editing it." }
+      return board.createNote({ ...spec, id: note_id })
+    }
+    return board.createNote(spec)
   },
 })
 
@@ -161,7 +165,14 @@ export const editNote = defineTool({
   }),
   run: async ({ note_id, field, old, new: replacement, replace_all }, ctx) => {
     const node = ctx.store.getNode(asNodeId(note_id))
-    if (!node) return { error: "note not found" }
+    if (!node) {
+      // A cross-folder note (resolvable whole-board but not in this layer) can't be
+      // edited from here yet — say so, consistent with write_note, instead of a
+      // bare "not found".
+      return resolveBoardNode(ctx, note_id)
+        ? { error: "That note is in another folder. Open that folder before editing it." }
+        : { error: "note not found" }
+    }
 
     // Compute the replacement here (tool logic); the write goes through the port.
     const prev = node.data as DimNodeData | undefined

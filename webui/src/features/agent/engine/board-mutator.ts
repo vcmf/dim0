@@ -262,20 +262,50 @@ export class StoreMutator implements BoardMutator {
     return { id: String(id), created: true }
   }
 
+  /**
+   * Project stored colors onto a style for a colorable type (rect / sheet),
+   * theme-adapted. `baseStyle` is the style to fold the colors into (the
+   * canonical rect base on create, the existing node style on recolor).
+   */
+  private colorStyle(nodeType: string, storedColors: StoredColors, baseStyle: Record<string, unknown>, autoFitStyle?: { autoFit: boolean }): Record<string, unknown> {
+    const mode = getBoardThemeMode()
+    const display = mode === "dark" ? adaptNodeColors(storedColors, "dark") : storedColors
+    if (nodeType === "rect") return { ...applyColorsToStyle(baseStyle, display), ...(autoFitStyle ?? {}) }
+    return applyColorsToStyle({ ...baseStyle, ...(autoFitStyle ?? {}) }, display) // colorable custom (sheet)
+  }
+
   async rewriteNote(id: string, spec: NoteSpec): Promise<{ id: string; created: boolean }> {
     const nid = asNodeId(id)
     const node = this.store.getNode(nid)
     // No such node → treat as a create with this id (mirrors write_note fallthrough).
     if (!node) return this.createNote({ ...spec, id })
-    const nodeType = toNodeType(spec.type ?? "")
+    // Preserve the existing type when the caller didn't ask to change it — a bare
+    // body rewrite must NOT silently convert a sheet / mini-app into a rectangle.
+    const nodeType = spec.type ? toNodeType(spec.type) : node.type
     const autoFitStyle = AUTOFIT_DISABLED_TYPES.has(nodeType) ? { autoFit: false } : undefined
     const prev = node.data as DimNodeData | undefined
+    const hasColor = !!(spec.colors?.background || spec.colors?.border)
+
+    const data: DimNodeData = {
+      ...prev,
+      label: spec.label ? { markdown: spec.label } : (prev?.label ?? { markdown: "" }),
+      meta: meta(),
+    } as DimNodeData
+    // Default: keep the existing style (+ autoFit for custom types). Recolor only
+    // when the caller passed a color, re-projecting onto the current style.
+    let style: Record<string, unknown> | undefined = autoFitStyle ? { ...(node.style ?? {}), ...autoFitStyle } : undefined
+    if (hasColor && (nodeType === "rect" || COLORABLE_CUSTOM_TYPES.has(nodeType))) {
+      const storedColors = resolveNoteColors(spec.colors, nodeType)
+      data._storedColors = storedColors
+      style = this.colorStyle(nodeType, storedColors, node.style ?? {}, autoFitStyle)
+    }
+
     this.store.batch(() =>
       this.store.updateNode(nid, {
         type: nodeType,
         content: spec.content,
-        data: { ...prev, label: spec.label ? { markdown: spec.label } : (prev?.label ?? { markdown: "" }), meta: meta() },
-        ...(autoFitStyle ? { style: { ...(node.style ?? {}), ...autoFitStyle } } : {}),
+        data,
+        ...(style ? { style } : {}),
       }),
     )
     return { id: String(nid), created: false }
