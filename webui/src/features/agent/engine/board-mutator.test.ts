@@ -77,6 +77,26 @@ describe("StoreMutator", () => {
     expect(stored(store, id)?.backgroundColor).toBe(resolveFamilyShade("amber", 200))
   })
 
+  it("rewriteNote recolors a sheet at the light shade and projects it onto style", async () => {
+    const store = freshStore("b")
+    const m = new StoreMutator(store, null)
+    const { id } = await m.createNote({ content: "x", type: "sheet" })
+    await m.rewriteNote(id, { content: "x", colors: { background: "sky" } }) // type preserved → sheet
+    expect(stored(store, id)?.backgroundColor).toBe(resolveFamilyShade("sky", 100))
+    expect(store.getNode(asNodeId(id))?.style?.backgroundColor).toBeTruthy()
+  })
+
+  it("resolves the transparent and white specials (transparent fill → black text)", async () => {
+    const store = freshStore("b")
+    const m = new StoreMutator(store, null)
+    const t = await m.createNote({ content: "x", colors: { background: "transparent" } })
+    expect(stored(store, t.id)?.backgroundColor).toBe("#00000000")
+    expect(stored(store, t.id)?.textColor).toBe("#000000") // transparent sits on the light board
+    const w = await m.createNote({ content: "x", colors: { background: "white" } })
+    expect(stored(store, w.id)?.backgroundColor).toBe("#ffffff")
+    expect(stored(store, w.id)?.textColor).toBe("#000000")
+  })
+
   it("patchNote updates only the fields provided", async () => {
     const store = freshStore("b")
     const m = new StoreMutator(store, null)

@@ -303,6 +303,16 @@ describe("writeNote", () => {
     expect(store.getAllNodes().length).toBe(before) // no duplicate node created
   })
 
+  it("edit_note refuses a note that lives in another folder (consistent with write_note)", async () => {
+    const other = {
+      id: asNodeId("other"), type: "rect", x: 0, y: 0, w: 100, h: 50, angle: 0, z: 0, groups: [],
+      content: "body", data: { label: { markdown: "E" }, meta: { v: 1, createdAt: 0, updatedAt: 0 } },
+    } as unknown as Node
+    const c = { store, rootId: null, boardNotes: new Map([["other", other]]) } as unknown as ToolContext
+    const res = (await editNote.run({ note_id: "other", field: "content", old: "body", new: "x" }, c)) as { error?: string }
+    expect(res.error).toMatch(/another folder/)
+  })
+
   it("rejects an invalid mini-app without creating a node", async () => {
     const before = store.getAllNodes().length
     const res = (await writeNote.run({ content: "const x = 1", note_type: "mini-app" }, ctx)) as { error?: string }
