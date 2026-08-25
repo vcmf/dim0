@@ -107,9 +107,13 @@ export const writeNote = defineTool({
     border_color: z.string().optional().describe(BORDER_COLOR_DESC),
   }),
   run: async ({ content, label, note_type, note_id, background_color, border_color }, ctx) => {
+    const existing = note_id ? ctx.store.getNode(asNodeId(note_id)) : undefined
     // Validate a mini-app before persisting, so a malformed one is rejected with
-    // line/col for the agent to fix this turn (not a silently-broken note).
-    if (note_type === "mini-app") {
+    // line/col for the agent to fix this turn (not a silently-broken note). Key off
+    // the RESULTING type: an explicit mini-app, OR a bare rewrite of an existing
+    // mini-app (rewriteNote preserves the type when note_type is omitted).
+    const willBeMiniApp = note_type === "mini-app" || (!note_type && existing?.type === "mini-app")
+    if (willBeMiniApp) {
       const v = validateMiniAppSource(content)
       if (!v.ok) {
         return { error: `mini-app invalid: ${v.message}${v.line ? ` (line ${v.line}:${v.column})` : ""}` }
@@ -123,7 +127,7 @@ export const writeNote = defineTool({
       // re-arrange/recenter it). Existing but in ANOTHER folder → refuse rather
       // than create a colliding duplicate (cross-folder writes aren't supported
       // yet). Nowhere → a brand-new note with this explicit id.
-      if (ctx.store.getNode(asNodeId(note_id))) return board.rewriteNote(note_id, spec)
+      if (existing) return board.rewriteNote(note_id, spec)
       if (resolveBoardNode(ctx, note_id)) return { error: "That note is in another folder. Open that folder before editing it." }
       return board.createNote({ ...spec, id: note_id })
     }

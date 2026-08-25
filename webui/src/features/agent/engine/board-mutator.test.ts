@@ -86,6 +86,25 @@ describe("StoreMutator", () => {
     expect(store.getNode(asNodeId(id))?.style?.backgroundColor).toBeTruthy()
   })
 
+  it("recolor overrides only the named channel, preserving the others", async () => {
+    const store = freshStore("b")
+    const m = new StoreMutator(store, null)
+    const { id } = await m.createNote({ content: "x", colors: { background: "amber" } })
+    const bgBefore = stored(store, id)?.backgroundColor
+    await m.rewriteNote(id, { content: "x", colors: { border: "black" } }) // border only
+    const after = stored(store, id)
+    expect(after?.backgroundColor).toBe(bgBefore) // fill preserved, not randomized
+    expect(after?.strokeColor).toBe("#000000") // border applied
+  })
+
+  it("a border-only color on a sheet does not project a (random) background", async () => {
+    const store = freshStore("b")
+    const m = new StoreMutator(store, null)
+    const { id } = await m.createNote({ content: "x", type: "sheet", colors: { border: "black" } })
+    // Sheets honor only a fill tint; a border-only request must not paint style.
+    expect(store.getNode(asNodeId(id))?.style?.backgroundColor).toBeUndefined()
+  })
+
   it("resolves the transparent and white specials (transparent fill → black text)", async () => {
     const store = freshStore("b")
     const m = new StoreMutator(store, null)

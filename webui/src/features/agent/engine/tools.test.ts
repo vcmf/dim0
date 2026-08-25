@@ -328,6 +328,19 @@ describe("writeNote", () => {
     expect(res.error).toBeUndefined()
     expect(store.getNode(asNodeId(res.id!))?.type).toBe("mini-app")
   })
+
+  it("validates a bare rewrite of an existing mini-app (note_type omitted)", async () => {
+    const made = (await writeNote.run(
+      { content: "function Widget() { return <div>hi</div> }", note_type: "mini-app" },
+      ctx,
+    )) as { id: string }
+    // No note_type → rewriteNote preserves the mini-app type, so the invalid
+    // source must still be caught (regression guard for the type-preserve fix).
+    const res = (await writeNote.run({ content: "const x =", note_id: made.id }, ctx)) as { error?: string }
+    expect(res.error).toMatch(/mini-app invalid/)
+    // Original source left intact (rejected before the write).
+    expect(store.getNode(asNodeId(made.id))?.content).toBe("function Widget() { return <div>hi</div> }")
+  })
 })
 
 

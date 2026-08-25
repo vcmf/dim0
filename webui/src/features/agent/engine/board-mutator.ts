@@ -140,6 +140,39 @@ const resolveNoteColors = (colors: NoteSpec["colors"], nodeType: string): Stored
 const COLORABLE_CUSTOM_TYPES = new Set(["sheet"])
 
 
+/**
+ * Whether a color request actually affects this node type — and thus should be
+ * applied. Rectangles honor fill + border; sheets honor only a background tint
+ * (no border in their view), so a border-only request on a sheet is a no-op and
+ * must NOT trigger a (random) fill; other types ignore color entirely.
+ */
+const colorTargets = (nodeType: string, colors: NoteSpec["colors"]): boolean => {
+  if (nodeType === "rect") return !!(colors?.background || colors?.border)
+  if (COLORABLE_CUSTOM_TYPES.has(nodeType)) return !!colors?.background
+  return false
+}
+
+
+/**
+ * Recolor an EXISTING note: override only the channels the caller named,
+ * preserving the note's other stored colors (and its text unless the fill
+ * changed). Unlike `resolveNoteColors` (create), this never randomizes an
+ * unspecified channel.
+ */
+const mergeNoteColors = (existing: StoredColors | undefined, colors: NoteSpec["colors"], nodeType: string): StoredColors => {
+  const shade = shadeForType(nodeType)
+  const base = existing ?? randomNoteColors()
+  const bg = colors?.background ? resolveColorName(colors.background, shade) : null
+  const border = colors?.border ? resolveColorName(colors.border, shade) : null
+  const backgroundColor = bg ?? base.backgroundColor
+  return {
+    backgroundColor,
+    strokeColor: border ?? base.strokeColor,
+    textColor: bg ? textColorFor(backgroundColor) : (base.textColor ?? textColorFor(backgroundColor)),
+  }
+}
+
+
 // Default box size per canvas node type (mirrors backend get_default_note_size).
 const DEFAULT_SIZE: Record<string, { w: number; h: number }> = {
   rect: { w: 320, h: 180 },
@@ -223,21 +256,16 @@ export class StoreMutator implements BoardMutator {
     const storedColors = resolveNoteColors(spec.colors, nodeType)
     const { w, h } = noteGeometry(nodeType, spec.content)
     const origin = beneathBorderOrigin(this.store)
-    const hasColor = !!(spec.colors?.background || spec.colors?.border)
     // Plain rectangles are painted by the lib from `style`. A colorable custom
-    // type (sheet) whose color was explicitly set gets the color projected onto
-    // its `style` so its own view honors it; other custom types paint via their
-    // own view and only need autoFit disabled at birth.
-    let style: Record<string, unknown> | undefined
-    if (nodeType === "rect") {
-      style = { ...canonicalNodeStyle(storedColors), ...(autoFitStyle ?? {}) }
-    } else if (hasColor && COLORABLE_CUSTOM_TYPES.has(nodeType)) {
-      const mode = getBoardThemeMode()
-      const display = mode === "dark" ? adaptNodeColors(storedColors, "dark") : storedColors
-      style = applyColorsToStyle(autoFitStyle ?? {}, display)
-    } else {
-      style = autoFitStyle
-    }
+    // type (sheet) whose FILL was explicitly set gets it projected onto `style`
+    // so its own view honors it; other custom types paint via their own view and
+    // only need autoFit disabled at birth.
+    const style: Record<string, unknown> | undefined =
+      nodeType === "rect"
+        ? { ...canonicalNodeStyle(storedColors), ...(autoFitStyle ?? {}) }
+        : colorTargets(nodeType, spec.colors)
+          ? this.colorStyle(nodeType, storedColors, {}, autoFitStyle)
+          : autoFitStyle
     const id = asNodeId(spec.id || this.store.generateId())
     this.store.batch(() => {
       this.store.addNode({
@@ -284,7 +312,6 @@ export class StoreMutator implements BoardMutator {
     const nodeType = spec.type ? toNodeType(spec.type) : node.type
     const autoFitStyle = AUTOFIT_DISABLED_TYPES.has(nodeType) ? { autoFit: false } : undefined
     const prev = node.data as DimNodeData | undefined
-    const hasColor = !!(spec.colors?.background || spec.colors?.border)
 
     const data: DimNodeData = {
       ...prev,
@@ -292,10 +319,11 @@ export class StoreMutator implements BoardMutator {
       meta: meta(),
     } as DimNodeData
     // Default: keep the existing style (+ autoFit for custom types). Recolor only
-    // when the caller passed a color, re-projecting onto the current style.
+    // the channels the caller named (merge, don't randomize the rest), and only
+    // for a type/channel that actually honors it.
     let style: Record<string, unknown> | undefined = autoFitStyle ? { ...(node.style ?? {}), ...autoFitStyle } : undefined
-    if (hasColor && (nodeType === "rect" || COLORABLE_CUSTOM_TYPES.has(nodeType))) {
-      const storedColors = resolveNoteColors(spec.colors, nodeType)
+    if (colorTargets(nodeType, spec.colors)) {
+      const storedColors = mergeNoteColors(prev?._storedColors, spec.colors, nodeType)
       data._storedColors = storedColors
       style = this.colorStyle(nodeType, storedColors, node.style ?? {}, autoFitStyle)
     }
