@@ -69,8 +69,10 @@ export type LinkSpec = {
  * the signature; the impl decides how the write reaches persistence + sync.
  */
 export interface BoardMutator {
-  /** `placed` = pinned at an explicit/relational position (exclude from arrange). */
-  createNote(spec: NoteSpec): Promise<{ id: string; created: true; placed: boolean }>
+  /** `placed` = pinned at an explicit/relational position (exclude from arrange).
+   *  `anchorId` = the `near` anchor, if any — the turn keeps it put too, so a note
+   *  pinned beside a same-turn auto node doesn't detach when that node arranges. */
+  createNote(spec: NoteSpec): Promise<{ id: string; created: true; placed: boolean; anchorId?: string }>
   rewriteNote(id: string, spec: NoteSpec): Promise<{ id: string; created: boolean }>
   patchNote(id: string, patch: { content?: string; label?: string }): Promise<void>
   createLink(spec: LinkSpec): Promise<{ id: string }>
@@ -300,12 +302,12 @@ export class StoreMutator implements BoardMutator {
     this.rootId = rootId
   }
 
-  async createNote(spec: NoteSpec): Promise<{ id: string; created: true; placed: boolean }> {
+  async createNote(spec: NoteSpec): Promise<{ id: string; created: true; placed: boolean; anchorId?: string }> {
     const nodeType = toNodeType(spec.type ?? "")
     const autoFitStyle = AUTOFIT_DISABLED_TYPES.has(nodeType) ? { autoFit: false } : undefined
     const storedColors = resolveNoteColors(spec.colors, nodeType)
     const { w, h } = noteGeometry(nodeType, spec.content)
-    const { x, y, placed } = this.placeNote(spec, w, h)
+    const { x, y, placed, anchorId } = this.placeNote(spec, w, h)
     // Plain rectangles are painted by the lib from `style`. A colorable custom
     // type (sheet) whose FILL was explicitly set gets it projected onto `style`
     // so its own view honors it; other custom types paint via their own view and
@@ -337,7 +339,7 @@ export class StoreMutator implements BoardMutator {
         } satisfies DimNodeData,
       })
     })
-    return { id: String(id), created: true, placed }
+    return { id: String(id), created: true, placed, ...(anchorId ? { anchorId } : {}) }
   }
 
   /**
@@ -348,10 +350,10 @@ export class StoreMutator implements BoardMutator {
    *  - explicit `x`+`y` → verbatim, no collision avoidance.
    *  - neither → auto: beneath the current board border (arranged after the turn).
    */
-  private placeNote(spec: NoteSpec, w: number, h: number): { x: number; y: number; placed: boolean } {
+  private placeNote(spec: NoteSpec, w: number, h: number): { x: number; y: number; placed: boolean; anchorId?: string } {
     if (spec.near) {
       const p = this.nearPosition(spec.near, w, h)
-      if (p) return { ...p, placed: true }
+      if (p) return { ...p, placed: true, anchorId: spec.near.nodeId }
     }
     if (spec.x !== undefined && spec.y !== undefined) return { x: spec.x, y: spec.y, placed: true }
     const origin = beneathBorderOrigin(this.store)

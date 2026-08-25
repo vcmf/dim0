@@ -276,6 +276,9 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
       // Subset of createdNodeIds to auto-arrange: excludes notes the agent PINNED
       // at an explicit/relational position (result.placed), so `near`/x-y survive.
       const arrangeNodeIds: string[] = []
+      // Anchors a pinned note was placed relative to — kept put too, so a note
+      // pinned beside a same-turn auto node doesn't detach when that node arranges.
+      const pinnedAnchorIds = new Set<string>()
       // Coalesce token-delta repaints to ~10fps (shared with the backend-agent
       // stream builder). Structural events (tool start/result) force an
       // immediate repaint; the final frame below always flushes.
@@ -389,6 +392,8 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
             const id = String((ev.result as { id: unknown }).id)
             createdNodeIds.push(id)
             if ((ev.result as { placed?: unknown }).placed !== true) arrangeNodeIds.push(id)
+            const anchorId = (ev.result as { anchorId?: unknown }).anchorId
+            if (typeof anchorId === "string") pinnedAnchorIds.add(anchorId)
           }
           const now = Date.now()
           // Token streams (assistant_text AND reasoning) ride the ~10fps throttle;
@@ -419,8 +424,9 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
         }
         render(false)
         // Post-turn arrange (frontend analog of backend rearrange_created_notes).
-        // Only auto-placed notes — pinned (near/explicit) ones keep their spot.
-        await arrangeCreatedNodes(store, arrangeNodeIds)
+        // Only auto-placed notes — pinned (near/explicit) ones keep their spot, and
+        // so do the anchors they were placed beside (else the anchor would move away).
+        await arrangeCreatedNodes(store, arrangeNodeIds.filter((id) => !pinnedAnchorIds.has(id)))
         // Recenter the canvas on the freshly created nodes — parity with the
         // online path's `?center=` navigation, which useCenterFromUrl reads to
         // fit the union rect (zoom-capped) and select them.
