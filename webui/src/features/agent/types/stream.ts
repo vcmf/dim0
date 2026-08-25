@@ -14,6 +14,7 @@ import {
   ScrollIcon,
   StockWidgetIcon,
   ToolCodeIcon,
+  TreeMapIcon,
   WeatherWidgetIcon,
   WebCollectorIcon,
   WriteNoteToolIcon,
@@ -111,6 +112,7 @@ export type ToolName =
   | "edit_note"
   | "get_note"
   | "link_notes"
+  | "arrange_notes"
   | "outline_generator"
   | "web_collector"
   | "synthesizer"
@@ -138,6 +140,7 @@ export const ToolNameDescription: Record<ToolName, string> = {
   edit_note: "Edit note",
   get_note: "Read note",
   link_notes: "Link notes",
+  arrange_notes: "Arrange notes",
   outline_generator: "Generate outline",
   web_collector: "Collect web content",
   synthesizer: "Synthesize response",
@@ -174,6 +177,7 @@ export const ToolNameIcon: Record<ToolName, AppIconComponent> = {
   edit_note: EditNoteIcon,
   get_note: ReadNoteIcon,
   link_notes: LinkIcon,
+  arrange_notes: TreeMapIcon,
   image_description: ImageGenerationIcon,
   topic_illustrator: ImageGenerationIcon,
   image_generation: ImageGenerationIcon,

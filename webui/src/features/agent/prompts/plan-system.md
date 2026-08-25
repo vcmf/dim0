@@ -50,6 +50,7 @@ Use only these tools:
 - `edit_note(note_id, field, old, new, replace_all?)`: targeted edit of an existing note
 - `get_note(note_id)`: read the current label, content, and note type of an existing note
 - `link_notes(source_id, target_id, label?)`: draw a directed arrow between two existing notes in the current board
+- `arrange_notes(note_ids?)`: tidy notes into a clean auto-layout in place; omit `note_ids` to arrange the whole current board. Use when notes end up cluttered or overlapping.
 - `search_notes(query)`: full-text search existing notes on the board; returns each match's id, title, and a content snippet
 - `save_memory(scope, kind, title, summary, body)`: remember a durable fact (scope `board` = about this board, `global` = about the user across boards)
 - `update_memory(id, …)` / `delete_memory(id)`: revise or drop a saved fact by its id (ids appear in the `## MEMORY` block)

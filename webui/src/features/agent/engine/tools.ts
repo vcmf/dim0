@@ -17,6 +17,7 @@ import { validateMiniAppSource } from "@/features/mini-app/validate"
 import { defineTool } from "./types"
 import type { Tool, ToolContext } from "./types"
 import { StoreMutator, type BoardMutator } from "./board-mutator"
+import { arrangeNodesInPlace } from "@/features/board/harness/agent/arrange-created-nodes"
 import type { MemoryKind, MemoryScope } from "@/features/board/persist/local/idb"
 
 
@@ -147,6 +148,21 @@ export const writeNote = defineTool({
       return board.createNote({ ...spec, id: note_id })
     }
     return board.createNote(spec)
+  },
+})
+
+
+export const arrangeNotes = defineTool({
+  name: "arrange_notes",
+  description:
+    "Tidy notes into a clean auto-arranged layout. Pass note_ids to arrange just those (kept centered where they are); omit to tidy the whole current board/folder. Use after creating or editing notes that ended up cluttered or overlapping.",
+  parameters: z.object({
+    note_ids: z.array(z.string()).optional().describe("Ids of notes to arrange; omit to arrange all notes in the current view."),
+  }),
+  run: async ({ note_ids }, ctx) => {
+    const ids = note_ids && note_ids.length > 0 ? note_ids : ctx.store.getAllNodes().map((n) => String(n.id))
+    const arranged = await arrangeNodesInPlace(ctx.store, ids)
+    return { arranged }
   },
 })
 
@@ -405,4 +421,4 @@ export const localTools: Tool[] = [createNote, updateNote, linkNotes, searchNote
 
 
 /** The note-building tools the chat agent uses (matches the system prompt's vocabulary). */
-export const agentBuildTools: Tool[] = [writeNote, editNote, getNote, linkNotes]
+export const agentBuildTools: Tool[] = [writeNote, editNote, getNote, linkNotes, arrangeNotes]

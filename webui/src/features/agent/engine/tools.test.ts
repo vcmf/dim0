@@ -17,6 +17,7 @@ import {
   writeNote,
   getNote,
   editNote,
+  arrangeNotes,
   searchNotes,
   listBoards,
   saveMemory,
@@ -340,6 +341,24 @@ describe("writeNote", () => {
     expect(res.error).toMatch(/mini-app invalid/)
     // Original source left intact (rejected before the write).
     expect(store.getNode(asNodeId(made.id))?.content).toBe("function Widget() { return <div>hi</div> }")
+  })
+})
+
+
+describe("arrangeNotes", () => {
+  it("arranges the given note_ids and reports the count", async () => {
+    seed(store, "a", { content: "a" })
+    seed(store, "b", { content: "b" })
+    seed(store, "c", { content: "c" })
+    const res = (await arrangeNotes.run({ note_ids: ["a", "b", "c"] }, ctx)) as { arranged: number }
+    expect(res.arranged).toBe(3)
+  })
+
+  it("arranges the whole current view when note_ids is omitted", async () => {
+    seed(store, "a", { content: "a" })
+    seed(store, "b", { content: "b" })
+    const res = (await arrangeNotes.run({}, ctx)) as { arranged: number }
+    expect(res.arranged).toBe(2)
   })
 })
 
