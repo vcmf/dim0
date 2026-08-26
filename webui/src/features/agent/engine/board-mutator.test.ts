@@ -239,6 +239,17 @@ describe("StoreMutator", () => {
     expect(after?.v).toBe((before?.v ?? 0) + 1)
   })
 
+  it("patchNote with an empty patch is a no-op (no spurious 'Edited' bump)", async () => {
+    const store = freshStore("b")
+    const m = new StoreMutator(store, null)
+    const { id } = await m.createNote({ content: "keep" })
+    const before = nodeMeta(store, id)
+    await m.patchNote(id, {}) // neither content nor label
+    const after = nodeMeta(store, id)
+    expect(after?.v).toBe(before?.v) // unchanged → still reads as 'Created'
+    expect(after?.updatedAt).toBe(before?.updatedAt)
+  })
+
   it("createLink attaches an edge at node centers with the parent layer", async () => {
     const store = freshStore("b")
     const m = new StoreMutator(store, "folder-1")

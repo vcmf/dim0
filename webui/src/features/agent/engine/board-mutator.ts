@@ -423,8 +423,11 @@ export class StoreMutator implements BoardMutator {
     const nid = asNodeId(id)
     const node = this.store.getNode(nid)
     if (!node) return
+    // Nothing to change → no-op. Avoids a spurious "Edited" stamp and a needless
+    // store/sync op when update_note is called with neither content nor label.
+    if (patch.content === undefined && patch.label === undefined) return
     const prev = node.data as DimNodeData | undefined
-    // Any edit advances the freshness stamp (preserving createdAt), so the note
+    // A real edit advances the freshness stamp (preserving createdAt), so the note
     // reads as "Edited" — whether the caller changed the content, the label, or both.
     const next: Partial<Node> = { data: { ...prev, meta: bumpMeta(prev?.meta) } as DimNodeData }
     if (patch.content !== undefined) next.content = patch.content
