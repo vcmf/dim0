@@ -89,6 +89,15 @@ export type BoardSyncOptions = {
 
 
 export type BoardSyncHandle = {
+  /**
+   * The single sync-correct intake for a locally-produced batch: track it as an
+   * unacked rebase entry and trigger a pump. The store producer (via
+   * `attachSync.sendBatch`) is one caller; a headless / off-scene producer is
+   * another — both share the same rebase set + send path, so nothing desyncs.
+   * The batch must already be recorded to the oplog (the store path is recorded
+   * by `persistence`; a headless caller records before submitting).
+   */
+  submitLocalBatch: (batch: OpBatch) => void
   /** Detach sync + persistence wiring and close the connection. */
   detach: () => void
   /** Simulate going offline (close connection; keep editing locally). */
@@ -305,14 +314,21 @@ export const attachBoardSync = (opts: BoardSyncOptions): BoardSyncHandle => {
     enqueue(pump)
   }
 
+  // The single intake for a locally-produced batch's SYNC side: track it as an
+  // unacked rebase entry (applied on top of every remote op so local edits stay
+  // "latest") and trigger a pump. The send source is the outbox, so the batch
+  // object itself is only used for rebase. Both the store producer (via
+  // `attachSync.sendBatch`) and future headless producers route through here.
+  const submitLocalBatch = (batch: OpBatch): void => {
+    pending.set(batch.id, batch)
+    schedulePump()
+  }
+
   const adapter: SyncAdapter = {
     capabilities: { causalOrdering: true },
-    // A local commit: track it as unacked (rebase set) and trigger a pump. The
-    // send source is the outbox, so the batch itself is only used for rebase.
-    sendBatch: (batch: OpBatch) => {
-      pending.set(batch.id, batch)
-      schedulePump()
-    },
+    // A local (store) commit enters the shared intake — same rebase + send path
+    // a headless producer uses.
+    sendBatch: submitLocalBatch,
     sendPresence: (patch: PresencePatch) => {
       const state = { ...patch, clientId: opts.clientId } as PresenceState
       connection?.send({ kind: "presence", clientId: opts.clientId, state })
@@ -337,6 +353,7 @@ export const attachBoardSync = (opts: BoardSyncOptions): BoardSyncHandle => {
   }
 
   return {
+    submitLocalBatch,
     detach: () => {
       clearTimer()
       detachSync()

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
-import { asBatchId, asClientId, asNodeId, type OpBatch } from "@canvas-harness/core"
+import { asBatchId, asClientId, asNodeId, type Node, type OpBatch } from "@canvas-harness/core"
 import type { CanvasStore } from "@canvas-harness/core"
+import { makeBatch } from "@/features/board/harness/make-batch"
 import { addEdge, addNode, freshStore } from "@/test/canvas"
 import type { DimNodeData } from "@/features/board/model"
 import { labelText } from "@/features/board/model"
@@ -107,6 +108,37 @@ const setLabel = (store: CanvasStore, id: string, label: string): void => {
 
 
 describe("board sync coordinator", () => {
+  it("submitLocalBatch enters the same send + rebase path as a store commit", async () => {
+    const relay = new MemoryRelay()
+    const a = makeClient(relay, "A")
+    const b = makeClient(relay, "B")
+
+    // A headless producer: a batch NOT applied to A's live store. It records to
+    // the oplog itself (as a real off-scene caller does), then enters the shared
+    // intake — no direct store write.
+    const node = {
+      id: asNodeId("h1"),
+      type: "rect",
+      x: 0,
+      y: 0,
+      w: 100,
+      h: 50,
+      angle: 0,
+      groups: [],
+      data: { label: { markdown: "headless" }, meta: { v: 1, createdAt: 0, updatedAt: 0 } },
+    } as unknown as Node
+    const batch = makeBatch(a.store, "local", [{ type: "node.add", node }])
+    a.persistence.record(batch)
+    a.sync.submitLocalBatch(batch)
+    await a.sync.settle()
+    await b.sync.settle()
+
+    // The peer converges from the headless write, and it shipped as one message —
+    // proving the batch went through the outbox/rebase path, not a bypass.
+    expect(relay.log).toHaveLength(1)
+    expect(ids(b.store)).toEqual(["h1"])
+  })
+
   it("propagates a local edit to the other client (no self-echo, no dupes)", async () => {
     const relay = new MemoryRelay()
     const a = makeClient(relay, "A")
