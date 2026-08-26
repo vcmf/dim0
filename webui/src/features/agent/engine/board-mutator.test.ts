@@ -16,6 +16,8 @@ const label = (store: CanvasStore, id: string): string =>
 const body = (store: CanvasStore, id: string): string => store.getNode(asNodeId(id))?.content ?? ""
 const stored = (store: CanvasStore, id: string) =>
   (store.getNode(asNodeId(id))?.data as DimNodeData | undefined)?._storedColors
+const nodeMeta = (store: CanvasStore, id: string) =>
+  (store.getNode(asNodeId(id))?.data as DimNodeData | undefined)?.meta
 
 
 describe("StoreMutator", () => {
@@ -202,6 +204,39 @@ describe("StoreMutator", () => {
     const m = new StoreMutator(store, null)
     const { id } = await m.createNote({ content: "x", colors: { background: "black" } })
     expect(stored(store, id)?.textColor).toBe("#ffffff")
+  })
+
+  it("createNote stamps fresh meta (v:1, createdAt == updatedAt) so the note shows a 'Created' stamp", async () => {
+    const store = freshStore("b")
+    const m = new StoreMutator(store, null)
+    const { id } = await m.createNote({ content: "x" })
+    const meta = nodeMeta(store, id)
+    expect(meta?.v).toBe(1)
+    expect(meta?.createdAt).toBeTypeOf("number")
+    expect(meta?.updatedAt).toBe(meta?.createdAt) // brand new → same instant
+  })
+
+  it("rewriteNote preserves createdAt and advances the version so the note reads as 'Edited'", async () => {
+    const store = freshStore("b")
+    const m = new StoreMutator(store, null)
+    const { id } = await m.createNote({ content: "old" })
+    const before = nodeMeta(store, id)
+    await m.rewriteNote(id, { content: "new" })
+    const after = nodeMeta(store, id)
+    expect(after?.createdAt).toBe(before?.createdAt) // original creation time kept
+    expect(after?.v).toBe((before?.v ?? 0) + 1)
+    expect(after?.updatedAt).toBeGreaterThanOrEqual(before?.updatedAt ?? 0)
+  })
+
+  it("patchNote bumps meta (createdAt preserved) on a content-only edit", async () => {
+    const store = freshStore("b")
+    const m = new StoreMutator(store, null)
+    const { id } = await m.createNote({ content: "old", label: "Keep" })
+    const before = nodeMeta(store, id)
+    await m.patchNote(id, { content: "changed" })
+    const after = nodeMeta(store, id)
+    expect(after?.createdAt).toBe(before?.createdAt)
+    expect(after?.v).toBe((before?.v ?? 0) + 1)
   })
 
   it("createLink attaches an edge at node centers with the parent layer", async () => {

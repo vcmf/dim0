@@ -8,6 +8,7 @@ import { IconPropertyView } from "@/components/icons/icon-property-view"
 import { useTheme } from "@/components/theme-provider"
 import { createBoardPageProvider } from "@/features/board/providers/board-page-provider"
 import { findFamilyShadeFromHex, toBaseHex } from "@/features/board/lib/colors/tailwind"
+import { nodeStamp } from "@/features/board/utils/node-meta"
 import { cn } from "@/lib/utils"
 import type { NoteNodeData } from "../../convert/note-to-node"
 import { computeNodeColorUpdate } from "../../theme/apply-node-colors"
@@ -138,9 +139,10 @@ export function SheetView({ id }: SheetViewProps) {
   const label = data.label?.markdown
   const body = node.content?.trim() ?? ""
   const iconValue = data.properties?.iconData?.icon ?? null
-  // Last-modified, falling back to created. Prefix tells which one it is.
-  const stampIso = data.updatedAt ?? data.createdAt
-  const stampPrefix = data.updatedAt ? "Edited" : "Created"
+  // Last-modified, falling back to created. Reads canonical `meta` (agent notes)
+  // or legacy strings; `edited` picks the prefix.
+  const { iso: stampIso, edited } = nodeStamp(data)
+  const stampPrefix = edited ? "Edited" : "Created"
 
   const enterEdit = () => {
     if (canEdit) setEditing(true)
