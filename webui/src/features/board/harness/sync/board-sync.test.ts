@@ -108,14 +108,18 @@ const setLabel = (store: CanvasStore, id: string, label: string): void => {
 
 
 describe("board sync coordinator", () => {
-  it("submitLocalBatch enters the same send + rebase path as a store commit", async () => {
+  it("submitLocalBatch(scene:false) ships a headless batch without injecting it into the local scene", async () => {
     const relay = new MemoryRelay()
     const a = makeClient(relay, "A")
     const b = makeClient(relay, "B")
 
-    // A headless producer: a batch NOT applied to A's live store. It records to
-    // the oplog itself (as a real off-scene caller does), then enters the shared
-    // intake — no direct store write.
+    // Seed an in-scene edit on A so there IS a rebasable local entry, to prove
+    // the headless batch is treated differently from a store commit.
+    addNode(a.store, "local1", "in-scene")
+
+    // A headless producer: a batch NOT applied to A's live store (e.g. a
+    // cross-layer write to an unloaded folder). It records to the oplog itself,
+    // then enters the intake as an off-scene batch — no direct store write.
     const node = {
       id: asNodeId("h1"),
       type: "rect",
@@ -129,14 +133,21 @@ describe("board sync coordinator", () => {
     } as unknown as Node
     const batch = makeBatch(a.store, "local", [{ type: "node.add", node }])
     a.persistence.record(batch)
-    a.sync.submitLocalBatch(batch)
+    a.sync.submitLocalBatch(batch, { scene: false })
     await a.sync.settle()
     await b.sync.settle()
 
-    // The peer converges from the headless write, and it shipped as one message —
-    // proving the batch went through the outbox/rebase path, not a bypass.
-    expect(relay.log).toHaveLength(1)
-    expect(ids(b.store)).toEqual(["h1"])
+    // The peer converges from the headless write (it shipped through the outbox),
+    // but it never lands in the submitter's own loaded scene.
+    expect(ids(b.store)).toEqual(["h1", "local1"])
+    expect(ids(a.store)).toEqual(["local1"]) // h1 was never applied to A's store
+
+    // A concurrent remote op triggers a rebase. Because the headless batch is NOT
+    // in the rebase set, its off-scene ops must NOT be injected into A's scene.
+    addNode(b.store, "b1", "peer")
+    await b.sync.settle()
+    await a.sync.settle()
+    expect(ids(a.store)).toEqual(["b1", "local1"]) // still no h1
   })
 
   it("propagates a local edit to the other client (no self-echo, no dupes)", async () => {

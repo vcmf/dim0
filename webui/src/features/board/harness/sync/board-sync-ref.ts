@@ -4,9 +4,10 @@ import type { BoardSyncHandle } from "./board-sync"
 /**
  * Module ref to the active synced board's sync coordinator. Mirrors
  * `board-persistence-ref` so code outside the harness (e.g. a headless,
- * cross-layer writer) can enter the ONE sync-correct local-batch intake
- * (`submitLocalBatch`) instead of writing the oplog directly — which would
- * skip the rebase set + send trigger and desync a synced board.
+ * cross-layer writer) can enter the sync-correct local-batch intake
+ * (`submitLocalBatch(batch, { scene: false })`) instead of writing the oplog
+ * directly — a direct write skips the send trigger, so the batch ships only
+ * opportunistically on the next unrelated pump and desyncs a synced board.
  *
  * Set by the v2 sync mount, cleared on unmount / scope change. `null` on a
  * purely local board (no relay) — callers fall back to the persistence ref,

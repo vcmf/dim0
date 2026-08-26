@@ -90,14 +90,18 @@ export type BoardSyncOptions = {
 
 export type BoardSyncHandle = {
   /**
-   * The single sync-correct intake for a locally-produced batch: track it as an
-   * unacked rebase entry and trigger a pump. The store producer (via
-   * `attachSync.sendBatch`) is one caller; a headless / off-scene producer is
-   * another — both share the same rebase set + send path, so nothing desyncs.
-   * The batch must already be recorded to the oplog (the store path is recorded
-   * by `persistence`; a headless caller records before submitting).
+   * The single sync-correct intake for a locally-produced batch: (maybe) track
+   * it for rebase and trigger a pump, so it ships through the outbox rather than
+   * a direct oplog write. The store producer (via `attachSync.sendBatch`) is one
+   * caller; a headless / off-scene producer is another.
+   *
+   * `scene: false` marks a batch whose ops are NOT in the loaded store (a
+   * cross-layer / headless write): it is pumped but kept OUT of the rebase set,
+   * since replaying its ops would inject off-layer nodes into the current scene.
+   * A `scene: false` caller must record the batch to the oplog itself (store
+   * commits are already recorded by `persistence`).
    */
-  submitLocalBatch: (batch: OpBatch) => void
+  submitLocalBatch: (batch: OpBatch, opts?: { scene?: boolean }) => void
   /** Detach sync + persistence wiring and close the connection. */
   detach: () => void
   /** Simulate going offline (close connection; keep editing locally). */
@@ -314,21 +318,30 @@ export const attachBoardSync = (opts: BoardSyncOptions): BoardSyncHandle => {
     enqueue(pump)
   }
 
-  // The single intake for a locally-produced batch's SYNC side: track it as an
-  // unacked rebase entry (applied on top of every remote op so local edits stay
-  // "latest") and trigger a pump. The send source is the outbox, so the batch
-  // object itself is only used for rebase. Both the store producer (via
-  // `attachSync.sendBatch`) and future headless producers route through here.
-  const submitLocalBatch = (batch: OpBatch): void => {
-    pending.set(batch.id, batch)
+  // The single intake for a locally-produced batch's SYNC side: (maybe) track it
+  // for rebase and trigger a pump. The send source is the outbox, so the batch
+  // object is only used for the in-scene rebase. Both the store producer (via
+  // `attachSync.sendBatch`) and headless producers route through here.
+  //
+  // `scene` splits the two kinds of local batch — they need different handling:
+  //  - `true` (default, store commits): the ops WERE applied to the live store
+  //    optimistically, so track the batch as an unacked rebase entry — it's
+  //    undone + replayed on top of every remote op so the local edit stays
+  //    "latest". This is today's `sendBatch` behavior, unchanged.
+  //  - `false` (headless / off-scene, e.g. a cross-layer write): the ops are NOT
+  //    in the loaded store, so it must NOT enter the rebase set — `applyRemote`
+  //    would otherwise inject the off-layer ops into the current scene on the
+  //    next remote op. It only needs to be recorded (by the caller) + pumped;
+  //    `serverSeq` is stamped on ack via the outbox path like any sent record.
+  const submitLocalBatch = (batch: OpBatch, { scene = true }: { scene?: boolean } = {}): void => {
+    if (scene) pending.set(batch.id, batch)
     schedulePump()
   }
 
   const adapter: SyncAdapter = {
     capabilities: { causalOrdering: true },
-    // A local (store) commit enters the shared intake — same rebase + send path
-    // a headless producer uses.
-    sendBatch: submitLocalBatch,
+    // A local store commit: its ops are in the live scene → rebase-tracked.
+    sendBatch: (batch: OpBatch) => submitLocalBatch(batch),
     sendPresence: (patch: PresencePatch) => {
       const state = { ...patch, clientId: opts.clientId } as PresenceState
       connection?.send({ kind: "presence", clientId: opts.clientId, state })
