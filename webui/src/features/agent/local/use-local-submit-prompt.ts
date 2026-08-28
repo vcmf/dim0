@@ -387,6 +387,10 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
           memory,
           confirmTool,
           board: new StoreMutator(store, rootId) as StoreMutator | HeadlessMutator,
+          // Nodes created THIS turn (folder depth / navigate parent / cross-folder
+          // guards read it) + per-layer off-scene sessions (cached, disposed below).
+          liveNodes: new Map<string, { parentId: string | null; type: string }>(),
+          sessions: new Map<string, HeadlessMutator>(),
         }
         for await (const ev of runAgent({ system: systemWithDocs, userMessage: userMessageForAgent, history, tools, llm, ctx })) {
           // Streaming yields cumulative assistant_text / reasoning per token —
@@ -438,9 +442,9 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
             }
           }
         }
-        // Release any off-scene session the agent left open (its writes are already
-        // recorded + pumped; this just detaches the throwaway store's subscription).
-        if (ctx.board instanceof HeadlessMutator) ctx.board.dispose()
+        // Release every off-scene session cached this turn (writes are already
+        // recorded + pumped; this just detaches the throwaway stores' subscriptions).
+        for (const session of ctx.sessions.values()) session.dispose()
         render(false)
         // Post-turn arrange (frontend analog of backend rearrange_created_notes).
         // Only auto-placed notes — pinned (near/explicit) ones keep their spot.

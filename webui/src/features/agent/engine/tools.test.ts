@@ -807,6 +807,67 @@ describe("navigate (working folder)", () => {
     expect(store.getNode(asNodeId("visible"))).toBeDefined() // the user's note is untouched
   })
 
+  // A full ctx mirroring the real run — carries the this-turn creation index and
+  // the per-layer session cache the guards/navigation rely on.
+  const liveCtx = (store: CanvasStore): ToolContext => ({
+    store,
+    rootId: null,
+    sceneRootId: null,
+    boardNotes: new Map(),
+    liveNodes: new Map(),
+    sessions: new Map(),
+  })
+
+  it("enforces the nesting cap across folders created in the SAME turn", async () => {
+    const store = freshStore("c")
+    const nav = liveCtx(store)
+    const a = (await createFolder.run({ label: "A" }, nav)) as { folder_id: string }
+    await navigate.run({ target: a.folder_id }, nav) // depth 1
+    const b = (await createFolder.run({ label: "B" }, nav)) as { folder_id: string; error?: string }
+    expect(b.error).toBeUndefined()
+    await navigate.run({ target: b.folder_id }, nav) // depth 2
+    const c = (await createFolder.run({ label: "C" }, nav)) as { error?: string }
+    expect(c).toHaveProperty("error") // a 4th level would exceed MAX_BOARD_DEPTH
+  })
+
+  it('navigate "up" from a folder created this turn lands at its true parent', async () => {
+    const store = freshStore("c")
+    const nav = liveCtx(store)
+    const a = (await createFolder.run({ label: "A" }, nav)) as { folder_id: string }
+    await navigate.run({ target: a.folder_id }, nav)
+    const b = (await createFolder.run({ label: "B" }, nav)) as { folder_id: string } // B lives in A, off-scene
+    await navigate.run({ target: b.folder_id }, nav)
+    const up = (await navigate.run({ target: "up" }, nav)) as { working_folder: string }
+    expect(up.working_folder).toBe(a.folder_id) // A, not root
+  })
+
+  it("write_note refuses to duplicate an id created this turn in another layer", async () => {
+    const store = freshStore("c")
+    const nav = liveCtx(store)
+    // Create note N at the visible root.
+    const n = (await writeNote.run({ content: "root note" }, nav)) as { id: string }
+    // Navigate into a folder, then try to write_note with N's id there.
+    const f = (await createFolder.run({ label: "F" }, nav)) as { folder_id: string }
+    await navigate.run({ target: f.folder_id }, nav)
+    const res = (await writeNote.run({ content: "dup", note_id: n.id }, nav)) as { error?: string }
+    expect(res).toHaveProperty("error") // refused, not a colliding duplicate
+  })
+
+  it("enforces the per-level folder count cap (universal 10)", async () => {
+    const store = freshStore("c")
+    // Seed the root layer at the folder limit.
+    for (let i = 0; i < 10; i += 1) {
+      store.addNode({
+        id: asNodeId(`f${i}`),
+        type: "folder",
+        x: 0, y: 0, w: 100, h: 100, angle: 0, groups: [],
+        data: { label: { markdown: `F${i}` }, meta: { v: 1, createdAt: 0, updatedAt: 0 } } satisfies DimNodeData,
+      })
+    }
+    const res = (await createFolder.run({ label: "overflow" }, liveCtx(store))) as { error?: string }
+    expect(res).toHaveProperty("error")
+  })
+
   it("re-entering a folder in the same turn sees notes it wrote before leaving", async () => {
     const store = freshStore("c")
     const nav: ToolContext = {
