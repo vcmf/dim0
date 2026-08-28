@@ -10,7 +10,7 @@
  */
 import { z } from "zod"
 import { asNodeId } from "@canvas-harness/core"
-import type { Node } from "@canvas-harness/core"
+import type { CanvasStore, Node } from "@canvas-harness/core"
 import type { DimNodeData } from "@/features/board/model"
 import { labelText } from "@/features/board/model"
 import { validateMiniAppSource } from "@/features/mini-app/validate"
@@ -28,6 +28,19 @@ import type { MemoryKind, MemoryScope } from "@/features/board/persist/local/idb
  * decoupled from the collab op pipeline (see board-mutator.ts).
  */
 const mutatorFor = (ctx: ToolContext): BoardMutator => ctx.board ?? new StoreMutator(ctx.store, ctx.rootId ?? null)
+
+
+/**
+ * The store for the agent's WORKING FOLDER: the off-scene layer store when the
+ * working folder isn't the user's visible layer (navigated away), else the
+ * visible `store`. Read/edit/arrange tools resolve through this so they act on
+ * the folder the agent is working in — including notes it authored this turn —
+ * and never touch the user's on-screen layer while navigated away.
+ */
+const workingLayerStore = async (ctx: ToolContext): Promise<CanvasStore> => {
+  const board = mutatorFor(ctx)
+  return board instanceof HeadlessMutator ? board.layerStore() : ctx.store
+}
 
 
 /**
@@ -136,7 +149,12 @@ export const writeNote = defineTool({
     near: NEAR_SCHEMA.optional().describe(NEAR_DESC),
   }),
   run: async ({ content, label, note_type, note_id, background_color, border_color, near }, ctx) => {
-    const existing = note_id ? ctx.store.getNode(asNodeId(note_id)) : undefined
+    const board = mutatorFor(ctx)
+    // Resolve existence in the WORKING folder (off-scene when navigated away), so a
+    // rewrite / re-edit of a note in that folder — incl. one created this turn —
+    // targets it instead of erroring or duplicating.
+    const store = await workingLayerStore(ctx)
+    const existing = note_id ? store.getNode(asNodeId(note_id)) : undefined
     // Validate a mini-app before persisting, so a malformed one is rejected with
     // line/col for the agent to fix this turn (not a silently-broken note). Key off
     // the RESULTING type: an explicit mini-app, OR a bare rewrite of an existing
@@ -150,14 +168,13 @@ export const writeNote = defineTool({
     }
 
     const spec = { content, label, type: note_type, near: nearFor(near), colors: colorsFor(background_color, border_color) }
-    const board = mutatorFor(ctx)
     if (note_id) {
-      // In the current layer → full rewrite (NOT a creation; the turn won't
+      // In the working folder → full rewrite (NOT a creation; the turn won't
       // re-arrange/recenter it). Existing but in ANOTHER folder → refuse rather
-      // than create a colliding duplicate (cross-folder writes aren't supported
-      // yet). Nowhere → a brand-new note with this explicit id.
+      // than create a colliding duplicate (navigate there first). Nowhere → a
+      // brand-new note with this explicit id.
       if (existing) return board.rewriteNote(note_id, spec)
-      if (resolveBoardNode(ctx, note_id)) return { error: "That note is in another folder. Open that folder before editing it." }
+      if (ctx.boardNotes?.get(note_id)) return { error: "That note is in another folder. Navigate into that folder before editing it." }
       return board.createNote({ ...spec, id: note_id })
     }
     return board.createNote(spec)
@@ -178,11 +195,14 @@ export const arrangeNotes = defineTool({
     note_ids: z.array(z.string()).optional().describe("Ids of the notes to arrange (a cluster). Omit to arrange all notes in the current view."),
   }),
   run: async ({ note_ids }, ctx) => {
-    const ids = note_ids && note_ids.length > 0 ? note_ids : ctx.store.getAllNodes().map((n) => String(n.id))
+    // Arrange within the WORKING folder — the off-scene layer store when navigated
+    // away — so tidying a subfolder never relocates the user's on-screen notes.
+    const store = await workingLayerStore(ctx)
+    const ids = note_ids && note_ids.length > 0 ? note_ids : store.getAllNodes().map((n) => String(n.id))
     if (ids.length > MAX_ARRANGE) {
       return { error: `Too many notes to arrange at once (${ids.length}). Pass a note_ids set for the specific cluster to tidy.` }
     }
-    const arranged = await arrangeNodesInPlace(ctx.store, ids)
+    const arranged = await arrangeNodesInPlace(store, ids)
     return { arranged }
   },
 })
@@ -244,9 +264,11 @@ export const getNote = defineTool({
     note_id: z.string().describe("Id of the note to read."),
   }),
   run: async ({ note_id }, ctx) => {
-    // Whole-board resolve so a note in another folder (not in the layer-scoped
-    // store) is still readable — search_notes can surface cross-folder ids.
-    const node = resolveBoardNode(ctx, note_id)
+    // Working folder first (its notes, incl. ones authored this turn off-scene),
+    // then the whole-board snapshot so a cross-folder id (e.g. from search_notes)
+    // is still readable.
+    const store = await workingLayerStore(ctx)
+    const node = store.getNode(asNodeId(note_id)) ?? ctx.boardNotes?.get(note_id)
     if (!node) return { error: "note not found" }
     return {
       id: note_id,
@@ -269,13 +291,14 @@ export const editNote = defineTool({
     replace_all: z.boolean().optional().describe("When true, replace every occurrence of `old` instead of requiring uniqueness."),
   }),
   run: async ({ note_id, field, old, new: replacement, replace_all }, ctx) => {
-    const node = ctx.store.getNode(asNodeId(note_id))
+    // Edit within the working folder (off-scene when navigated away).
+    const store = await workingLayerStore(ctx)
+    const node = store.getNode(asNodeId(note_id))
     if (!node) {
-      // A cross-folder note (resolvable whole-board but not in this layer) can't be
-      // edited from here yet — say so, consistent with write_note, instead of a
-      // bare "not found".
-      return resolveBoardNode(ctx, note_id)
-        ? { error: "That note is in another folder. Open that folder before editing it." }
+      // A cross-folder note (resolvable whole-board but not in this working folder)
+      // can't be edited from here — say so, consistent with write_note.
+      return ctx.boardNotes?.get(note_id)
+        ? { error: "That note is in another folder. Navigate into that folder before editing it." }
         : { error: "note not found" }
     }
 

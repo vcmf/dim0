@@ -52,7 +52,7 @@ Use only these tools:
 - `link_notes(source_id, target_id, label?)`: draw a directed arrow between two existing notes in the current board
 - `arrange_notes(note_ids?)`: tidy notes into a clean auto-layout in place; omit `note_ids` to arrange the whole current board. Use when notes end up cluttered or overlapping.
 - `search_notes(query)`: full-text search existing notes on the board; returns each match's id, title, and a content snippet
-- `navigate(target)`: set your working folder — like `cd`. Afterward `write_note`/`link_notes` write INTO that folder without moving the user's view. `target` is a folder id, `"root"` (top level), or `"up"` (parent). Returns the folder's notes, so it also lets you look inside a folder. Use it to organize notes into an existing subfolder; navigate back with `"root"`/`"up"` when done.
+- `navigate(target)`: set your working folder — like `cd`. Afterward every note tool (`write_note`, `link_notes`, `edit_note`, `get_note`, `arrange_notes`) operates INSIDE that folder without moving the user's view. `target` is a folder id, `"root"` (top level), or `"up"` (parent). Returns the folder's notes, so it also lets you look inside a folder. Use it to organize notes into an existing subfolder; navigate back with `"root"`/`"up"` when done.
 - `save_memory(scope, kind, title, summary, body)`: remember a durable fact (scope `board` = about this board, `global` = about the user across boards)
 - `update_memory(id, …)` / `delete_memory(id)`: revise or drop a saved fact by its id (ids appear in the `## MEMORY` block)
 - `recall_memory(scope?, query?)`: look up saved facts (rarely needed — the memory index is already in your prompt)

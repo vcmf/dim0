@@ -515,6 +515,10 @@ export class HeadlessMutator implements BoardMutator {
   private async ensure(): Promise<StoreMutator> {
     if (this.inner) return this.inner
     const persistence = getBoardPersistenceRef()
+    // Flush first so the seed reflects THIS turn's own writes: an earlier navigate
+    // into the same folder recorded notes to the (debounced) oplog — re-seeding
+    // from an unflushed log would miss them (overlap + broken links on re-entry).
+    await persistence?.flush()
     const whole = persistence ? await persistence.load() : emptyContent()
     const layer = filterContentByLayer(whole, this.targetLayer)
     const offStore = createCanvasStore({
@@ -556,6 +560,17 @@ export class HeadlessMutator implements BoardMutator {
   async hasNode(id: string): Promise<boolean> {
     await this.ensure()
     return this.offStore?.getNode(asNodeId(id)) !== undefined
+  }
+
+  /**
+   * The off-scene store backing the working folder (seeds on first call). Lets
+   * read/edit/arrange tools operate on the working layer — its notes, including
+   * ones authored this turn — instead of the user's visible scene.
+   */
+  async layerStore(): Promise<CanvasStore> {
+    await this.ensure()
+    // ensure() always assigns offStore before returning.
+    return this.offStore as CanvasStore
   }
 
   /** Detach the change subscription. Best-effort — the off-scene store is local. */

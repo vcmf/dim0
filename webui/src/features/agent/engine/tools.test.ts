@@ -743,4 +743,46 @@ describe("navigate (working folder)", () => {
     expect((await navigate.run({ target: "ghost" }, nav)) as { error?: string }).toHaveProperty("error")
     expect(nav.rootId).toBe(null) // unchanged on error
   })
+
+  it("read/edit/rewrite/arrange act on the off-scene working folder, not the user's view", async () => {
+    const store = freshStore("c")
+    seed(store, "visible", { label: "OnScreen", content: "user note" }) // the user's on-screen layer
+    const nav: ToolContext = {
+      store,
+      rootId: null,
+      sceneRootId: null,
+      boardNotes: new Map([["F", folder("F", "Ideas")]]),
+    }
+    await navigate.run({ target: "F" }, nav)
+    const note = (await createNote.run({ title: "T", body: "hello" }, nav)) as { id: string }
+
+    // get_note reads the note authored off-scene (was "not found" before the fix).
+    expect(((await getNote.run({ note_id: note.id }, nav)) as { content: string }).content).toBe("hello")
+    // edit_note edits it in place, off-scene.
+    await editNote.run({ note_id: note.id, field: "content", old: "hello", new: "bye" }, nav)
+    expect(((await getNote.run({ note_id: note.id }, nav)) as { content: string }).content).toBe("bye")
+    // write_note rewrite targets the off-scene note (not a duplicate/error).
+    const rw = (await writeNote.run({ content: "rewritten", note_id: note.id }, nav)) as { created: boolean }
+    expect(rw.created).toBe(false)
+    // arrange_notes (no ids) tidies the working folder — the user's on-screen note
+    // is never relocated.
+    const visibleX = store.getNode(asNodeId("visible"))!.x
+    await arrangeNotes.run({}, nav)
+    expect(store.getNode(asNodeId("visible"))!.x).toBe(visibleX)
+  })
+
+  it("re-entering a folder in the same turn sees notes it wrote before leaving", async () => {
+    const store = freshStore("c")
+    const nav: ToolContext = {
+      store,
+      rootId: null,
+      sceneRootId: null,
+      boardNotes: new Map([["F", folder("F", "Ideas")]]),
+    }
+    await navigate.run({ target: "F" }, nav)
+    const note = (await createNote.run({ title: "T", body: "x" }, nav)) as { id: string }
+    await navigate.run({ target: "root" }, nav)
+    await navigate.run({ target: "F" }, nav) // a fresh session must re-seed from the oplog (incl. `note`)
+    expect(((await getNote.run({ note_id: note.id }, nav)) as { content?: string }).content).toBe("x")
+  })
 })
