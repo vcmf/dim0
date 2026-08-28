@@ -19,6 +19,7 @@ import {
   editNote,
   arrangeNotes,
   navigate,
+  createFolder,
   searchNotes,
   listBoards,
   saveMemory,
@@ -769,6 +770,41 @@ describe("navigate (working folder)", () => {
     const visibleX = store.getNode(asNodeId("visible"))!.x
     await arrangeNotes.run({}, nav)
     expect(store.getNode(asNodeId("visible"))!.x).toBe(visibleX)
+  })
+
+  it("create_folder makes a folder in the working folder and returns its id", async () => {
+    const store = freshStore("c")
+    const nav: ToolContext = { store, rootId: null, sceneRootId: null, boardNotes: new Map() }
+    const res = (await createFolder.run({ label: "Project" }, nav)) as { folder_id: string; label: string }
+    expect(res.label).toBe("Project")
+    expect(store.getNode(asNodeId(res.folder_id))?.type).toBe("folder")
+  })
+
+  it("create_folder rejects nesting past the max depth", async () => {
+    const store = freshStore("c")
+    // Working folder `b` sits at depth 2 (root → a → b); a child would be depth 3.
+    const a = folder("a", "A")
+    const b = { ...folder("b", "B"), data: { ...(folder("b", "B").data as object), parentId: "a" } } as unknown as Node
+    const nav: ToolContext = { store, rootId: "b", sceneRootId: null, boardNotes: new Map([["a", a], ["b", b]]) }
+    const res = (await createFolder.run({ label: "TooDeep" }, nav)) as { error?: string }
+    expect(res).toHaveProperty("error")
+  })
+
+  it("create_folder → navigate → author: builds and populates a sub-board without touching the view", async () => {
+    const store = freshStore("c")
+    seed(store, "visible", { label: "OnScreen" }) // the user's on-screen note
+    const nav: ToolContext = { store, rootId: null, sceneRootId: null, boardNotes: new Map() }
+    // Folder created at the visible root → present in the user's view.
+    const f = (await createFolder.run({ label: "Project" }, nav)) as { folder_id: string }
+    expect(store.getNode(asNodeId(f.folder_id))?.type).toBe("folder")
+    // navigate into the freshly-created folder (resolved from the live store, not
+    // the pre-turn snapshot), then author inside it — off-scene.
+    await navigate.run({ target: f.folder_id }, nav)
+    expect(nav.board).toBeInstanceOf(HeadlessMutator)
+    const note = (await createNote.run({ title: "N", body: "inside" }, nav)) as { id: string; offScene?: boolean }
+    expect(note.offScene).toBe(true)
+    expect(store.getNode(asNodeId(note.id))).toBeUndefined() // authored off-scene, not in the user's view
+    expect(store.getNode(asNodeId("visible"))).toBeDefined() // the user's note is untouched
   })
 
   it("re-entering a folder in the same turn sees notes it wrote before leaving", async () => {

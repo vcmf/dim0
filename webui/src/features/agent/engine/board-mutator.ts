@@ -33,6 +33,7 @@ import {
 } from "@/features/board/harness/theme/color-adapter"
 import { getBoardThemeMode } from "@/features/board/harness/theme/theme-mode-ref"
 import { createDefaultLinkStyle, createDefaultStyle } from "@/features/board/types/style"
+import { DEFAULT_FOLDER_WIDTH } from "@/features/board/types/note"
 import { beneathBorderOrigin } from "@/features/board/harness/agent/beneath-border"
 import { bumpMeta, freshMeta } from "@/features/board/utils/node-meta"
 import { estimateNoteSize } from "./note-size"
@@ -85,6 +86,8 @@ export interface BoardMutator {
   rewriteNote(id: string, spec: NoteSpec): Promise<{ id: string; created: boolean }>
   patchNote(id: string, patch: { content?: string; label?: string }): Promise<void>
   createLink(spec: LinkSpec): Promise<{ id: string }>
+  /** Create a folder (a nested sub-board) in this layer; returns its id. */
+  createFolder(label: string): Promise<{ id: string }>
 }
 
 
@@ -164,6 +167,10 @@ const COLORABLE_CUSTOM_TYPES = new Set(["sheet"])
 
 // Gap (px) between a relationally-placed note and its anchor when not specified.
 const NEAR_GAP = 48
+
+
+// Agent-created folders use the same square default as the folder tool.
+const FOLDER_SIZE = DEFAULT_FOLDER_WIDTH
 
 
 type Box = { x: number; y: number; w: number; h: number }
@@ -445,6 +452,32 @@ export class StoreMutator implements BoardMutator {
     this.store.batch(() => this.store.updateNode(nid, next))
   }
 
+  async createFolder(label: string): Promise<{ id: string }> {
+    // A folder is a first-class node type: entering it sets root_id = folder.id and
+    // its children carry parentId = folder.id. The view only needs `data.label`;
+    // dispatch is by node.type. Auto-placed beneath existing content, like a note.
+    const id = asNodeId(this.store.generateId())
+    const { x, y } = this.placeNote({ content: "" }, FOLDER_SIZE, FOLDER_SIZE)
+    this.store.batch(() =>
+      this.store.addNode({
+        id,
+        type: "folder",
+        x,
+        y,
+        w: FOLDER_SIZE,
+        h: FOLDER_SIZE,
+        angle: 0,
+        groups: [],
+        data: {
+          label: { markdown: label },
+          parentId: this.rootId ?? undefined,
+          meta: freshMeta(),
+        } satisfies DimNodeData,
+      }),
+    )
+    return { id: String(id) }
+  }
+
   async createLink(spec: LinkSpec): Promise<{ id: string }> {
     const id = asEdgeId(this.store.generateId())
     const src = asNodeId(spec.sourceId)
@@ -554,6 +587,10 @@ export class HeadlessMutator implements BoardMutator {
 
   async createLink(spec: LinkSpec): Promise<{ id: string }> {
     return (await this.ensure()).createLink(spec)
+  }
+
+  async createFolder(label: string): Promise<{ id: string }> {
+    return (await this.ensure()).createFolder(label)
   }
 
   /** True if a node with `id` lives in the target layer (seeds on first call). */
