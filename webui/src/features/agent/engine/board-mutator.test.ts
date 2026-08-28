@@ -271,6 +271,16 @@ describe("StoreMutator", () => {
     expect(edge).toBeTruthy()
     expect((edge?.data as { parentId?: string } | undefined)?.parentId).toBe("folder-1")
   })
+
+  it("createFolder adds a folder node carrying the label + working-folder parentId", async () => {
+    const store = freshStore("b")
+    const m = new StoreMutator(store, "parent-1")
+    const { id } = await m.createFolder("Ideas")
+    const node = store.getNode(asNodeId(id))
+    expect(node?.type).toBe("folder")
+    expect(label(store, id)).toBe("Ideas")
+    expect((node?.data as DimNodeData).parentId).toBe("parent-1")
+  })
 })
 
 
@@ -327,6 +337,18 @@ describe("HeadlessMutator", () => {
     const whole = await persistence.load()
     const edge = whole.edges.find((e) => String(e.id) === id)
     expect((edge?.data as { parentId?: string } | undefined)?.parentId).toBe("folder-1")
+  })
+
+  it("createFolder makes a subfolder off-scene (in the whole-board oplog, not the visible store)", async () => {
+    const { persistence, scene } = setup()
+    const m = new HeadlessMutator(scene, "F")
+    const { id } = await m.createFolder("Sub")
+    await persistence.flush()
+    expect(scene.getNode(asNodeId(id))).toBeUndefined()
+    const whole = await persistence.load()
+    const node = whole.nodes.find((n) => String(n.id) === id)
+    expect(node?.type).toBe("folder")
+    expect(node?.data?.parentId).toBe("F")
   })
 
   it("seeds from the existing layer so it can edit a note already in that folder", async () => {

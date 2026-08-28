@@ -11,8 +11,10 @@
 import { z } from "zod"
 import { asNodeId } from "@canvas-harness/core"
 import type { CanvasStore, Node } from "@canvas-harness/core"
-import type { DimNodeData } from "@/features/board/model"
+import type { DimNode, DimNodeData } from "@/features/board/model"
 import { labelText } from "@/features/board/model"
+import { buildLayerPath } from "@/features/board/model/layer"
+import { MAX_BOARD_DEPTH, canCreateSubBoard } from "@/features/board/lib/board-limit"
 import { validateMiniAppSource } from "@/features/mini-app/validate"
 import { defineTool } from "./types"
 import type { Tool, ToolContext } from "./types"
@@ -220,15 +222,22 @@ export const navigate = defineTool({
   run: async ({ target }, ctx) => {
     const nodes = ctx.boardNotes
     const current = ctx.rootId ?? null
+    // Resolve a node across every place it might live: the current working-folder
+    // store (a folder just created off-scene this turn), the visible store (one
+    // created at the user's layer this turn), then the pre-turn whole-board
+    // snapshot — so `navigate` can enter a folder `create_folder` just returned.
+    const workingStore = ctx.board instanceof HeadlessMutator ? await ctx.board.layerStore() : ctx.store
+    const lookup = (id: string): Node | undefined =>
+      workingStore.getNode(asNodeId(id)) ?? ctx.store.getNode(asNodeId(id)) ?? nodes?.get(id)
     // Resolve the destination layer id (null = root).
     let dest: string | null
     if (target === "root") {
       dest = null
     } else if (target === "up") {
-      const node = current ? nodes?.get(current) : undefined
+      const node = current ? lookup(current) : undefined
       dest = (node?.data as DimNodeData | undefined)?.parentId ?? null
     } else {
-      const node = nodes?.get(target)
+      const node = lookup(target)
       if (!node) return { error: `navigate: no node with id ${target}` }
       if (node.type !== "folder") return { error: `navigate: ${target} is not a folder` }
       dest = target
@@ -253,6 +262,27 @@ export const navigate = defineTool({
       ? labelText((nodes?.get(dest)?.data as DimNodeData | undefined)?.label) || "Folder"
       : "root"
     return { working_folder: dest ?? "root", label, note_count: notes.length, notes }
+  },
+})
+
+
+export const createFolder = defineTool({
+  name: "create_folder",
+  description:
+    "Create a folder (a nested sub-board) in your current working folder. Returns its id. Typical flow: create_folder → navigate(folder_id) → author notes inside → navigate(\"up\"). The folder appears in the user's view when created at their current layer.",
+  parameters: z.object({
+    label: z.string().describe("The folder's name."),
+  }),
+  run: async ({ label }, ctx) => {
+    // Same nesting cap as the folder tool: root(0) → child(1) → grandchild(2); a
+    // 4th level isn't allowed. Depth = the working folder's distance from root.
+    const nodes = [...(ctx.boardNotes?.values() ?? [])] as unknown as DimNode[]
+    const depth = buildLayerPath(nodes, ctx.rootId ?? null).length
+    if (!canCreateSubBoard(depth)) {
+      return { error: `Maximum folder nesting depth reached (${MAX_BOARD_DEPTH + 1} levels).` }
+    }
+    const { id } = await mutatorFor(ctx).createFolder(label)
+    return { folder_id: id, label }
   },
 })
 
@@ -514,4 +544,4 @@ export const localTools: Tool[] = [createNote, updateNote, linkNotes, searchNote
 
 
 /** The note-building tools the chat agent uses (matches the system prompt's vocabulary). */
-export const agentBuildTools: Tool[] = [writeNote, editNote, getNote, linkNotes, arrangeNotes, navigate]
+export const agentBuildTools: Tool[] = [writeNote, editNote, getNote, linkNotes, arrangeNotes, navigate, createFolder]
