@@ -1,7 +1,7 @@
 # ADR-SYNC-001: Offline-first sync — the client owns conflict resolution; the backend is a sequencer + relay
 
-**Status:** Accepted · 2026-07-31
-**Applies to:** `webui/src/features/board/harness/sync/**`, `webui/src/features/board/persist/local/**`, `backend/topix/collab/**`, `backend/topix/api/router/collab.py`, `backend/topix/store/collab_oplog.py`
+**Status:** Accepted · 2026-07-31 · Amended 2026-08-28 (single local-batch intake)
+**Applies to:** `webui/src/features/board/harness/sync/**`, `webui/src/features/board/harness/graph/subtree.ts`, `webui/src/features/board/persist/local/**`, `backend/topix/collab/**`, `backend/topix/api/router/collab.py`, `backend/topix/store/collab_oplog.py`
 
 ## Decision
 v2 synced boards MUST resolve all conflicts **on the client** via rebase-LWW
@@ -16,6 +16,17 @@ backend MUST NOT resolve conflicts — it only allocates a monotonic seq, persis
   cursor — not a separate queue. Only `origin !== "remote"` batches are sent
   (`local` edits + `history` undo/redo); `remote`/agent batches are stored via
   `recordRemote` and MUST NOT be re-sent (echo guard).
+- All locally-produced batches MUST enter the coordinator through the **single
+  `submitLocalBatch` intake** (`board-sync.ts`), never a direct oplog write. *One
+  intake, two producers, one seq authority:* the store scene (current-layer edits,
+  via `attachSync.sendBatch`) and any headless / off-scene producer (cross-layer
+  writes, reached via `getBoardSyncRef()`) both funnel here, so a batch is tracked
+  + pumped once and shares the oplog seq. A headless producer MUST pass
+  `scene: false` — its ops are NOT in the loaded store, so they MUST NOT join the
+  rebase set (else `applyRemote`'s undo/replay injects off-layer nodes into the
+  current scene); a `scene: false` batch is pumped + `serverSeq`-stamped like any
+  record but never rebased, and its caller MUST record it to the oplog before
+  submitting (the store path is recorded by `persistence`).
 - Re-sends MUST be idempotent at the relay, deduped by `batch.id`: a hit re-acks
   at the original seq and never re-applies, re-appends, or re-broadcasts.
 - `local → synced` promotion is **one-way and in-place** (same board id) via
@@ -53,6 +64,14 @@ deferred, not adopted.
 - Known idempotency hazard: a coalesced message takes its **last** record's id, so
   a re-send whose membership changed re-applies an already-applied prefix — benign
   only because Qdrant apply is an idempotent upsert. Roadmap has the seq-range fix.
+- A direct oplog write (`persistence.record` without entering `submitLocalBatch`)
+  desyncs a synced board: the batch lands in the oplog but triggers no pump, so it
+  ships only opportunistically on the next unrelated edit and isn't `serverSeq`-
+  stamped promptly. The deep-layer cascade delete (`graph/subtree.ts`, deleting a
+  folder whose descendants live in an unloaded layer) was the last such bypass; it
+  now records then routes through `submitLocalBatch(…, { scene: false })`. On a
+  local board `getBoardSyncRef()` is `null`, so the oplog record alone stays
+  sync-correct there (no outbox to desync).
 
 ## Rejected alternatives
 - **Server-side CRDT/OT** — couples merge logic to the server, blocks the
@@ -65,3 +84,4 @@ deferred, not adopted.
 ## Verify
 `grep -rn "applyRemote\|rollbackPending\|inverseBatch" webui/src/features/board/harness/sync/board-sync.ts` — conflict resolution lives only on the client.
 `grep -rn "next_seq\|INCR\|MAX(seq)\|SET NX\|setnx" backend/topix/store/collab_oplog.py` — seq authority is the oplog, seeded from PG, not `room.seq`.
+`grep -rn "submitLocalBatch" webui/src/features/board/harness` — every local-batch producer (store + headless) enters the one intake; headless callers pass `{ scene: false }` and never write the oplog directly.
