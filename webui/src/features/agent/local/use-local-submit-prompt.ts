@@ -13,7 +13,7 @@ import { isOverQuotaError } from "@/features/agent/engine/services/run"
 import { createFlushGate } from "@/features/agent/utils/stream/throttle"
 import { useIsSignedIn } from "@/lib/auth"
 import { agentBuildTools, memoryTools, searchNotes } from "@/features/agent/engine/tools"
-import { StoreMutator } from "@/features/agent/engine/board-mutator"
+import { StoreMutator, HeadlessMutator } from "@/features/agent/engine/board-mutator"
 import { skillTools } from "@/features/agent/engine/skills"
 import { getSearchIndexRef } from "@/features/board/search/search-index-ref"
 import { buildWholeBoardSearch } from "@/features/board/search/use-search-index"
@@ -373,7 +373,22 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
             () => useToolConfirm.getState().request(req),
           )
         const memory = (await getLocalStores()).memories
-        for await (const ev of runAgent({ system: systemWithDocs, userMessage: userMessageForAgent, history, tools, llm, ctx: { store, rootId, boardId, search, boardNotes, memory, confirmTool, board: new StoreMutator(store, rootId) } })) {
+        // `rootId` is the agent's working folder (mutable via `navigate`);
+        // `sceneRootId` is the user's on-screen layer (fixed) — the mutator routes
+        // off-scene writes when they diverge. Hoisted so the turn can dispose any
+        // headless session it left open.
+        const ctx = {
+          store,
+          rootId,
+          sceneRootId: rootId,
+          boardId,
+          search,
+          boardNotes,
+          memory,
+          confirmTool,
+          board: new StoreMutator(store, rootId) as StoreMutator | HeadlessMutator,
+        }
+        for await (const ev of runAgent({ system: systemWithDocs, userMessage: userMessageForAgent, history, tools, llm, ctx })) {
           // Streaming yields cumulative assistant_text / reasoning per token —
           // replace the previous snapshot in place instead of appending one event
           // per token. (assistant_text renders live; reasoning is shown at turn-end.)
@@ -387,7 +402,10 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
             ev.type === "tool_result" &&
             (ev.toolName === "write_note" || ev.toolName === "create_note") &&
             ev.result && typeof ev.result === "object" && "id" in ev.result &&
-            (ev.result as { created?: unknown }).created === true
+            (ev.result as { created?: unknown }).created === true &&
+            // Off-scene writes (into a navigated-away working folder) aren't in the
+            // visible store — arranging/recentering them would target phantom nodes.
+            (ev.result as { offScene?: unknown }).offScene !== true
           ) {
             const id = String((ev.result as { id: unknown }).id)
             createdNodeIds.push(id)
@@ -420,6 +438,9 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
             }
           }
         }
+        // Release any off-scene session the agent left open (its writes are already
+        // recorded + pumped; this just detaches the throwaway store's subscription).
+        if (ctx.board instanceof HeadlessMutator) ctx.board.dispose()
         render(false)
         // Post-turn arrange (frontend analog of backend rearrange_created_notes).
         // Only auto-placed notes — pinned (near/explicit) ones keep their spot.

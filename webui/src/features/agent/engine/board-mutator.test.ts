@@ -1,14 +1,24 @@
-import { beforeEach, describe, expect, it } from "vitest"
-import { asNodeId } from "@canvas-harness/core"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { asNodeId, type OpBatch } from "@canvas-harness/core"
 import type { CanvasStore } from "@canvas-harness/core"
 import { freshStore, resetIdb } from "@/test/canvas"
 import type { DimNodeData } from "@/features/board/model"
 import { labelText } from "@/features/board/model"
 import { resolveFamilyShade } from "@/features/board/lib/colors/tailwind"
-import { StoreMutator } from "./board-mutator"
+import { InMemoryEngine } from "@/features/board/persist/local/in-memory-engine"
+import { BoardPersistence } from "@/features/board/persist/local/board-persistence"
+import { setBoardPersistenceRef } from "@/features/board/persist/local/board-persistence-ref"
+import { setBoardSyncRef } from "@/features/board/harness/sync/board-sync-ref"
+import type { BoardSyncHandle } from "@/features/board/harness/sync/board-sync"
+import { StoreMutator, HeadlessMutator } from "./board-mutator"
 
 
 beforeEach(() => resetIdb())
+afterEach(() => {
+  // Module-singleton refs — isolate the HeadlessMutator tests.
+  setBoardPersistenceRef(null)
+  setBoardSyncRef(null)
+})
 
 
 const label = (store: CanvasStore, id: string): string =>
@@ -260,5 +270,77 @@ describe("StoreMutator", () => {
     const edge = store.getAllEdges().find((e) => String(e.id) === id)
     expect(edge).toBeTruthy()
     expect((edge?.data as { parentId?: string } | undefined)?.parentId).toBe("folder-1")
+  })
+})
+
+
+describe("HeadlessMutator", () => {
+  // A synced-board fixture: whole-board persistence + a spy sync ref that records
+  // how each off-scene batch enters the coordinator.
+  const setup = () => {
+    const engine = new InMemoryEngine()
+    const persistence = new BoardPersistence("b", { engine })
+    setBoardPersistenceRef(persistence)
+    const submitted: { scene?: boolean }[] = []
+    setBoardSyncRef({
+      submitLocalBatch: (_b: OpBatch, opts?: { scene?: boolean }) => submitted.push({ scene: opts?.scene }),
+    } as unknown as BoardSyncHandle)
+    const scene = freshStore("scene") // the user's visible layer (root)
+    return { persistence, submitted, scene }
+  }
+
+  it("createNote writes into the target layer off-scene — not in the visible store, synced scene:false", async () => {
+    const { persistence, submitted, scene } = setup()
+    const m = new HeadlessMutator(scene, "folder-1")
+    const res = await m.createNote({ content: "hi", label: "H" })
+    await persistence.flush()
+
+    expect(res.offScene).toBe(true)
+    // Never enters the user's visible store.
+    expect(scene.getNode(asNodeId(res.id))).toBeUndefined()
+    // Landed in the whole-board oplog, stamped into the target layer.
+    const whole = await persistence.load()
+    const node = whole.nodes.find((n) => String(n.id) === res.id)
+    expect(node?.data?.parentId).toBe("folder-1")
+    // Entered the sync intake as an off-scene batch (never the rebase set).
+    expect(submitted.length).toBeGreaterThan(0)
+    expect(submitted.every((s) => s.scene === false)).toBe(true)
+  })
+
+  it("accumulates within a session so a second note places below the first (shared off-scene store)", async () => {
+    const { scene } = setup()
+    const m = new HeadlessMutator(scene, "folder-1")
+    const a = await m.createNote({ content: "A" }) // auto-placed at origin
+    const b = await m.createNote({ content: "B" }) // auto-placed BENEATH A
+    expect(await m.hasNode(a.id)).toBe(true)
+    expect(await m.hasNode(b.id)).toBe(true)
+    expect(await m.hasNode("nope")).toBe(false)
+  })
+
+  it("createLink joins two off-scene notes in the target layer", async () => {
+    const { persistence, scene } = setup()
+    const m = new HeadlessMutator(scene, "folder-1")
+    const a = await m.createNote({ content: "A" })
+    const b = await m.createNote({ content: "B" })
+    const { id } = await m.createLink({ sourceId: a.id, targetId: b.id, label: "then" })
+    await persistence.flush()
+    const whole = await persistence.load()
+    const edge = whole.edges.find((e) => String(e.id) === id)
+    expect((edge?.data as { parentId?: string } | undefined)?.parentId).toBe("folder-1")
+  })
+
+  it("seeds from the existing layer so it can edit a note already in that folder", async () => {
+    const { persistence, scene } = setup()
+    // Seed a note into folder-1 via a separate headless session (as a prior turn would).
+    const seeded = await new HeadlessMutator(scene, "folder-1").createNote({ content: "old", label: "Old" })
+    await persistence.flush()
+    // A fresh session must see it (loaded from the oplog) and rewrite it in place.
+    const m = new HeadlessMutator(scene, "folder-1")
+    expect(await m.hasNode(seeded.id)).toBe(true)
+    await m.rewriteNote(seeded.id, { content: "new" })
+    await persistence.flush()
+    const whole = await persistence.load()
+    const node = whole.nodes.find((n) => String(n.id) === seeded.id)
+    expect(node?.content).toBe("new")
   })
 })

@@ -89,12 +89,21 @@ export type ToolContext = {
    */
   board?: BoardMutator
   /**
-   * Current folder layer new notes/links belong to (null = root). Tools stamp
-   * it as `parentId` AT CREATION — the local analog of the backend passing
-   * `root_id` to `build_note`, so a note is born in the right sub-board rather
-   * than relying on a post-hoc rescope.
+   * The agent's **working folder** (null = root) — the layer new notes/links
+   * belong to, stamped as `parentId` AT CREATION. Starts at the user's layer but
+   * is MUTABLE mid-turn: the `navigate` tool sets it (like `cd`), decoupled from
+   * the on-screen layer. When it differs from `sceneRootId`, writes route through
+   * a headless off-scene mutator (see board-mutator.ts) so the user's view never
+   * moves.
    */
   rootId?: string | null
+  /**
+   * The layer the visible `store` is projecting (the user's on-screen view) —
+   * fixed for the turn. `mutatorFor` compares it to the working folder (`rootId`)
+   * to decide store (visible, renders) vs headless (off-scene) writes. Defaults
+   * to `rootId` when the runtime doesn't distinguish them (tests / lean ctx).
+   */
+  sceneRootId?: string | null
   /** The board this run acts on — memory tools bind board-scoped writes to it. */
   boardId?: string
   search?: LocalSearchIndex

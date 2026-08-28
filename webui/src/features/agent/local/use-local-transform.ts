@@ -45,7 +45,9 @@ export function useLocalTransform() {
       if (!store || !sourceText.trim()) return { ok: false, createdIds: [] }
       const rootId = useBoardAppStore.getState().rootId
       const search = getSearchIndexRef() ?? undefined
-      const ctx = { store, rootId, search, board: new StoreMutator(store, rootId) }
+      // Transforms don't navigate (no `navigate` tool), so the working folder
+      // stays the scene layer — writes always go through the visible store.
+      const ctx = { store, rootId, sceneRootId: rootId, search, board: new StoreMutator(store, rootId) }
 
       const recenter = (ids: string[]): void => {
         if (ids.length === 0) return

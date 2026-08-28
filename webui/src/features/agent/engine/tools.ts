@@ -16,7 +16,7 @@ import { labelText } from "@/features/board/model"
 import { validateMiniAppSource } from "@/features/mini-app/validate"
 import { defineTool } from "./types"
 import type { Tool, ToolContext } from "./types"
-import { StoreMutator, type BoardMutator } from "./board-mutator"
+import { StoreMutator, HeadlessMutator, type BoardMutator } from "./board-mutator"
 import { arrangeNodesInPlace } from "@/features/board/harness/agent/arrange-created-nodes"
 import type { MemoryKind, MemoryScope } from "@/features/board/persist/local/idb"
 
@@ -107,12 +107,18 @@ export const linkNotes = defineTool({
     label: z.string().optional().describe("Optional short label on the edge, e.g. 'yes', 'no', 'then', 'reads', 'causes'."),
   }),
   run: async ({ sourceId, targetId, label }, ctx) => {
-    // Both endpoints must exist in the current layer (edges are layer-scoped) —
+    // Both endpoints must exist in the working folder (edges are layer-scoped) —
     // otherwise the edge would dangle at (0,0) on a phantom node. Fail clearly.
-    if (!ctx.store.getNode(asNodeId(sourceId)) || !ctx.store.getNode(asNodeId(targetId))) {
-      return { error: "link_notes: source or target note not found in the current board." }
+    // When the working folder is off-scene, check its layer, not the visible store.
+    const board = mutatorFor(ctx)
+    const bothExist =
+      board instanceof HeadlessMutator
+        ? (await board.hasNode(sourceId)) && (await board.hasNode(targetId))
+        : !!ctx.store.getNode(asNodeId(sourceId)) && !!ctx.store.getNode(asNodeId(targetId))
+    if (!bothExist) {
+      return { error: "link_notes: source or target note not found in the current working folder." }
     }
-    return mutatorFor(ctx).createLink({ sourceId, targetId, label })
+    return board.createLink({ sourceId, targetId, label })
   },
 })
 
@@ -178,6 +184,55 @@ export const arrangeNotes = defineTool({
     }
     const arranged = await arrangeNodesInPlace(ctx.store, ids)
     return { arranged }
+  },
+})
+
+
+export const navigate = defineTool({
+  name: "navigate",
+  description:
+    "Set your working folder — like `cd`. Afterward, create_note / write_note / link_notes write INTO this folder without moving the user's on-screen view. Returns the folder's current notes, so it doubles as looking inside a folder. target: a folder node's id to enter it, \"root\" for the top level, or \"up\" for the parent folder.",
+  parameters: z.object({
+    target: z
+      .string()
+      .describe('A folder node id to enter, "root" for the top level, or "up" to go to the parent folder.'),
+  }),
+  run: async ({ target }, ctx) => {
+    const nodes = ctx.boardNotes
+    const current = ctx.rootId ?? null
+    // Resolve the destination layer id (null = root).
+    let dest: string | null
+    if (target === "root") {
+      dest = null
+    } else if (target === "up") {
+      const node = current ? nodes?.get(current) : undefined
+      dest = (node?.data as DimNodeData | undefined)?.parentId ?? null
+    } else {
+      const node = nodes?.get(target)
+      if (!node) return { error: `navigate: no node with id ${target}` }
+      if (node.type !== "folder") return { error: `navigate: ${target} is not a folder` }
+      dest = target
+    }
+    // Switch the working folder + write routing. Release any prior off-scene
+    // session, then pick store (dest is the visible layer → renders) vs headless.
+    if (ctx.board instanceof HeadlessMutator) ctx.board.dispose()
+    ctx.rootId = dest
+    const sceneRoot = ctx.sceneRootId ?? null
+    ctx.board =
+      dest === sceneRoot ? new StoreMutator(ctx.store, dest) : new HeadlessMutator(ctx.store, dest)
+    // ls: the destination layer's notes from the whole-board snapshot (may lag
+    // this turn's own writes into the same folder).
+    const notes = [...(nodes?.values() ?? [])]
+      .filter((n) => ((n.data as DimNodeData | undefined)?.parentId ?? null) === dest)
+      .map((n) => ({
+        id: String(n.id),
+        title: labelText((n.data as DimNodeData | undefined)?.label),
+        type: n.type,
+      }))
+    const label = dest
+      ? labelText((nodes?.get(dest)?.data as DimNodeData | undefined)?.label) || "Folder"
+      : "root"
+    return { working_folder: dest ?? "root", label, note_count: notes.length, notes }
   },
 })
 
@@ -436,4 +491,4 @@ export const localTools: Tool[] = [createNote, updateNote, linkNotes, searchNote
 
 
 /** The note-building tools the chat agent uses (matches the system prompt's vocabulary). */
-export const agentBuildTools: Tool[] = [writeNote, editNote, getNote, linkNotes, arrangeNotes]
+export const agentBuildTools: Tool[] = [writeNote, editNote, getNote, linkNotes, arrangeNotes, navigate]

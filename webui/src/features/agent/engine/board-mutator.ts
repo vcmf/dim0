@@ -10,9 +10,14 @@
  * off-screen, cross-layer writer) can satisfy the same interface without the tool
  * code changing.
  */
-import { asEdgeId, asNodeId } from "@canvas-harness/core"
+import { asEdgeId, asNodeId, createCanvasStore } from "@canvas-harness/core"
 import type { CanvasStore, Node } from "@canvas-harness/core"
 import type { DimEdgeData, DimNodeData } from "@/features/board/model"
+import { filterContentByLayer } from "@/features/board/model/layer"
+import { contentToScene, emptyContent } from "@/features/board/persist/local/codec"
+import { getBoardPersistenceRef } from "@/features/board/persist/local/board-persistence-ref"
+import { getBoardSyncRef } from "@/features/board/harness/sync/board-sync-ref"
+import { generateUuid } from "@/lib/common"
 import { FAMILIES, pickRandomColorOfShade, resolveFamilyShade, toBaseHex } from "@/features/board/lib/colors/tailwind"
 import { hexToRgb } from "@/features/board/utils/color"
 import { AUTOFIT_DISABLED_TYPES } from "@/features/board/harness/convert/note-to-node"
@@ -70,8 +75,13 @@ export type LinkSpec = {
  * the signature; the impl decides how the write reaches persistence + sync.
  */
 export interface BoardMutator {
-  /** `placed` = pinned at an explicit/relational position (excluded from arrange). */
-  createNote(spec: NoteSpec): Promise<{ id: string; created: true; placed: boolean }>
+  /**
+   * `placed` = pinned at an explicit/relational position (excluded from arrange).
+   * `offScene` = written into a layer that isn't the visible scene (the agent's
+   * working folder ≠ the user's view) — the turn must NOT arrange/recenter it in
+   * the current view.
+   */
+  createNote(spec: NoteSpec): Promise<{ id: string; created: true; placed: boolean; offScene?: boolean }>
   rewriteNote(id: string, spec: NoteSpec): Promise<{ id: string; created: boolean }>
   patchNote(id: string, patch: { content?: string; label?: string }): Promise<void>
   createLink(spec: LinkSpec): Promise<{ id: string }>
@@ -463,5 +473,94 @@ export class StoreMutator implements BoardMutator {
       })
     })
     return { id: String(id) }
+  }
+}
+
+
+// ---- HeadlessMutator: writes into an OFF-SCENE layer (not the visible store) --
+
+/**
+ * Writes into a board layer that ISN'T the visible scene — the agent's working
+ * folder (§S8) when it differs from the user's on-screen layer. Lets the agent
+ * author into a subfolder *without moving the user's view*.
+ *
+ * Reuses `StoreMutator` verbatim against a throwaway off-scene store seeded with
+ * the target layer's content, so all build / placement / rewrite logic — and the
+ * store's correct `node.update.prev` computation — is shared, not duplicated. The
+ * off-scene store's local `change` batches are forwarded to the sync-correct
+ * intake: recorded to the whole-board oplog and pumped via
+ * `submitLocalBatch(batch, { scene: false })` (S7), so the write persists + syncs
+ * without ever entering the visible scene's rebase set. The off-scene store is
+ * never mounted, so nothing renders. Seeded lazily on the first write, and its
+ * clientId + id scheme match the scene store so ids/batches stay board-valid.
+ */
+export class HeadlessMutator implements BoardMutator {
+  private readonly sceneStore: CanvasStore
+  private readonly targetLayer: string | null
+  private inner: StoreMutator | null = null
+  private offStore: CanvasStore | null = null
+  private detachChange: (() => void) | null = null
+
+  constructor(sceneStore: CanvasStore, targetLayer: string | null) {
+    this.sceneStore = sceneStore
+    this.targetLayer = targetLayer
+  }
+
+  /**
+   * Seed the off-scene store from the whole-board oplog (filtered to the target
+   * layer) and wire its commits into the sync intake. Idempotent — the first
+   * write builds it; later writes reuse it, so notes created this turn accumulate
+   * for placement + linking.
+   */
+  private async ensure(): Promise<StoreMutator> {
+    if (this.inner) return this.inner
+    const persistence = getBoardPersistenceRef()
+    const whole = persistence ? await persistence.load() : emptyContent()
+    const layer = filterContentByLayer(whole, this.targetLayer)
+    const offStore = createCanvasStore({
+      clientId: this.sceneStore.clientId,
+      idGenerator: generateUuid,
+      initial: contentToScene(layer),
+    })
+    // Every off-scene commit records to the oplog and enters the sync intake as an
+    // off-scene batch — pumped + serverSeq-stamped, but never the in-scene rebase
+    // set (its ops aren't in the visible store). Mirrors the scene store's
+    // persistence.attach + attachSync, minus the render.
+    this.detachChange = offStore.subscribe("change", (batch) => {
+      persistence?.record(batch)
+      getBoardSyncRef()?.submitLocalBatch(batch, { scene: false })
+    })
+    this.offStore = offStore
+    this.inner = new StoreMutator(offStore, this.targetLayer)
+    return this.inner
+  }
+
+  async createNote(spec: NoteSpec): Promise<{ id: string; created: true; placed: boolean; offScene: true }> {
+    const r = await (await this.ensure()).createNote(spec)
+    return { ...r, offScene: true }
+  }
+
+  async rewriteNote(id: string, spec: NoteSpec): Promise<{ id: string; created: boolean }> {
+    return (await this.ensure()).rewriteNote(id, spec)
+  }
+
+  async patchNote(id: string, patch: { content?: string; label?: string }): Promise<void> {
+    return (await this.ensure()).patchNote(id, patch)
+  }
+
+  async createLink(spec: LinkSpec): Promise<{ id: string }> {
+    return (await this.ensure()).createLink(spec)
+  }
+
+  /** True if a node with `id` lives in the target layer (seeds on first call). */
+  async hasNode(id: string): Promise<boolean> {
+    await this.ensure()
+    return this.offStore?.getNode(asNodeId(id)) !== undefined
+  }
+
+  /** Detach the change subscription. Best-effort — the off-scene store is local. */
+  dispose(): void {
+    this.detachChange?.()
+    this.detachChange = null
   }
 }

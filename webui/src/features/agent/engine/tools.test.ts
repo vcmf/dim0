@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { asNodeId } from "@canvas-harness/core"
 import type { CanvasStore, Node } from "@canvas-harness/core"
 import { freshStore, resetIdb } from "@/test/canvas"
@@ -18,6 +18,7 @@ import {
   getNote,
   editNote,
   arrangeNotes,
+  navigate,
   searchNotes,
   listBoards,
   saveMemory,
@@ -25,6 +26,10 @@ import {
   deleteMemory,
   recallMemory,
 } from "./tools"
+import { HeadlessMutator, StoreMutator } from "./board-mutator"
+import { BoardPersistence } from "@/features/board/persist/local/board-persistence"
+import { setBoardPersistenceRef } from "@/features/board/persist/local/board-persistence-ref"
+import { setBoardSyncRef } from "@/features/board/harness/sync/board-sync-ref"
 
 
 // A LocalSearchIndex that returns a fixed id list (we test the id→result mapping,
@@ -646,5 +651,96 @@ describe("memory tools", () => {
     const del = (await deleteMemory.run({ id: "ghost" }, ctx)) as { ok: boolean }
     expect(upd.ok).toBe(false)
     expect(del.ok).toBe(false)
+  })
+})
+
+
+describe("navigate (working folder)", () => {
+  // A folder node lives on the WHOLE board (boardNotes); the visible store is the
+  // root layer. Navigating into the folder must route writes off-scene.
+  const folder = (id: string, label: string): Node =>
+    ({
+      id: asNodeId(id),
+      type: "folder",
+      x: 0, y: 0, w: 100, h: 50, angle: 0, groups: [],
+      data: { label: { markdown: label }, meta: { v: 1, createdAt: 0, updatedAt: 0 } },
+    }) as unknown as Node
+
+  beforeEach(() => {
+    // A whole-board persistence so the off-scene write path is exercised;
+    // no relay (persistence-only is sync-correct on a local board).
+    setBoardPersistenceRef(new BoardPersistence("b", { engine: new InMemoryEngine() }))
+    setBoardSyncRef(null)
+  })
+  afterEach(() => {
+    setBoardPersistenceRef(null)
+    setBoardSyncRef(null)
+  })
+
+  it("into a folder sets the working folder and routes writes off-scene", async () => {
+    const store = freshStore("c")
+    const nav: ToolContext = {
+      store,
+      rootId: null,
+      sceneRootId: null,
+      boardNotes: new Map([["F", folder("F", "Ideas")]]),
+    }
+    const res = (await navigate.run({ target: "F" }, nav)) as { working_folder: string; label: string }
+    expect(res.working_folder).toBe("F")
+    expect(res.label).toBe("Ideas")
+    expect(nav.rootId).toBe("F")
+    expect(nav.board).toBeInstanceOf(HeadlessMutator)
+
+    // A note created now lands in F, off-scene — never in the visible root store.
+    const note = (await createNote.run({ title: "T", body: "B" }, nav)) as { id: string; offScene?: boolean }
+    expect(note.offScene).toBe(true)
+    expect(store.getNode(asNodeId(note.id))).toBeUndefined()
+  })
+
+  it('navigating back to "root" restores store (visible) writes', async () => {
+    const store = freshStore("c")
+    const nav: ToolContext = {
+      store,
+      rootId: "F",
+      sceneRootId: null,
+      board: new HeadlessMutator(store, "F"),
+      boardNotes: new Map([["F", folder("F", "Ideas")]]),
+    }
+    await navigate.run({ target: "root" }, nav)
+    expect(nav.rootId).toBe(null)
+    expect(nav.board).toBeInstanceOf(StoreMutator)
+    // Now a create renders into the visible store.
+    const note = (await createNote.run({ title: "R", body: "B" }, nav)) as { id: string; offScene?: boolean }
+    expect(note.offScene).toBeUndefined()
+    expect(store.getNode(asNodeId(note.id))).toBeDefined()
+  })
+
+  it('"up" walks to the parent folder', async () => {
+    const store = freshStore("c")
+    const nav: ToolContext = {
+      store,
+      rootId: "child",
+      sceneRootId: null,
+      boardNotes: new Map([
+        ["parent", folder("parent", "Parent")],
+        ["child", { ...folder("child", "Child"), data: { ...(folder("child", "Child").data as object), parentId: "parent" } } as unknown as Node],
+      ]),
+    }
+    const res = (await navigate.run({ target: "up" }, nav)) as { working_folder: string }
+    expect(res.working_folder).toBe("parent")
+    expect(nav.rootId).toBe("parent")
+  })
+
+  it("rejects a non-folder or unknown target", async () => {
+    const store = freshStore("c")
+    const nav: ToolContext = {
+      store,
+      rootId: null,
+      sceneRootId: null,
+      boardNotes: new Map([["n1", { ...folder("n1", "x"), type: "rect" } as unknown as Node]]),
+    }
+    expect((await navigate.run({ target: "n1" }, nav)) as { error?: string }).toHaveProperty("error")
+    expect((await navigate.run({ target: "ghost" }, nav)) as { error?: string }).toHaveProperty("error")
+    expect(nav.rootId).toBe(null) // unchanged on error
   })
 })
