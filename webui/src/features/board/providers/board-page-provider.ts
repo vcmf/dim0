@@ -1,8 +1,15 @@
+import { asNodeId, type Node, type Op } from "@canvas-harness/core"
 import type { Page, PageProvider } from "@/components/editor/tiptap/page/types"
-import { listBoardContents } from "../api/list-board-contents"
-import { getNote } from "../api/get-note"
-import { addNotes } from "../api/add-notes"
-import { invalidateBoardContents } from "../api/invalidate-board-contents"
+import { queryClient } from "@/query-client"
+import { getLocalStores } from "@/features/local-stores"
+import { BoardPersistence } from "@/features/board/persist/local/board-persistence"
+import { getBoardPersistenceRef } from "@/features/board/persist/local/board-persistence-ref"
+import { getBoardSyncRef } from "@/features/board/harness/sync/board-sync-ref"
+import { getCanvasStoreRef } from "@/features/board/harness/canvas-store-ref"
+import { useBoardAppStore } from "@/features/board/harness/store/board-app-store"
+import { makeBatch } from "@/features/board/harness/make-batch"
+import { noteToNode, type NoteNodeData } from "../harness/convert/note-to-node"
+import { listLocalBoardContents } from "../api/list-local-board-contents"
 import { createDefaultNote, type Note } from "../types/note"
 
 
@@ -53,10 +60,55 @@ export function noteToPage(note: Note): Page {
 
 
 /**
- * Build a `PageProvider` backed by the existing board API helpers.
- * Filters listings to sheet-kind notes (treating sheets as pages); titles
- * are matched case-insensitively client-side since the backend's contents
- * endpoint doesn't support search yet.
+ * Map a live canvas-harness `Node` (runtime `NoteNodeData` + string `content`)
+ * onto a `Page`. The local analog of {@link noteToPage} for the on-device store,
+ * where the body rides on `node.content` (a string), not `note.content.markdown`.
+ */
+function nodeToPage(node: Node): Page {
+  const data = node.data as NoteNodeData | undefined
+  const label = typeof data?.label === "string" ? data.label : data?.label?.markdown
+  return {
+    id: node.id as unknown as string,
+    title: label?.trim() || "Untitled",
+    icon: data?.properties?.iconData?.icon ?? null,
+    parentId: data?.parentId ?? undefined,
+    snippet: snippetFromMarkdown(node.content ?? undefined),
+  }
+}
+
+
+/**
+ * Write a freshly-built sheet node into the board, sync-correctly, without
+ * disturbing the user's view:
+ *  - target layer == the visible layer → through the live store (renders + the
+ *    store's change pipeline persists + syncs it, exactly like a manual create);
+ *  - otherwise (a /subpage's child layer, or a top-level page created while the
+ *    user is inside a folder) → off-scene: record to the oplog + enter the sync
+ *    intake with `scene: false` (the headless path, ADR-SYNC-001), so it never
+ *    lands in the current scene.
+ */
+function writeSheetNode(node: Node, layer: string | null): void {
+  const store = getCanvasStoreRef()
+  if (!store) return // no live board mounted — nothing to write into
+  const currentLayer = useBoardAppStore.getState().rootId ?? null
+  if (layer === currentLayer) {
+    store.addNode(node)
+    return
+  }
+  const persistence = getBoardPersistenceRef()
+  if (!persistence) return
+  const batch = makeBatch(store, "local", [{ type: "node.add", node } as Op])
+  persistence.record(batch)
+  getBoardSyncRef()?.submitLocalBatch(batch, { scene: false })
+}
+
+
+/**
+ * Build a `PageProvider` backed by the on-device store (offline-first): pages are
+ * the board's sheet-kind notes. `list` reads the local surface index, `get`
+ * resolves a note from the live store or the whole-board replica, and `create`
+ * writes a new sheet sync-correctly. (Formerly REST-backed — that broke once
+ * boards became local/synced, since those routes have no local-board counterpart.)
  */
 export function createBoardPageProvider(
   config: BoardPageProviderConfig,
@@ -65,10 +117,10 @@ export function createBoardPageProvider(
 
   return {
     async list(query?: string) {
-      const items = await listBoardContents(boardId)
+      const items = await listLocalBoardContents(boardId)
       const sheets: Page[] = items
         .filter((it) => it.kind === "sheet")
-        .map((it) => ({ id: it.id, title: it.label?.trim() || "Untitled" }))
+        .map((it) => ({ id: it.id, title: it.label?.trim() || "Untitled", icon: it.iconData ?? null }))
 
       const q = query?.trim().toLowerCase()
       if (!q) return sheets
@@ -76,9 +128,15 @@ export function createBoardPageProvider(
     },
 
     async get(id: string) {
+      // The live store holds the current layer — freshest, and the common case.
+      const live = getCanvasStoreRef()?.getNode(asNodeId(id))
+      if (live) return nodeToPage(live)
+      // Otherwise resolve from the whole-board replica (a page in another layer).
       try {
-        const note = await getNote(boardId, id)
-        return noteToPage(note)
+        const { engine } = await getLocalStores()
+        const content = await new BoardPersistence(boardId, { engine }).load()
+        const node = content.nodes.find((n) => (n.id as unknown as string) === id)
+        return node ? nodeToPage(node) : null
       } catch (err) {
         console.warn("[boardPageProvider] get failed", id, err)
         return null
@@ -88,11 +146,12 @@ export function createBoardPageProvider(
     async create(opts: { title: string; parentId?: string }) {
       const note = createDefaultNote({ boardId, nodeType: "sheet" })
       note.label = { markdown: opts.title || "Untitled" }
+      // Empty body — without this, noteToNode seeds the body from the label.
+      note.content = { markdown: "" }
       if (opts.parentId) note.parentId = opts.parentId
-      await addNotes(boardId, [note])
-      // The new sheet is now visible in the parent's contents listing —
-      // refresh any sidebar / picker query that's looking at the board.
-      invalidateBoardContents(boardId)
+      writeSheetNode(noteToNode(note), note.parentId ?? null)
+      // Refresh the on-device contents index (sidebar tree / page picker).
+      void queryClient.invalidateQueries({ queryKey: ["localBoardContents", boardId] })
       return {
         id: note.id,
         title: opts.title || "Untitled",
