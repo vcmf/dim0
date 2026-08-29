@@ -36,6 +36,8 @@ describe("affectsSurfaceTree", () => {
     expect(affectsSurfaceTree(batch([{ type: "node.update", id: "n", patch: { data: { parentId: "f" } } }]))).toBe(true)
     expect(affectsSurfaceTree(batch([{ type: "node.update", id: "n", patch: { data: { properties: { iconData: { icon: "x" } } } } }]))).toBe(true)
     expect(affectsSurfaceTree(batch([{ type: "node.update", id: "n", patch: { data: { styleType: "folder" } } }]))).toBe(true)
+    // A kind change via the node-level `type` (agent surfaces carry no styleType).
+    expect(affectsSurfaceTree(batch([{ type: "node.update", id: "n", patch: { type: "sheet" } }]))).toBe(true)
   })
 
   it("is false for a pure position/style update (drag/resize)", () => {

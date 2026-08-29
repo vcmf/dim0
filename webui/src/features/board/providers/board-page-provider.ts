@@ -48,6 +48,13 @@ function isSheet(node: Node): boolean {
 }
 
 
+/** Title from node data — RichText label or a legacy bare string; "Untitled" if blank. */
+function titleFromData(data: NoteNodeData | undefined): string {
+  const label = typeof data?.label === "string" ? data.label : data?.label?.markdown
+  return label?.trim() || "Untitled"
+}
+
+
 /**
  * Map a board Note onto the editor's `Page` shape: title (falling back to
  * "Untitled"), the user's custom icon (`iconData.icon`, else null so the
@@ -72,10 +79,9 @@ export function noteToPage(note: Note): Page {
  */
 function nodeToPage(node: Node): Page {
   const data = node.data as NoteNodeData | undefined
-  const label = typeof data?.label === "string" ? data.label : data?.label?.markdown
   return {
     id: node.id as unknown as string,
-    title: label?.trim() || "Untitled",
+    title: titleFromData(data),
     icon: data?.properties?.iconData?.icon ?? null,
     parentId: data?.parentId ?? undefined,
     snippet: snippetFromMarkdown(node.content ?? undefined),
@@ -147,8 +153,7 @@ export function createBoardPageProvider(
         .filter(isSheet)
         .map((n) => {
           const data = n.data as NoteNodeData | undefined
-          const label = typeof data?.label === "string" ? data.label : data?.label?.markdown
-          return { id: n.id as unknown as string, title: label?.trim() || "Untitled", icon: data?.properties?.iconData?.icon ?? null }
+          return { id: n.id as unknown as string, title: titleFromData(data), icon: data?.properties?.iconData?.icon ?? null }
         })
 
       const q = query?.trim().toLowerCase()
@@ -157,11 +162,13 @@ export function createBoardPageProvider(
     },
 
     async get(id: string) {
-      // The live store holds the current layer — freshest, and the common case.
-      const live = getCanvasStoreRef()?.getNode(asNodeId(id))
-      if (live) return isSheet(live) ? nodeToPage(live) : null
-      // Otherwise resolve from the whole-board replica (a page in another layer).
+      // Contract: return null (never throw) on missing / no access — so a
+      // malformed id (asNodeId/getNode) can't reject the promise either.
       try {
+        // The live store holds the current layer — freshest, and the common case.
+        const live = getCanvasStoreRef()?.getNode(asNodeId(id))
+        if (live) return isSheet(live) ? nodeToPage(live) : null
+        // Otherwise resolve from the whole-board replica (a page in another layer).
         const node = (await loadBoard()).nodes.find((n) => (n.id as unknown as string) === id)
         return node && isSheet(node) ? nodeToPage(node) : null
       } catch (err) {

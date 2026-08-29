@@ -26,6 +26,10 @@ export const affectsSurfaceTree = (batch: OpBatch): boolean => {
       const kind = ((op.node.data as NoteNodeData | undefined)?.styleType ?? op.node.type) as BoardContentKind | undefined
       if (kind && SURFACE_KINDS.has(kind)) return true
     } else if (op.type === "node.update") {
+      // A kind change rides on the node-level `type` (agent surfaces set only the
+      // canonical type), so treat that as tree-affecting too — symmetric with the
+      // add/remove node.type fallback above.
+      if ("type" in op.patch) return true
       const data = (op.patch as { data?: Partial<NoteNodeData> } | undefined)?.data
       if (data && ("label" in data || "parentId" in data || "properties" in data || "styleType" in data)) {
         return true
