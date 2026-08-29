@@ -19,6 +19,12 @@ describe("affectsSurfaceTree", () => {
     expect(affectsSurfaceTree(batch([{ type: "node.add", node: { id: "n", data: {} } }]))).toBe(false)
   })
 
+  it("falls back to node.type for an agent surface (canonical type, no styleType)", () => {
+    // Agent-authored sheets set node.type but not the display styleType.
+    expect(affectsSurfaceTree(batch([{ type: "node.add", node: { id: "n", type: "sheet", data: { meta: {} } } }]))).toBe(true)
+    expect(affectsSurfaceTree(batch([{ type: "node.add", node: { id: "n", type: "rect", data: {} } }]))).toBe(false)
+  })
+
   it("is true when a surface node is removed, false for a non-surface removal", () => {
     // The remove op carries the full node, so its kind is checkable (like add).
     expect(affectsSurfaceTree(batch([{ type: "node.remove", node: { id: "n", data: { styleType: "sheet" } } }]))).toBe(true)

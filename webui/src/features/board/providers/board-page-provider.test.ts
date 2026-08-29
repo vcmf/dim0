@@ -159,6 +159,23 @@ describe("createBoardPageProvider (on-device store)", () => {
     expect(items.find((it) => it.id === page.id)?.parentId).toBe("parent-note")
   })
 
+  it("indexes an agent-authored sheet (node.type only, no styleType) in list + contents", async () => {
+    const { persistence, store } = await setup()
+    // An agent sheet: built by the mutator (node.type="sheet"), no display styleType.
+    store.addNode({
+      id: asNodeId("agent-s"),
+      type: "sheet",
+      x: 0, y: 0, w: 100, h: 50, angle: 0, groups: [],
+      content: "",
+      data: { label: { markdown: "Agent Sheet" }, meta: { v: 1, createdAt: 0, updatedAt: 0 } },
+    })
+    await persistence.flush()
+    // Sidebar source (listLocalBoardContents) picks it up via the node.type fallback.
+    expect((await listLocalBoardContents("b")).find((it) => it.id === "agent-s")?.kind).toBe("sheet")
+    // The @ page picker (provider.list) surfaces it too.
+    expect((await createBoardPageProvider({ boardId: "b" }).list()).map((p) => p.title)).toContain("Agent Sheet")
+  })
+
   it("get() returns null for a non-sheet node (a page is a sheet)", async () => {
     const { store } = await setup("b", null)
     addNode(store, "rect1", "a rectangle") // not a sheet, in the live store
