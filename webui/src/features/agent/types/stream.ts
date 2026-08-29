@@ -3,6 +3,8 @@ import {
   BrowserSearchIcon,
   CreateNoteIcon,
   EditNoteIcon,
+  FolderIcon,
+  FolderPlusActionIcon,
   ImageGenerationIcon,
   ImageSearchWidgetIcon,
   DocumentFileIcon,
@@ -113,6 +115,8 @@ export type ToolName =
   | "get_note"
   | "link_notes"
   | "arrange_notes"
+  | "navigate"
+  | "create_folder"
   | "outline_generator"
   | "web_collector"
   | "synthesizer"
@@ -141,6 +145,8 @@ export const ToolNameDescription: Record<ToolName, string> = {
   get_note: "Read note",
   link_notes: "Link notes",
   arrange_notes: "Arrange notes",
+  navigate: "Open folder",
+  create_folder: "Create folder",
   outline_generator: "Generate outline",
   web_collector: "Collect web content",
   synthesizer: "Synthesize response",
@@ -178,6 +184,8 @@ export const ToolNameIcon: Record<ToolName, AppIconComponent> = {
   get_note: ReadNoteIcon,
   link_notes: LinkIcon,
   arrange_notes: TreeMapIcon,
+  navigate: FolderIcon,
+  create_folder: FolderPlusActionIcon,
   image_description: ImageGenerationIcon,
   topic_illustrator: ImageGenerationIcon,
   image_generation: ImageGenerationIcon,

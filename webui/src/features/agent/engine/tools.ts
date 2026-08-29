@@ -13,6 +13,7 @@ import { asNodeId } from "@canvas-harness/core"
 import type { CanvasStore, Node } from "@canvas-harness/core"
 import type { DimNodeData } from "@/features/board/model"
 import { labelText } from "@/features/board/model"
+import { MAX_BOARD_DEPTH, canCreateSubBoard, nodeLimitFor } from "@/features/board/lib/board-limit"
 import { validateMiniAppSource } from "@/features/mini-app/validate"
 import { defineTool } from "./types"
 import type { Tool, ToolContext } from "./types"
@@ -53,6 +54,55 @@ const resolveBoardNode = (ctx: ToolContext, id: string): Node | undefined =>
   ctx.store.getNode(asNodeId(id)) ?? ctx.boardNotes?.get(id)
 
 
+// ---- this-turn creation index ----------------------------------------------
+// The pre-turn `boardNotes` snapshot can't see folders/notes the agent creates
+// this turn, so guards that reason about them (folder depth, navigate parent,
+// cross-folder existence) consult `ctx.liveNodes`, which the tools update here.
+
+/** Record a just-created node so same-turn depth / parent / existence checks see it. */
+const recordCreated = (ctx: ToolContext, id: string, type: string): void => {
+  ctx.liveNodes?.set(id, { parentId: ctx.rootId ?? null, type })
+}
+
+/** parentId + type for a node, from this-turn creations first, then the snapshot. */
+const parentTypeOf = (ctx: ToolContext, id: string): { parentId: string | null; type: string } | undefined => {
+  const live = ctx.liveNodes?.get(id)
+  if (live) return live
+  const snap = ctx.boardNotes?.get(id)
+  return snap ? { parentId: (snap.data as DimNodeData | undefined)?.parentId ?? null, type: snap.type } : undefined
+}
+
+/** True if a node with this id exists anywhere on the board (snapshot or this turn). */
+const existsOnBoard = (ctx: ToolContext, id: string): boolean =>
+  ctx.liveNodes?.has(id) === true || ctx.boardNotes?.get(id) !== undefined
+
+/** Depth of `rootId`'s layer: distance from the root, over live + snapshot nodes. */
+const layerDepth = (ctx: ToolContext, rootId: string | null): number => {
+  let depth = 0
+  let cur = rootId
+  const seen = new Set<string>()
+  while (cur && !seen.has(cur)) {
+    seen.add(cur)
+    const pt = parentTypeOf(ctx, cur)
+    if (!pt) break
+    depth += 1
+    cur = pt.parentId
+  }
+  return depth
+}
+
+/** Get-or-create the cached off-scene session for a layer (reused across the turn). */
+const ROOT_SESSION_KEY = "\0root"
+const sessionFor = (ctx: ToolContext, layer: string | null): HeadlessMutator => {
+  const key = layer ?? ROOT_SESSION_KEY
+  const existing = ctx.sessions?.get(key)
+  if (existing) return existing
+  const session = new HeadlessMutator(ctx.store, layer)
+  ctx.sessions?.set(key, session)
+  return session
+}
+
+
 // Model-facing color params — a color NAME (scheme + a few examples, not the full
 // list, so the tool schema stays lean). Resolved leniently by the mutator.
 const BG_COLOR_DESC = "Fill color by name — a Tailwind family (amber, sky, rose, slate, emerald, …) or white/black/transparent. Applies to plain notes and (as a light tint) sheets; mini-app/widget/code notes ignore it. Omit for an automatic color; 'transparent' for no fill."
@@ -87,8 +137,11 @@ export const createNote = defineTool({
     border_color: z.string().optional().describe(BORDER_COLOR_DESC),
     near: NEAR_SCHEMA.optional().describe(NEAR_DESC),
   }),
-  run: async ({ id, title = "", body = "", x, y, background_color, border_color, near }, ctx) =>
-    mutatorFor(ctx).createNote({ id, content: body, label: title, type: "rect", x, y, near: nearFor(near), colors: colorsFor(background_color, border_color) }),
+  run: async ({ id, title = "", body = "", x, y, background_color, border_color, near }, ctx) => {
+    const created = await mutatorFor(ctx).createNote({ id, content: body, label: title, type: "rect", x, y, near: nearFor(near), colors: colorsFor(background_color, border_color) })
+    recordCreated(ctx, created.id, "rect")
+    return created
+  },
 })
 
 
@@ -170,14 +223,18 @@ export const writeNote = defineTool({
     const spec = { content, label, type: note_type, near: nearFor(near), colors: colorsFor(background_color, border_color) }
     if (note_id) {
       // In the working folder → full rewrite (NOT a creation; the turn won't
-      // re-arrange/recenter it). Existing but in ANOTHER folder → refuse rather
-      // than create a colliding duplicate (navigate there first). Nowhere → a
-      // brand-new note with this explicit id.
+      // re-arrange/recenter it). Existing anywhere else on the board (incl. a note
+      // made THIS turn in another layer) → refuse rather than mint a colliding
+      // duplicate id. Nowhere → a brand-new note with this explicit id.
       if (existing) return board.rewriteNote(note_id, spec)
-      if (ctx.boardNotes?.get(note_id)) return { error: "That note is in another folder. Navigate into that folder before editing it." }
-      return board.createNote({ ...spec, id: note_id })
+      if (existsOnBoard(ctx, note_id)) return { error: "That note is in another folder. Navigate into that folder before editing it." }
+      const created = await board.createNote({ ...spec, id: note_id })
+      recordCreated(ctx, note_id, note_type ?? "rect")
+      return created
     }
-    return board.createNote(spec)
+    const created = await board.createNote(spec)
+    recordCreated(ctx, created.id, note_type ?? "rect")
+    return created
   },
 })
 
@@ -220,26 +277,37 @@ export const navigate = defineTool({
   run: async ({ target }, ctx) => {
     const nodes = ctx.boardNotes
     const current = ctx.rootId ?? null
+    // Resolve a node across every place it might live: the current working-folder
+    // store (a folder just created off-scene this turn), the visible store (one
+    // created at the user's layer this turn), then the pre-turn whole-board
+    // snapshot — so `navigate` can enter a folder `create_folder` just returned.
+    const workingStore = ctx.board instanceof HeadlessMutator ? await ctx.board.layerStore() : ctx.store
+    // Type of a node id, from this-turn creations first (folder just made), then
+    // the working/visible stores, then the pre-turn snapshot.
+    const typeOf = (id: string): string | undefined =>
+      ctx.liveNodes?.get(id)?.type ??
+      workingStore.getNode(asNodeId(id))?.type ??
+      ctx.store.getNode(asNodeId(id))?.type ??
+      nodes?.get(id)?.type
     // Resolve the destination layer id (null = root).
     let dest: string | null
     if (target === "root") {
       dest = null
     } else if (target === "up") {
-      const node = current ? nodes?.get(current) : undefined
-      dest = (node?.data as DimNodeData | undefined)?.parentId ?? null
+      // Parent of the current folder — from the live index so a folder created
+      // this turn resolves to its true parent, not silently to root.
+      dest = current ? parentTypeOf(ctx, current)?.parentId ?? null : null
     } else {
-      const node = nodes?.get(target)
-      if (!node) return { error: `navigate: no node with id ${target}` }
-      if (node.type !== "folder") return { error: `navigate: ${target} is not a folder` }
+      const t = typeOf(target)
+      if (!t) return { error: `navigate: no node with id ${target}` }
+      if (t !== "folder") return { error: `navigate: ${target} is not a folder` }
       dest = target
     }
-    // Switch the working folder + write routing. Release any prior off-scene
-    // session, then pick store (dest is the visible layer → renders) vs headless.
-    if (ctx.board instanceof HeadlessMutator) ctx.board.dispose()
+    // Switch the working folder + write routing. Sessions are cached for the turn
+    // (reused on re-entry, disposed at turn end), so don't dispose here.
     ctx.rootId = dest
     const sceneRoot = ctx.sceneRootId ?? null
-    ctx.board =
-      dest === sceneRoot ? new StoreMutator(ctx.store, dest) : new HeadlessMutator(ctx.store, dest)
+    ctx.board = dest === sceneRoot ? new StoreMutator(ctx.store, dest) : sessionFor(ctx, dest)
     // ls: the destination layer's notes from the whole-board snapshot (may lag
     // this turn's own writes into the same folder).
     const notes = [...(nodes?.values() ?? [])]
@@ -253,6 +321,35 @@ export const navigate = defineTool({
       ? labelText((nodes?.get(dest)?.data as DimNodeData | undefined)?.label) || "Folder"
       : "root"
     return { working_folder: dest ?? "root", label, note_count: notes.length, notes }
+  },
+})
+
+
+export const createFolder = defineTool({
+  name: "create_folder",
+  description:
+    "Create a folder (a nested sub-board) in your current working folder. Returns its id. Typical flow: create_folder → navigate(folder_id) → author notes inside → navigate(\"up\"). The folder appears in the user's view when created at their current layer.",
+  parameters: z.object({
+    label: z.string().describe("The folder's name."),
+  }),
+  run: async ({ label }, ctx) => {
+    // Same nesting cap as the folder tool: root(0) → child(1) → grandchild(2); a
+    // 4th level isn't allowed. Depth counts folders created THIS turn too.
+    const depth = layerDepth(ctx, ctx.rootId ?? null)
+    if (!canCreateSubBoard(depth)) {
+      return { error: `Maximum folder nesting depth reached (${MAX_BOARD_DEPTH + 1} levels).` }
+    }
+    // Universal per-level folder cap (plan-independent) — parity with the manual
+    // folder tool. Count in the working layer's store (incl. this turn's folders).
+    const store = await workingLayerStore(ctx)
+    const folderCount = store.getAllNodes().filter((n) => n.type === "folder").length
+    const folderLimit = nodeLimitFor("folder", "free") // folder is universal → plan is irrelevant
+    if (folderLimit !== null && folderCount >= folderLimit) {
+      return { error: `This folder already has the maximum of ${folderLimit} sub-folders.` }
+    }
+    const { id } = await mutatorFor(ctx).createFolder(label)
+    recordCreated(ctx, id, "folder")
+    return { folder_id: id, label }
   },
 })
 
@@ -514,4 +611,4 @@ export const localTools: Tool[] = [createNote, updateNote, linkNotes, searchNote
 
 
 /** The note-building tools the chat agent uses (matches the system prompt's vocabulary). */
-export const agentBuildTools: Tool[] = [writeNote, editNote, getNote, linkNotes, arrangeNotes, navigate]
+export const agentBuildTools: Tool[] = [writeNote, editNote, getNote, linkNotes, arrangeNotes, navigate, createFolder]

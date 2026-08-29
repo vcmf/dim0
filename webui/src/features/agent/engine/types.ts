@@ -10,7 +10,7 @@ import { z } from "zod"
 import type { CanvasStore, Node } from "@canvas-harness/core"
 import type { BoardRegistry } from "@/features/board/persist/local/board-registry"
 import type { MemoryRepo } from "@/features/board/persist/local/memory-repo"
-import type { BoardMutator } from "./board-mutator"
+import type { BoardMutator, HeadlessMutator } from "./board-mutator"
 import type { LocalSearchIndex } from "@/features/board/search/local-index"
 
 
@@ -114,6 +114,19 @@ export type ToolContext = {
    * `store` for the freshest current-layer edits.
    */
   boardNotes?: ReadonlyMap<string, Node>
+  /**
+   * Nodes CREATED THIS TURN (id → parentId + type), so folder-depth, `navigate`
+   * parent resolution, and cross-folder existence checks see folders/notes the
+   * agent just made — which the pre-turn `boardNotes` snapshot can't. The tools
+   * record into it on every create; absent in lean ctx / tests.
+   */
+  liveNodes?: Map<string, { parentId: string | null; type: string }>
+  /**
+   * Per-layer off-scene write sessions, cached for the turn so re-navigating a
+   * folder reuses its seeded store instead of re-reading the whole board each hop.
+   * Owned by `navigate`; disposed at turn end. Absent in lean ctx / tests.
+   */
+  sessions?: Map<string, HeadlessMutator>
   registry?: BoardRegistry
   /** Durable agent memory (board + global facts); absent in tests/headless. */
   memory?: MemoryRepo
