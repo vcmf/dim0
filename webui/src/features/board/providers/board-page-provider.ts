@@ -1,5 +1,6 @@
 import { asNodeId, type Node, type Op } from "@canvas-harness/core"
 import type { Page, PageProvider } from "@/components/editor/tiptap/page/types"
+import type { BoardContent } from "@/features/board/model"
 import { queryClient } from "@/query-client"
 import { getLocalStores } from "@/features/local-stores"
 import { BoardPersistence } from "@/features/board/persist/local/board-persistence"
@@ -9,7 +10,6 @@ import { getCanvasStoreRef } from "@/features/board/harness/canvas-store-ref"
 import { useBoardAppStore } from "@/features/board/harness/store/board-app-store"
 import { makeBatch } from "@/features/board/harness/make-batch"
 import { noteToNode, type NoteNodeData } from "../harness/convert/note-to-node"
-import { listLocalBoardContents } from "../api/list-local-board-contents"
 import { createDefaultNote, type Note } from "../types/note"
 
 
@@ -39,6 +39,12 @@ function snippetFromMarkdown(markdown: string | undefined): string | undefined {
     .replace(/\s+/g, " ")
     .trim()
   return stripped.slice(0, 240) || undefined
+}
+
+
+/** A page is a sheet-kind note — dispatch type or the persisted `styleType`. */
+function isSheet(node: Node): boolean {
+  return node.type === "sheet" || (node.data as NoteNodeData | undefined)?.styleType === "sheet"
 }
 
 
@@ -86,20 +92,24 @@ function nodeToPage(node: Node): Page {
  *    user is inside a folder) → off-scene: record to the oplog + enter the sync
  *    intake with `scene: false` (the headless path, ADR-SYNC-001), so it never
  *    lands in the current scene.
+ *
+ * Returns false when there's no live board mounted to write into — the caller
+ * MUST NOT report the page as created in that case.
  */
-function writeSheetNode(node: Node, layer: string | null): void {
+function writeSheetNode(node: Node, layer: string | null): boolean {
   const store = getCanvasStoreRef()
-  if (!store) return // no live board mounted — nothing to write into
+  if (!store) return false // no live board mounted — nothing to write into
   const currentLayer = useBoardAppStore.getState().rootId ?? null
   if (layer === currentLayer) {
     store.addNode(node)
-    return
+    return true
   }
   const persistence = getBoardPersistenceRef()
-  if (!persistence) return
+  if (!persistence) return false
   const batch = makeBatch(store, "local", [{ type: "node.add", node } as Op])
   persistence.record(batch)
   getBoardSyncRef()?.submitLocalBatch(batch, { scene: false })
+  return true
 }
 
 
@@ -115,12 +125,31 @@ export function createBoardPageProvider(
 ): PageProvider {
   const { boardId, onNavigate } = config
 
+  // A short-lived whole-board cache: `list` runs per keystroke and `get` misses
+  // hit the replica, and BoardPersistence.load() replays the snapshot+oplog each
+  // call — without this, typeahead would replay the whole board on every key.
+  // Bounded so it self-heals; cleared on create so a new page shows immediately.
+  const CACHE_MS = 1500
+  let cache: { at: number; content: BoardContent } | null = null
+  const loadBoard = async (): Promise<BoardContent> => {
+    const now = Date.now()
+    if (cache && now - cache.at < CACHE_MS) return cache.content
+    const { engine } = await getLocalStores()
+    const content = await new BoardPersistence(boardId, { engine }).load()
+    cache = { at: now, content }
+    return content
+  }
+
   return {
     async list(query?: string) {
-      const items = await listLocalBoardContents(boardId)
-      const sheets: Page[] = items
-        .filter((it) => it.kind === "sheet")
-        .map((it) => ({ id: it.id, title: it.label?.trim() || "Untitled", icon: it.iconData ?? null }))
+      const { nodes } = await loadBoard()
+      const sheets: Page[] = nodes
+        .filter(isSheet)
+        .map((n) => {
+          const data = n.data as NoteNodeData | undefined
+          const label = typeof data?.label === "string" ? data.label : data?.label?.markdown
+          return { id: n.id as unknown as string, title: label?.trim() || "Untitled", icon: data?.properties?.iconData?.icon ?? null }
+        })
 
       const q = query?.trim().toLowerCase()
       if (!q) return sheets
@@ -130,13 +159,11 @@ export function createBoardPageProvider(
     async get(id: string) {
       // The live store holds the current layer — freshest, and the common case.
       const live = getCanvasStoreRef()?.getNode(asNodeId(id))
-      if (live) return nodeToPage(live)
+      if (live) return isSheet(live) ? nodeToPage(live) : null
       // Otherwise resolve from the whole-board replica (a page in another layer).
       try {
-        const { engine } = await getLocalStores()
-        const content = await new BoardPersistence(boardId, { engine }).load()
-        const node = content.nodes.find((n) => (n.id as unknown as string) === id)
-        return node ? nodeToPage(node) : null
+        const node = (await loadBoard()).nodes.find((n) => (n.id as unknown as string) === id)
+        return node && isSheet(node) ? nodeToPage(node) : null
       } catch (err) {
         console.warn("[boardPageProvider] get failed", id, err)
         return null
@@ -149,8 +176,13 @@ export function createBoardPageProvider(
       // Empty body — without this, noteToNode seeds the body from the label.
       note.content = { markdown: "" }
       if (opts.parentId) note.parentId = opts.parentId
-      writeSheetNode(noteToNode(note), note.parentId ?? null)
-      // Refresh the on-device contents index (sidebar tree / page picker).
+      const ok = writeSheetNode(noteToNode(note), note.parentId ?? null)
+      if (!ok) throw new Error("createBoardPageProvider: no live board to write the page into")
+      // Make the write durable BEFORE refreshing readers: an off-scene write emits
+      // no store 'change', so nothing else flush-chains the invalidate, and the
+      // contents index (fresh snapshot+oplog load) would miss an unflushed batch.
+      await getBoardPersistenceRef()?.flush()
+      cache = null // a new page must show in the next list()
       void queryClient.invalidateQueries({ queryKey: ["localBoardContents", boardId] })
       return {
         id: note.id,

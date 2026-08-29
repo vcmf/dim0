@@ -146,14 +146,29 @@ describe("createBoardPageProvider (on-device store)", () => {
     expect((await provider.list()).map((p) => p.title)).toContain("New Page")
   })
 
-  it("create() with a parent writes the subpage off-scene (not in the current view)", async () => {
-    const { persistence, store } = await setup("b", null) // viewing root
+  it("create() with a parent writes the subpage off-scene, durable + listable without a manual flush", async () => {
+    const { store } = await setup("b", null) // viewing root
     const provider = createBoardPageProvider({ boardId: "b" })
     const page = await provider.create({ title: "Child", parentId: "parent-note" })
     // Off-scene: a child layer, so it must NOT land in the visible store.
     expect(store.getNode(asNodeId(page.id))).toBeUndefined()
-    await persistence.flush()
+    // create() flushed before returning, so the page is already durable + listable
+    // (no store 'change' fired for the off-scene write — the flush is the guard).
+    expect((await provider.list()).map((p) => p.title)).toContain("Child")
     const items = await listLocalBoardContents("b")
     expect(items.find((it) => it.id === page.id)?.parentId).toBe("parent-note")
+  })
+
+  it("get() returns null for a non-sheet node (a page is a sheet)", async () => {
+    const { store } = await setup("b", null)
+    addNode(store, "rect1", "a rectangle") // not a sheet, in the live store
+    const page = await createBoardPageProvider({ boardId: "b" }).get("rect1")
+    expect(page).toBeNull()
+  })
+
+  it("create() throws (no dangling chip) when there is no live board to write into", async () => {
+    await setup("b", null)
+    setCanvasStoreRef(null) // simulate no mounted board
+    await expect(createBoardPageProvider({ boardId: "b" }).create({ title: "X" })).rejects.toThrow()
   })
 })
