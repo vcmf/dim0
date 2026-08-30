@@ -166,7 +166,12 @@ export function createBoardPageProvider(
       // malformed id (asNodeId/getNode) can't reject the promise either.
       try {
         // The live store holds the current layer — freshest, and the common case.
-        const live = getCanvasStoreRef()?.getNode(asNodeId(id))
+        // Only trust it when it IS this provider's board (a sub-graph provider must
+        // not resolve an id against a different mounted board).
+        const live =
+          boardId === useBoardAppStore.getState().boardId
+            ? getCanvasStoreRef()?.getNode(asNodeId(id))
+            : undefined
         if (live) return isSheet(live) ? nodeToPage(live) : null
         // Otherwise resolve from the whole-board replica (a page in another layer).
         const node = (await loadBoard()).nodes.find((n) => (n.id as unknown as string) === id)

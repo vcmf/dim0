@@ -2,10 +2,12 @@ import { useEffect, useState } from "react"
 import { asNodeId, createCanvasStore } from "@canvas-harness/core"
 import type { CanvasStore, Node } from "@canvas-harness/core"
 import { generateUuid } from "@/lib/common"
+import { queryClient } from "@/query-client"
 import { contentToScene, emptyContent } from "@/features/board/persist/local/codec"
 import { filterContentByLayer } from "@/features/board/model/layer"
 import { getBoardPersistenceRef } from "@/features/board/persist/local/board-persistence-ref"
 import { getBoardSyncRef } from "@/features/board/harness/sync/board-sync-ref"
+import { affectsSurfaceTree } from "@/features/board/harness/canvas/use-sidebar-contents-sync"
 
 
 /**
@@ -17,19 +19,28 @@ import { getBoardSyncRef } from "@/features/board/harness/sync/board-sync-ref"
  * The surface-host analog of the agent's `HeadlessMutator`. Pure (non-React) so
  * the load + sync wiring is unit-testable.
  *
- * `dispose()` detaches the change subscription — call it when the surface closes.
+ * Returns `store: null` when the note isn't in the local replica (a synced note
+ * not yet materialized) — the caller then falls back to REST, and we skip
+ * building a doomed store. Surface-relevant off-scene edits (rename / re-icon /
+ * move) invalidate the sidebar's `localBoardContents` cache, since the sidebar
+ * sync only listens to the live store. `dispose()` detaches the subscription.
  */
 export async function openOffSceneNoteStore(
   liveStore: CanvasStore,
+  boardId: string | null,
   nodeId: string,
-): Promise<{ store: CanvasStore; node: Node | null; dispose: () => void }> {
+): Promise<{ store: CanvasStore | null; node: Node | null; dispose: () => void }> {
   const persistence = getBoardPersistenceRef()
   // Flush first so a re-open reflects this session's own (debounced) off-scene
   // edits, rather than re-seeding from a stale oplog tail.
   await persistence?.flush()
   const content = persistence ? await persistence.load() : emptyContent()
   const target = content.nodes.find((n) => (n.id as unknown as string) === nodeId)
-  const layer = (target?.data as { parentId?: string | null } | undefined)?.parentId ?? null
+  // Not in the replica → let the caller's REST path handle it; don't build a
+  // store (avoids a wasted seed + subscription for a synced-not-local note).
+  if (!target) return { store: null, node: null, dispose: () => {} }
+
+  const layer = (target.data as { parentId?: string | null } | undefined)?.parentId ?? null
   const store = createCanvasStore({
     clientId: liveStore.clientId,
     idGenerator: generateUuid,
@@ -37,10 +48,16 @@ export async function openOffSceneNoteStore(
   })
   // Every off-scene edit records to the oplog + enters the sync intake as an
   // off-scene batch (never the in-scene rebase set), mirroring the scene store's
-  // persistence.attach + attachSync — minus the render.
+  // persistence.attach + attachSync — minus the render. A surface-relevant edit
+  // also refreshes the sidebar tree (the sidebar sync can't see this store).
   const dispose = store.subscribe("change", (batch) => {
     persistence?.record(batch)
     getBoardSyncRef()?.submitLocalBatch(batch, { scene: false })
+    if (boardId && affectsSurfaceTree(batch)) {
+      void Promise.resolve(persistence?.flush()).then(() =>
+        queryClient.invalidateQueries({ queryKey: ["localBoardContents", boardId] }),
+      )
+    }
   })
   return { store, node: store.getNode(asNodeId(nodeId)) ?? null, dispose }
 }
@@ -48,13 +65,14 @@ export async function openOffSceneNoteStore(
 
 /**
  * React wrapper over {@link openOffSceneNoteStore}. Loads a note that lives
- * OFF-SCENE — a sub-page in a layer that isn't on the canvas, so it's absent from
- * the live store — into a store the surface can read AND edit.
+ * OFF-SCENE — a sub-page in a layer that isn't on the canvas — into a store the
+ * surface can read AND edit.
  *
  * `enabled` should be true only when the note ISN'T in the live store (a normal
- * on-canvas sheet edits through the live store, unchanged). `ready` flips true
- * once the async load settles, so the caller can tell "still loading" apart from
- * "not found" (a synced note not yet materialized locally then falls back to REST).
+ * on-canvas sheet edits through the live store, unchanged). `node` stays live —
+ * it re-reads on the off-scene store's changes so a rename / icon edit shows in
+ * the panel (not just persists). `ready` flips true once the async load settles,
+ * so the caller can tell "still loading" from "not found" (→ REST fallback).
  */
 export function useOffSceneNote(
   liveStore: CanvasStore,
@@ -62,7 +80,7 @@ export function useOffSceneNote(
   nodeId: string,
   enabled: boolean,
 ): { store: CanvasStore | null; node: Node | null; ready: boolean } {
-  const [source, setSource] = useState<{ store: CanvasStore; node: Node | null } | null>(null)
+  const [source, setSource] = useState<{ store: CanvasStore | null; node: Node | null } | null>(null)
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
@@ -75,12 +93,19 @@ export function useOffSceneNote(
     let dispose: () => void = () => {}
     setReady(false)
     setSource(null)
-    void openOffSceneNoteStore(liveStore, nodeId).then((res) => {
+    void openOffSceneNoteStore(liveStore, boardId, nodeId).then((res) => {
       if (cancelled) {
         res.dispose()
         return
       }
-      dispose = res.dispose
+      // Keep `node` live so panel-visible fields (title, icon) reflect edits.
+      const reRead = (): void =>
+        setSource({ store: res.store, node: res.store?.getNode(asNodeId(nodeId)) ?? null })
+      const unsubReactive = res.store?.subscribe("change", reRead) ?? (() => {})
+      dispose = () => {
+        unsubReactive()
+        res.dispose()
+      }
       setSource({ store: res.store, node: res.node })
       setReady(true)
     })

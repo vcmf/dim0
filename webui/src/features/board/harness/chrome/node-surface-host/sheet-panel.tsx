@@ -189,7 +189,7 @@ export const SheetPanel = memo(function SheetPanel({
       // store.updateNode below already keeps it in sync.
       if (boardId) {
         queryClient.setQueriesData<BoardContentItem[]>(
-          { queryKey: ["boardContents", boardId] },
+          { queryKey: ["localBoardContents", boardId] },
           (old) => applyTitleUpdateToBoardContents(old, nodeId, trimmed || null),
         )
       }
@@ -249,7 +249,7 @@ export const SheetPanel = memo(function SheetPanel({
       // expanded folder) gets the matching item updated in place.
       if (boardId) {
         queryClient.setQueriesData<BoardContentItem[]>(
-          { queryKey: ["boardContents", boardId] },
+          { queryKey: ["localBoardContents", boardId] },
           (old) => applyIconUpdateToBoardContents(old, nodeId, next),
         )
       }
