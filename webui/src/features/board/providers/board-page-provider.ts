@@ -148,17 +148,24 @@ export function createBoardPageProvider(
 
   return {
     async list(query?: string) {
-      const { nodes } = await loadBoard()
-      const sheets: Page[] = nodes
-        .filter(isSheet)
-        .map((n) => {
-          const data = n.data as NoteNodeData | undefined
-          return { id: n.id as unknown as string, title: titleFromData(data), icon: data?.properties?.iconData?.icon ?? null }
-        })
+      // Degrade to an empty list on a load failure (idb/oplog error) rather than
+      // rejecting the typeahead promise on every keystroke — matches get().
+      try {
+        const { nodes } = await loadBoard()
+        const sheets: Page[] = nodes
+          .filter(isSheet)
+          .map((n) => {
+            const data = n.data as NoteNodeData | undefined
+            return { id: n.id as unknown as string, title: titleFromData(data), icon: data?.properties?.iconData?.icon ?? null }
+          })
 
-      const q = query?.trim().toLowerCase()
-      if (!q) return sheets
-      return sheets.filter((p) => p.title.toLowerCase().includes(q))
+        const q = query?.trim().toLowerCase()
+        if (!q) return sheets
+        return sheets.filter((p) => p.title.toLowerCase().includes(q))
+      } catch (err) {
+        console.warn("[boardPageProvider] list failed", err)
+        return []
+      }
     },
 
     async get(id: string) {
