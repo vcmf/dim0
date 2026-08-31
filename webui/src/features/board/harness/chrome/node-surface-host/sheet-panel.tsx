@@ -87,13 +87,17 @@ export const SheetPanel = memo(function SheetPanel({
     localData.graphUid ?? fetchedNote?.graphUid ?? activeBoardId ?? null
   const exists = isLocalNote || !!fetchedNote
 
-  const { data: notePath = [] } = useGetNotePath({
+  const { data: restPath = [] } = useGetNotePath({
     boardId: boardId ?? undefined,
     noteId: nodeId,
-    // Mirror the useGetNote gate above: a local note's path is resolved from the
-    // store/local breadcrumb, never the backend (which 401s logged-out).
-    enabled: !isLocalNote && !!boardId,
+    // REST only for a synced note not materialized locally (mirror the useGetNote
+    // gate). A local sub-page's ancestor chain comes from the off-scene load
+    // below — the backend `/path` 404s on a local board.
+    enabled: !isLocalNote && off.ready && !!boardId,
   })
+  // Off-scene sub-pages resolve their breadcrumb + stack (ancestor chain) locally,
+  // by walking parentId over the replica; on-canvas top-level notes have none.
+  const notePath = off.node ? off.path : restPath
   const ancestors = useMemo(() => notePath.slice(0, -1), [notePath])
   // The open note's live title/icon are `noteLabel` / its iconData (store for
   // local notes, fetch for sub-pages); the path's trailing segment can lag a

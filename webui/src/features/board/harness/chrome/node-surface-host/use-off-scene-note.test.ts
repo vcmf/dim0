@@ -53,6 +53,34 @@ describe("openOffSceneNoteStore", () => {
     dispose()
   })
 
+  it("builds the ancestor chain (root -> note) for the breadcrumb + stack", async () => {
+    const { engine } = await getLocalStores()
+    const persistence = new BoardPersistence("b", { engine })
+    const store = freshStore("seed")
+    const unsub = persistence.attach(store)
+    // A parent sheet at root, then a sub-page nested under it.
+    const parent = createDefaultNote({ boardId: "b", nodeType: "sheet" })
+    parent.id = "parent1"
+    parent.label = { markdown: "Parent" }
+    const child = createDefaultNote({ boardId: "b", nodeType: "sheet" })
+    child.id = "sub1"
+    child.parentId = "parent1"
+    child.label = { markdown: "Child" }
+    store.addNode(noteToNode(parent))
+    store.addNode(noteToNode(child))
+    await persistence.flush()
+    unsub()
+    setBoardPersistenceRef(persistence)
+    setBoardSyncRef(null)
+
+    const { path, dispose } = await openOffSceneNoteStore(freshStore("live"), "b", "sub1")
+    // Ordered root -> note, so ancestors = path.slice(0, -1) and depth = 1.
+    expect(path.map((n) => n.id)).toEqual(["parent1", "sub1"])
+    expect(path.map((n) => n.label?.markdown)).toEqual(["Parent", "Child"])
+    expect(path.map((n) => n.style.type)).toEqual(["sheet", "sheet"])
+    dispose()
+  })
+
   it("returns a null store when the note isn't in the replica (falls back to REST)", async () => {
     const persistence = await seedSubpage("b", "sub1", "parent1")
     setBoardPersistenceRef(persistence)

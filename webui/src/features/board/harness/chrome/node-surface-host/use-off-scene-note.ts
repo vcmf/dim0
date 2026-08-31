@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { asNodeId, createCanvasStore } from "@canvas-harness/core"
+import type { BoardContent } from "@/features/board/model"
 import type { CanvasStore, Node } from "@canvas-harness/core"
 import { generateUuid } from "@/lib/common"
 import { queryClient } from "@/query-client"
@@ -8,6 +9,36 @@ import { filterContentByLayer } from "@/features/board/model/layer"
 import { getBoardPersistenceRef } from "@/features/board/persist/local/board-persistence-ref"
 import { getBoardSyncRef } from "@/features/board/harness/sync/board-sync-ref"
 import { affectsSurfaceTree } from "@/features/board/harness/canvas/use-sidebar-contents-sync"
+import type { Note } from "@/features/board/types/note"
+
+
+/**
+ * The note's ancestor chain (root → note), the LOCAL analog of the backend
+ * `useGetNotePath` — walk `parentId` up over the whole-board replica. Each entry
+ * carries just what the sheet breadcrumb + stack need: id, kind (`style.type`),
+ * label, and icon; the breadcrumb resolves live values via `useNode` on the id.
+ * Cycle-safe.
+ */
+function buildNotePath(content: BoardContent, nodeId: string): Note[] {
+  const byId = new Map(content.nodes.map((n) => [n.id as unknown as string, n]))
+  const path: Note[] = []
+  const seen = new Set<string>()
+  let cur: string | null = nodeId
+  while (cur && !seen.has(cur)) {
+    seen.add(cur)
+    const node = byId.get(cur)
+    if (!node) break
+    const data = node.data as { parentId?: string | null; styleType?: string; label?: Note["label"]; properties?: Note["properties"] } | undefined
+    path.push({
+      id: cur,
+      style: { type: (data?.styleType ?? node.type) as Note["style"]["type"] },
+      label: data?.label,
+      properties: data?.properties ?? {},
+    } as Note)
+    cur = data?.parentId ?? null
+  }
+  return path.reverse()
+}
 
 
 /**
@@ -29,7 +60,7 @@ export async function openOffSceneNoteStore(
   liveStore: CanvasStore,
   boardId: string | null,
   nodeId: string,
-): Promise<{ store: CanvasStore | null; node: Node | null; dispose: () => void }> {
+): Promise<{ store: CanvasStore | null; node: Node | null; path: Note[]; dispose: () => void }> {
   const persistence = getBoardPersistenceRef()
   // Flush first so a re-open reflects this session's own (debounced) off-scene
   // edits, rather than re-seeding from a stale oplog tail.
@@ -38,7 +69,9 @@ export async function openOffSceneNoteStore(
   const target = content.nodes.find((n) => (n.id as unknown as string) === nodeId)
   // Not in the replica → let the caller's REST path handle it; don't build a
   // store (avoids a wasted seed + subscription for a synced-not-local note).
-  if (!target) return { store: null, node: null, dispose: () => {} }
+  if (!target) return { store: null, node: null, path: [], dispose: () => {} }
+  // The breadcrumb + stack (ancestor chain) — built from the same load.
+  const path = buildNotePath(content, nodeId)
 
   const layer = (target.data as { parentId?: string | null } | undefined)?.parentId ?? null
   const store = createCanvasStore({
@@ -59,7 +92,7 @@ export async function openOffSceneNoteStore(
       )
     }
   })
-  return { store, node: store.getNode(asNodeId(nodeId)) ?? null, dispose }
+  return { store, node: store.getNode(asNodeId(nodeId)) ?? null, path, dispose }
 }
 
 
@@ -79,8 +112,8 @@ export function useOffSceneNote(
   boardId: string | null,
   nodeId: string,
   enabled: boolean,
-): { store: CanvasStore | null; node: Node | null; ready: boolean } {
-  const [source, setSource] = useState<{ store: CanvasStore | null; node: Node | null } | null>(null)
+): { store: CanvasStore | null; node: Node | null; path: Note[]; ready: boolean } {
+  const [source, setSource] = useState<{ store: CanvasStore | null; node: Node | null; path: Note[] } | null>(null)
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
@@ -100,13 +133,13 @@ export function useOffSceneNote(
       }
       // Keep `node` live so panel-visible fields (title, icon) reflect edits.
       const reRead = (): void =>
-        setSource({ store: res.store, node: res.store?.getNode(asNodeId(nodeId)) ?? null })
+        setSource({ store: res.store, node: res.store?.getNode(asNodeId(nodeId)) ?? null, path: res.path })
       const unsubReactive = res.store?.subscribe("change", reRead) ?? (() => {})
       dispose = () => {
         unsubReactive()
         res.dispose()
       }
-      setSource({ store: res.store, node: res.node })
+      setSource({ store: res.store, node: res.node, path: res.path })
       setReady(true)
     })
     return () => {
@@ -115,5 +148,5 @@ export function useOffSceneNote(
     }
   }, [enabled, boardId, nodeId, liveStore])
 
-  return { store: source?.store ?? null, node: source?.node ?? null, ready }
+  return { store: source?.store ?? null, node: source?.node ?? null, path: source?.path ?? [], ready }
 }
