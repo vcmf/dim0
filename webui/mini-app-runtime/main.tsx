@@ -24,13 +24,12 @@ import "./runtime.css"
 // live in src/fonts.ts. Import them here too or the mini-app falls back to
 // system fonts. viteSingleFile inlines the woff2 into the one-file bundle.
 import "../src/fonts"
-// Tailwind v4's browser build JIT-compiles utility classes at runtime
-// by scanning the live DOM. Critical for mini-apps: the agent's JSX is
-// a string at compile time, so the static @tailwindcss/vite plugin
-// can't see classes like `fill-amber-200` or `bg-sky-50` and they
-// never make it into the compiled CSS. The browser build picks them
-// up the moment React mounts the elements. Side-effect-only import.
-import "@tailwindcss/browser"
+// NOTE: the `@tailwindcss/browser` runtime JIT used to live here — it scanned
+// each iframe's DOM continuously (a per-mini-app CPU cost + WASM in the bundle)
+// solely because the agent's JSX is a runtime string the static build can't see.
+// It's replaced by the build-time safelist in runtime.css (`@source inline(...)`),
+// which force-emits the standard utility surface at compile time. Off-safelist /
+// arbitrary-value classes therefore no longer resolve — see the safelist comment.
 
 
 // Host origin resolution priority:
