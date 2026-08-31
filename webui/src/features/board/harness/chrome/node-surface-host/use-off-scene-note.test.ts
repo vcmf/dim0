@@ -53,6 +53,18 @@ describe("openOffSceneNoteStore", () => {
     dispose()
   })
 
+  it("loads even when the persistence ref isn't mounted yet (deep-linked reload)", async () => {
+    await seedSubpage("b", "sub1", "parent1", { content: "durable" })
+    // Simulate a reload where the surface opens BEFORE the board's persistence
+    // ref is set — the note must still resolve from the durable replica.
+    setBoardPersistenceRef(null)
+    setBoardSyncRef(null)
+
+    const { node, dispose } = await openOffSceneNoteStore(freshStore("live"), "b", "sub1")
+    expect(node?.content).toBe("durable")
+    dispose()
+  })
+
   it("builds the ancestor chain (root -> note) for the breadcrumb + stack", async () => {
     const { engine } = await getLocalStores()
     const persistence = new BoardPersistence("b", { engine })

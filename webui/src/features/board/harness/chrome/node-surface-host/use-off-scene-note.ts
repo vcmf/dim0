@@ -4,6 +4,8 @@ import type { BoardContent } from "@/features/board/model"
 import type { CanvasStore, Node } from "@canvas-harness/core"
 import { generateUuid } from "@/lib/common"
 import { queryClient } from "@/query-client"
+import { getLocalStores } from "@/features/local-stores"
+import { BoardPersistence } from "@/features/board/persist/local/board-persistence"
 import { contentToScene, emptyContent } from "@/features/board/persist/local/codec"
 import { filterContentByLayer } from "@/features/board/model/layer"
 import { getBoardPersistenceRef } from "@/features/board/persist/local/board-persistence-ref"
@@ -61,11 +63,14 @@ export async function openOffSceneNoteStore(
   boardId: string | null,
   nodeId: string,
 ): Promise<{ store: CanvasStore | null; node: Node | null; path: Note[]; dispose: () => void }> {
-  const persistence = getBoardPersistenceRef()
-  // Flush first so a re-open reflects this session's own (debounced) off-scene
-  // edits, rather than re-seeding from a stale oplog tail.
-  await persistence?.flush()
-  const content = persistence ? await persistence.load() : emptyContent()
+  // Flush the ACTIVE writer's pending edits (if the board is mounted) so a re-open
+  // reflects this session's own (debounced) off-scene edits.
+  await getBoardPersistenceRef()?.flush()
+  // Read from the durable replica via a FRESH BoardPersistence — available even
+  // before the board's persistence ref mounts (a deep-linked sub-page on reload
+  // opens the surface before setBoardPersistenceRef runs), like the sidebar does.
+  const { engine } = await getLocalStores()
+  const content = boardId ? await new BoardPersistence(boardId, { engine }).load() : emptyContent()
   const target = content.nodes.find((n) => (n.id as unknown as string) === nodeId)
   // Not in the replica → let the caller's REST path handle it; don't build a
   // store (avoids a wasted seed + subscription for a synced-not-local note).
@@ -83,11 +88,14 @@ export async function openOffSceneNoteStore(
   // off-scene batch (never the in-scene rebase set), mirroring the scene store's
   // persistence.attach + attachSync — minus the render. A surface-relevant edit
   // also refreshes the sidebar tree (the sidebar sync can't see this store).
+  // Writes go through the ACTIVE single writer, resolved dynamically — it may
+  // mount after the surface opens (deep-linked reload), and it's the only
+  // instance whose oplog seq the sync coordinator tracks.
   const dispose = store.subscribe("change", (batch) => {
-    persistence?.record(batch)
+    getBoardPersistenceRef()?.record(batch)
     getBoardSyncRef()?.submitLocalBatch(batch, { scene: false })
     if (boardId && affectsSurfaceTree(batch)) {
-      void Promise.resolve(persistence?.flush()).then(() =>
+      void Promise.resolve(getBoardPersistenceRef()?.flush()).then(() =>
         queryClient.invalidateQueries({ queryKey: ["localBoardContents", boardId] }),
       )
     }
