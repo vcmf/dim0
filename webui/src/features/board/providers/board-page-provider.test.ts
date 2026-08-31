@@ -72,7 +72,7 @@ describe("createBoardPageProvider (on-device store)", () => {
     setBoardPersistenceRef(persistence)
     setCanvasStoreRef(store)
     setBoardSyncRef(null) // no relay — persistence-only is sync-correct locally
-    useBoardAppStore.setState({ rootId: currentLayer })
+    useBoardAppStore.setState({ boardId, rootId: currentLayer })
     return { persistence, store }
   }
 
@@ -89,7 +89,7 @@ describe("createBoardPageProvider (on-device store)", () => {
     setBoardPersistenceRef(null)
     setCanvasStoreRef(null)
     setBoardSyncRef(null)
-    useBoardAppStore.setState({ rootId: null })
+    useBoardAppStore.setState({ boardId: null, rootId: null })
   })
 
   it("list() returns the board's sheets and excludes non-sheet nodes", async () => {
@@ -144,6 +144,14 @@ describe("createBoardPageProvider (on-device store)", () => {
     expect(store.getNode(asNodeId(page.id))?.content).toBe("")
     await persistence.flush()
     expect((await provider.list()).map((p) => p.title)).toContain("New Page")
+  })
+
+  it("create() does not inject into the live store when the mounted board isn't the provider's", async () => {
+    const { store } = await setup("b", null) // provider board "b"
+    useBoardAppStore.setState({ boardId: "other" }) // a DIFFERENT board is mounted now
+    const page = await createBoardPageProvider({ boardId: "b" }).create({ title: "X" })
+    // Guarded (mirrors get()): not added to the mounted board's visible scene.
+    expect(store.getNode(asNodeId(page.id))).toBeUndefined()
   })
 
   it("create() with a parent writes the subpage off-scene, durable + listable without a manual flush", async () => {

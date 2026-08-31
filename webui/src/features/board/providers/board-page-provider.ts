@@ -102,11 +102,15 @@ function nodeToPage(node: Node): Page {
  * Returns false when there's no live board mounted to write into — the caller
  * MUST NOT report the page as created in that case.
  */
-function writeSheetNode(node: Node, layer: string | null): boolean {
+function writeSheetNode(node: Node, layer: string | null, boardId: string): boolean {
   const store = getCanvasStoreRef()
   if (!store) return false // no live board mounted — nothing to write into
+  // Only render into the live store when it IS this provider's board and the
+  // target is the visible layer — a provider bound to a different board than the
+  // one mounted must not inject its note into the wrong scene (mirrors get()).
+  const sameBoard = boardId === useBoardAppStore.getState().boardId
   const currentLayer = useBoardAppStore.getState().rootId ?? null
-  if (layer === currentLayer) {
+  if (sameBoard && layer === currentLayer) {
     store.addNode(node)
     return true
   }
@@ -195,7 +199,7 @@ export function createBoardPageProvider(
       // Empty body — without this, noteToNode seeds the body from the label.
       note.content = { markdown: "" }
       if (opts.parentId) note.parentId = opts.parentId
-      const ok = writeSheetNode(noteToNode(note), note.parentId ?? null)
+      const ok = writeSheetNode(noteToNode(note), note.parentId ?? null, boardId)
       if (!ok) throw new Error("createBoardPageProvider: no live board to write the page into")
       // Make the write durable BEFORE refreshing readers: an off-scene write emits
       // no store 'change', so nothing else flush-chains the invalidate, and the
