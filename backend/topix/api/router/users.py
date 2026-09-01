@@ -188,7 +188,7 @@ async def google_signin(
     request: Request,
     body: Annotated[GoogleSigninRequest, Body(description="Google sign-in token payload")],
 ):
-    """DEPRECATED — legacy GIS id_token web sign-in.
+    """Verify a legacy GIS id_token and issue tokens (DEPRECATED).
 
     Superseded by `/google-signin-web` (auth-code + PKCE redirect); the web client
     no longer calls this. Retained only for backward compatibility / rollback and
