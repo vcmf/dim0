@@ -134,6 +134,7 @@ def test_auth_methods_reports_google_disabled_by_default(monkeypatch):
     monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
     monkeypatch.delenv("GOOGLE_DESKTOP_CLIENT_ID", raising=False)
     monkeypatch.delenv("GOOGLE_DESKTOP_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("GOOGLE_CLIENT_SECRET", raising=False)
     client, _, _ = _build_client()
 
     response = client.get("/users/auth-methods")
@@ -145,6 +146,7 @@ def test_auth_methods_reports_google_disabled_by_default(monkeypatch):
         "local": True,
         "google": False,
         "google_client_id": None,
+        "google_web_redirect": False,
         "google_desktop_client_id": None,
     }
 
@@ -282,6 +284,7 @@ def test_auth_methods_reports_google_enabled_when_configured(monkeypatch):
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "client-id.apps.googleusercontent.com")
     monkeypatch.delenv("GOOGLE_DESKTOP_CLIENT_ID", raising=False)
     monkeypatch.delenv("GOOGLE_DESKTOP_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("GOOGLE_CLIENT_SECRET", raising=False)
     client, _, _ = _build_client()
 
     response = client.get("/users/auth-methods")
@@ -293,6 +296,7 @@ def test_auth_methods_reports_google_enabled_when_configured(monkeypatch):
         "local": True,
         "google": True,
         "google_client_id": "client-id.apps.googleusercontent.com",
+        "google_web_redirect": False,
         "google_desktop_client_id": None,
     }
 
@@ -303,6 +307,7 @@ def test_auth_methods_hides_google_when_client_id_missing(monkeypatch):
     monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
     monkeypatch.delenv("GOOGLE_DESKTOP_CLIENT_ID", raising=False)
     monkeypatch.delenv("GOOGLE_DESKTOP_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("GOOGLE_CLIENT_SECRET", raising=False)
     client, _, _ = _build_client()
 
     response = client.get("/users/auth-methods")
@@ -314,6 +319,7 @@ def test_auth_methods_hides_google_when_client_id_missing(monkeypatch):
         "local": True,
         "google": False,
         "google_client_id": None,
+        "google_web_redirect": False,
         "google_desktop_client_id": None,
     }
 
