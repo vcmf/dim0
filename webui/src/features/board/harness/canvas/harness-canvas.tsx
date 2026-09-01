@@ -49,6 +49,7 @@ import { saveLocalThumbnail } from "@/features/board/local/save-local-thumbnail"
 import { setBoardPersistenceRef } from "@/features/board/persist/local/board-persistence-ref"
 import { ShareButton } from "@/features/sharing/share-button"
 import { BoardKindBadge } from "@/features/board/components/board-kind-badge"
+import { BoardBreadcrumb } from "@/features/board/components/breadcrumb/board-breadcrumb"
 import { useBoardAppStore } from "../store/board-app-store"
 import { createBoardStore } from "../store/create-board-store"
 import { adaptEdgeColors, applyColorsToEdgeStyle } from "../theme/color-adapter"
@@ -546,6 +547,9 @@ function HarnessCanvasInner({
         mounted everywhere so the modal editor opens from any view.
       */}
       {!presenting && <HarnessToolbar local={!canCollab} />}
+      {/* Unified location bar: [Board] › … › [Leaf ✎], above the surface
+          backdrop so it stays crisp + interactive while a sheet is open. */}
+      {!presenting && <BoardBreadcrumb local={!canCollab} />}
       {/*
         Top-right chrome row: save status + share button live in one
         flex container so they never overlap (z-stack collisions cost

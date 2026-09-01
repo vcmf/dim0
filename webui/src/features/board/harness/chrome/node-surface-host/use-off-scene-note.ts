@@ -112,6 +112,39 @@ export async function openOffSceneNoteStore(
 
 
 /**
+ * Rename a note that isn't on the current scene (a folder in a parent layer, or
+ * a surface not opened as the live store's node) in a single shot: seed a
+ * throwaway off-scene store, patch its label, flush, dispose. The store's change
+ * wiring records to the oplog + `submitLocalBatch({scene:false})` + invalidates
+ * the sidebar cache — the same sync-safe path an on-canvas rename takes, without
+ * moving the user's view. No-op if the note isn't in the local replica.
+ */
+export async function renameNoteOffScene(
+  liveStore: CanvasStore,
+  boardId: string,
+  nodeId: string,
+  title: string,
+): Promise<void> {
+  const { store, dispose } = await openOffSceneNoteStore(liveStore, boardId, nodeId)
+  if (!store) {
+    dispose()
+    return
+  }
+  try {
+    const trimmed = title.trim()
+    const prev = (store.getNode(asNodeId(nodeId))?.data ?? {}) as Record<string, unknown>
+    store.updateNode(asNodeId(nodeId), {
+      data: { ...prev, label: trimmed ? { markdown: trimmed } : undefined },
+    })
+    // Flush so the write reaches the durable oplog before we tear down the store.
+    await getBoardPersistenceRef()?.flush()
+  } finally {
+    dispose()
+  }
+}
+
+
+/**
  * React wrapper over {@link openOffSceneNoteStore}. Loads a note that lives
  * OFF-SCENE — a sub-page in a layer that isn't on the canvas — into a store the
  * surface can read AND edit.

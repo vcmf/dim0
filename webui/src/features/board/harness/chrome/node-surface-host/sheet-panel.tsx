@@ -1,6 +1,5 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useMemo } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
 import { useCanvasStore, useNode } from "@canvas-harness/react"
 import type { NodeId } from "@canvas-harness/core"
 import { CancelPlainIcon, DownloadIcon } from "@/components/icons"
@@ -13,10 +12,6 @@ import { useGetNotePath } from "@/features/board/api/get-note-path"
 import type { BoardContentItem } from "@/features/board/api/list-board-contents"
 import { useUpdateNote } from "@/features/board/api/update-note"
 import { SheetEditor } from "@/features/board/components/sheet/sheet-editor"
-import {
-  SheetBreadcrumb,
-  type BreadcrumbSegmentKind,
-} from "@/features/board/components/sheet/sheet-breadcrumb"
 import { SheetStackBackground } from "@/features/board/components/sheet/sheet-stack-background"
 import { createBoardPageProvider } from "@/features/board/providers/board-page-provider"
 import type { Note, NoteProperties } from "@/features/board/types/note"
@@ -48,11 +43,11 @@ export const SheetPanel = memo(function SheetPanel({
   onClose,
 }: SheetPanelProps) {
   const liveStore = useCanvasStore()
-  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const liveNode = useNode(nodeId as NodeId)
   const activeBoardId = useBoardAppStore((s) => s.boardId)
   const openNodeSurface = useBoardAppStore((s) => s.openNodeSurface)
+  const setActiveSurfaceRename = useBoardAppStore((s) => s.setActiveSurfaceRename)
 
   // A sub-page lives in a layer that isn't on the canvas, so it's absent from the
   // live store. Load it OFF-SCENE from the local replica — read + sync-correct
@@ -95,29 +90,11 @@ export const SheetPanel = memo(function SheetPanel({
     // below — the backend `/path` 404s on a local board.
     enabled: !isLocalNote && off.ready && !!boardId,
   })
-  // Off-scene sub-pages resolve their breadcrumb + stack (ancestor chain) locally,
-  // by walking parentId over the replica; on-canvas top-level notes have none.
+  // The stack "peek" ghost cards convey sub-page depth; the ancestor chain (and
+  // the breadcrumb path itself) now lives in the unified BoardBreadcrumb. Off-scene
+  // sub-pages resolve the chain locally; on-canvas top-level notes have none.
   const notePath = off.node ? off.path : restPath
   const ancestors = useMemo(() => notePath.slice(0, -1), [notePath])
-  // The open note's live title/icon are `noteLabel` / its iconData (store for
-  // local notes, fetch for sub-pages); the path's trailing segment can lag a
-  // just-made rename or icon change, so override it. Ancestor crumbs resolve
-  // their own live values inside the breadcrumb.
-  const liveIcon =
-    localData.properties?.iconData?.icon ??
-    fetchedNote?.properties?.iconData?.icon ??
-    null
-  const lastSegment = notePath[notePath.length - 1]
-  const currentSegment: Note | undefined = lastSegment
-    ? {
-        ...lastSegment,
-        label: noteLabel ? { markdown: noteLabel } : lastSegment.label,
-        properties: {
-          ...lastSegment.properties,
-          iconData: liveIcon ? { type: "icon", icon: liveIcon } : { type: "icon" },
-        },
-      }
-    : undefined
 
   // Page provider — backs TipTap's /subpage slash command. List/get
   // hit the board API; create inserts a new sheet under this one;
@@ -131,47 +108,6 @@ export const SheetPanel = memo(function SheetPanel({
       onNavigate: (id) => openNodeSurface(id, "sheet"),
     })
   }, [boardId, nodeId, openNodeSurface])
-
-  const handleSegmentClick = useCallback(
-    (note: Note, kind: BreadcrumbSegmentKind) => {
-      if (kind === "folder") {
-        onClose()
-        if (boardId) {
-          navigate({
-            to: "/boards/$id",
-            params: { id: boardId },
-            search: (prev: Record<string, unknown>) => ({
-              ...prev,
-              root_id: note.id,
-            }),
-          })
-        }
-        return
-      }
-      if (kind === "sheet" || kind === "code-sandbox" || kind === "widget") {
-        openNodeSurface(note.id, kind)
-      }
-    },
-    [boardId, navigate, onClose, openNodeSurface],
-  )
-
-  const [titleEditing, setTitleEditing] = useState(false)
-  const [titleDraft, setTitleDraft] = useState(noteLabel ?? "")
-  const titleInputRef = useRef<HTMLInputElement | null>(null)
-
-  useEffect(() => {
-    if (titleEditing) return
-    setTitleDraft(noteLabel ?? "")
-  }, [noteLabel, titleEditing])
-
-  useEffect(() => {
-    if (!titleEditing) return
-    const frame = requestAnimationFrame(() => {
-      titleInputRef.current?.focus()
-      titleInputRef.current?.select()
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [titleEditing])
 
   const { mutate: updateNoteMutate } = useUpdateNote()
   const persistRemote = useCallback(
@@ -214,14 +150,14 @@ export const SheetPanel = memo(function SheetPanel({
     [isLocalNote, nodeId, noteLabel, persistRemote, store, boardId, queryClient],
   )
 
-  const stopTitleEdit = useCallback(
-    (save: boolean) => {
-      if (save) persistTitle(titleDraft)
-      else setTitleDraft(noteLabel ?? "")
-      setTitleEditing(false)
-    },
-    [persistTitle, titleDraft, noteLabel],
-  )
+  // Register the leaf rename with the store so the unified breadcrumb edits this
+  // open sheet through the panel's own store (live / off-scene / REST) instead of
+  // spinning up a competing store. Cleared on unmount (and on scope/surface change
+  // by the store) so the breadcrumb falls back to an off-scene rename otherwise.
+  useEffect(() => {
+    setActiveSurfaceRename(persistTitle)
+    return () => setActiveSurfaceRename(null)
+  }, [setActiveSurfaceRename, persistTitle])
 
   const handleNoteChange = useCallback(
     (markdown: string) => {
@@ -338,21 +274,14 @@ export const SheetPanel = memo(function SheetPanel({
     )
   }
 
-  const displayTitle = noteLabel?.trim() || "Untitled note"
-
   const stackDepth = Math.max(0, ancestors.length)
 
   return (
     <div className={PANEL_CLASS} onClick={(e) => e.stopPropagation()}>
       <SheetStackBackground depth={stackDepth} />
-      <div className="flex w-full items-center justify-between gap-2 px-3 py-1.5">
-        <div className="min-w-0 flex-1 pr-2">
-          <SheetBreadcrumb
-            ancestors={ancestors}
-            current={currentSegment}
-            onSegmentClick={handleSegmentClick}
-          />
-        </div>
+      {/* The breadcrumb + leaf title live in the unified BoardBreadcrumb (above
+          the backdrop); the panel header keeps only the surface actions. */}
+      <div className="flex w-full items-center justify-end gap-2 px-3 py-1.5">
         <div className="flex shrink-0 items-center gap-1">
           <Button
             variant="ghost"
@@ -384,43 +313,13 @@ export const SheetPanel = memo(function SheetPanel({
         parentNoteId={nodeId}
         className="min-h-0 flex-1"
         bodyHeader={
-          <div className="group mx-auto max-w-[720px] pb-8">
-            <div className="mb-3 min-h-[40px]">
+          <div className="mx-auto max-w-[720px] pb-8">
+            <div className="min-h-[40px]">
               <NoteIconControl
                 icon={currentIconValue}
                 onChange={handleIconChange}
               />
             </div>
-
-            {titleEditing ? (
-              <input
-                ref={titleInputRef}
-                value={titleDraft}
-                onChange={(event) => setTitleDraft(event.target.value)}
-                onBlur={() => stopTitleEdit(true)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault()
-                    stopTitleEdit(true)
-                  }
-                  if (event.key === "Escape") {
-                    event.preventDefault()
-                    stopTitleEdit(false)
-                  }
-                }}
-                className="w-full border-0 bg-transparent px-0 py-0.5 text-3xl font-bold tracking-tight text-foreground focus:outline-none md:text-4xl"
-                placeholder="Untitled note"
-              />
-            ) : (
-              <button
-                type="button"
-                onClick={() => setTitleEditing(true)}
-                className="block w-full text-left text-3xl font-bold tracking-tight text-foreground transition-opacity hover:opacity-90 md:text-4xl"
-                title={displayTitle}
-              >
-                {displayTitle}
-              </button>
-            )}
           </div>
         }
       />
