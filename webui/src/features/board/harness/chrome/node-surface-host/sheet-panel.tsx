@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useCanvasStore, useNode } from "@canvas-harness/react"
 import type { NodeId } from "@canvas-harness/core"
@@ -160,6 +160,36 @@ export const SheetPanel = memo(function SheetPanel({
     return () => setActiveSurfaceRename(null)
   }, [setActiveSurfaceRename, persistTitle])
 
+  // The document's own title lives here (Notion-style: icon + title + body); the
+  // breadcrumb leaf shows the same name as navigation context and edits the same
+  // store, so the two stay in sync.
+  const [titleEditing, setTitleEditing] = useState(false)
+  const [titleDraft, setTitleDraft] = useState(noteLabel ?? "")
+  const titleInputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    if (titleEditing) return
+    setTitleDraft(noteLabel ?? "")
+  }, [noteLabel, titleEditing])
+
+  useEffect(() => {
+    if (!titleEditing) return
+    const frame = requestAnimationFrame(() => {
+      titleInputRef.current?.focus()
+      titleInputRef.current?.select()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [titleEditing])
+
+  const stopTitleEdit = useCallback(
+    (save: boolean) => {
+      if (save) persistTitle(titleDraft)
+      else setTitleDraft(noteLabel ?? "")
+      setTitleEditing(false)
+    },
+    [persistTitle, titleDraft, noteLabel],
+  )
+
   // Publish the live title so the breadcrumb can show it even for a synced
   // sub-page that isn't in the on-device list yet (loaded here via REST).
   useEffect(() => {
@@ -283,12 +313,14 @@ export const SheetPanel = memo(function SheetPanel({
   }
 
   const stackDepth = Math.max(0, ancestors.length)
+  const displayTitle = noteLabel?.trim() || "Untitled note"
 
   return (
     <div className={PANEL_CLASS} onClick={(e) => e.stopPropagation()}>
       <SheetStackBackground depth={stackDepth} />
-      {/* The breadcrumb + leaf title live in the unified BoardBreadcrumb (above
-          the backdrop); the panel header keeps only the surface actions. */}
+      {/* Breadcrumb / path lives in the unified BoardBreadcrumb (above the
+          backdrop); the panel header keeps only the surface actions — the
+          document title itself sits in the body below. */}
       <div className="flex w-full items-center justify-end gap-2 px-3 py-1.5">
         <div className="flex shrink-0 items-center gap-1">
           <Button
@@ -322,12 +354,42 @@ export const SheetPanel = memo(function SheetPanel({
         className="min-h-0 flex-1"
         bodyHeader={
           <div className="mx-auto max-w-[720px] pb-8">
-            <div className="min-h-[40px]">
+            <div className="mb-3 min-h-[40px]">
               <NoteIconControl
                 icon={currentIconValue}
                 onChange={handleIconChange}
               />
             </div>
+
+            {titleEditing ? (
+              <input
+                ref={titleInputRef}
+                value={titleDraft}
+                onChange={(event) => setTitleDraft(event.target.value)}
+                onBlur={() => stopTitleEdit(true)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault()
+                    stopTitleEdit(true)
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault()
+                    stopTitleEdit(false)
+                  }
+                }}
+                className="w-full border-0 bg-transparent px-0 py-0.5 text-3xl font-bold tracking-tight text-foreground focus:outline-none md:text-4xl"
+                placeholder="Untitled note"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setTitleEditing(true)}
+                className="block w-full text-left text-3xl font-bold tracking-tight text-foreground transition-opacity hover:opacity-90 md:text-4xl"
+                title={displayTitle}
+              >
+                {displayTitle}
+              </button>
+            )}
           </div>
         }
       />
