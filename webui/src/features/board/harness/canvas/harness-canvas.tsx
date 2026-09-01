@@ -547,9 +547,16 @@ function HarnessCanvasInner({
         mounted everywhere so the modal editor opens from any view.
       */}
       {!presenting && <HarnessToolbar local={!canCollab} />}
-      {/* Unified location bar: [Board] › … › [Leaf ✎], above the surface
-          backdrop so it stays crisp + interactive while a sheet is open. */}
-      {!presenting && <BoardBreadcrumb local={!canCollab} />}
+      {/* Unified location bar: [Board] › … › [Leaf ✎]. Web mounts it here as a
+          canvas overlay, above the surface backdrop so it stays crisp +
+          interactive while a sheet is open; desktop renders it in the reserved
+          title bar (see SidebarLabel), which the backdrop never covers. */}
+      {!presenting && !isTauri() && (
+        <BoardBreadcrumb
+          local={!canCollab}
+          className="absolute left-14 top-4 z-[60] max-w-[calc(100vw-8rem)]"
+        />
+      )}
       {/*
         Top-right chrome row: save status + share button live in one
         flex container so they never overlap (z-stack collisions cost

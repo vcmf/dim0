@@ -11,6 +11,8 @@ import { NewChatUrl, SheetUrl } from "@/routes"
 import { ContextBoard } from "@/features/agent/components/context-board"
 import { UNTITLED_LABEL } from "@/features/board/const"
 import { useBoardAppStore } from "@/features/board/harness/store/board-app-store"
+import { BoardBreadcrumb } from "@/features/board/components/breadcrumb/board-breadcrumb"
+import { isTauri } from "@/platform"
 import { useHarnessNodeExternal } from "@/features/board/harness/store/use-harness-node-external"
 import { useGetNote } from "@/features/board/api/get-note"
 import { useUpdateNote } from "@/features/board/api/update-note"
@@ -250,10 +252,14 @@ export const SidebarLabel = ({ mobileContextOnly = false }: { mobileContextOnly?
     )
   }
 
-  // BOARD + LOCAL BOARD: the canvas renders the unified BoardBreadcrumb (which is
-  // the board title + folder path + rename), so the header shows nothing here to
-  // avoid a duplicate title.
-  if (active.view === "board" || active.view === "local-board") return null
+  // BOARD + LOCAL BOARD: the unified BoardBreadcrumb is the board title + folder
+  // path + rename. Desktop renders it here, in the reserved title bar next to the
+  // app icon (the backdrop never covers that row). Web returns null and lets the
+  // canvas overlay own it, since this absolute header IS covered by the sheet
+  // backdrop.
+  if (active.view === "board" || active.view === "local-board") {
+    return isTauri() ? <BoardBreadcrumb local={active.view === "local-board"} /> : null
+  }
 
   // SHEET (full view)
   if (active.view === "sheet" && active.id && active.boardId) {
