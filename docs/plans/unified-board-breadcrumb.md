@@ -21,6 +21,23 @@ state — `board-app-store.ts:239`). Depth is conveyed only by the breadcrumb ch
 (+ decorative `SheetStackBackground` ghost cards). So the breadcrumb is the single
 source of "where am I".
 
+## Update — the breadcrumb IS the board title
+
+Refinement after first review: the bar replaces the board-title element entirely.
+It is always shown (including at the root), the root label is the real board name
+(registry title for a local board, whose `graph.label` is empty; `graph.label` for
+a synced one), and the trailing crumb is inline-editable at every level:
+
+- **At the root**, the editable leaf is the board itself → renames the board
+  (registry `renameBoard` for local; synced has no manual rename endpoint, so it's
+  display-only there).
+- **In a folder / sheet**, the leaf is that node → renames it (live store /
+  registered surface hook / one-shot off-scene, as below).
+
+Styling is chromeless (no border / shadow / background) so it reads as a title, not
+a widget. An edit that starts on one target is abandoned if navigation changes the
+target before it commits.
+
 ## Direction A — one persistent location bar
 A single `<BoardBreadcrumb>`, mounted **once** in the canvas chrome, promoted **above
 the backdrop** (`z-[60]`), that always reflects the *deepest* context:
