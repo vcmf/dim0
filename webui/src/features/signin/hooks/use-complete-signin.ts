@@ -28,7 +28,17 @@ export function useCompleteSignin(): (token: TokenPayload) => Promise<void> {
       if (p.sub) setUserId(String(p.sub))
       if (typeof p.email === "string") setUserEmail(p.email)
       setUserPlan(resolveBillingPlan(p))
-      const status = await getEmailVerificationStatus()
+      // The tokens are already persisted by the time we get here, so the user IS
+      // authenticated. A transient verification-status failure must NOT surface as
+      // a sign-in error (which would strand a signed-in user) — proceed into the
+      // app, where the layout re-checks verification.
+      let status: Awaited<ReturnType<typeof getEmailVerificationStatus>>
+      try {
+        status = await getEmailVerificationStatus()
+      } catch {
+        navigate({ to: "/", replace: true })
+        return
+      }
       setEmailVerificationEnabled(status.enabled)
       setEmailVerified(status.verified)
       if (status.enabled && !status.verified) {

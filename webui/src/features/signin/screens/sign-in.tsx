@@ -42,6 +42,15 @@ export function SigninPage() {
     }
   }, [])
 
+  // Pressing Back from Google's consent restores this page from bfcache with the
+  // "redirecting" spinner still latched — `pageshow` (fires on restore) clears it
+  // so the button is usable again without a hard reload.
+  React.useEffect(() => {
+    const reset = () => setGoogleRedirecting(false)
+    window.addEventListener("pageshow", reset)
+    return () => window.removeEventListener("pageshow", reset)
+  }, [])
+
   const localSigninMutation = useMutation({
     mutationFn: () => signin(email, password),
     onMutate: () => setGoogleError(null),

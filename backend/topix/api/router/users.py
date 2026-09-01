@@ -188,7 +188,12 @@ async def google_signin(
     request: Request,
     body: Annotated[GoogleSigninRequest, Body(description="Google sign-in token payload")],
 ):
-    """Sign in with Google (web) — verify the GIS id_token and issue tokens."""
+    """DEPRECATED — legacy GIS id_token web sign-in.
+
+    Superseded by `/google-signin-web` (auth-code + PKCE redirect); the web client
+    no longer calls this. Retained only for backward compatibility / rollback and
+    can be removed once the redirect flow is confirmed in production.
+    """
     if not is_google_connect_available():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

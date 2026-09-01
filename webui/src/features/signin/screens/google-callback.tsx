@@ -29,6 +29,9 @@ export function GoogleCallbackPage() {
     const state = params.get("state")
     // Read + clear the stashed PKCE/state regardless, so a stale one can't linger.
     const pending = consumePendingGoogleOAuth()
+    // Scrub the single-use code/state from the address bar + history immediately —
+    // they're spent, and reloading this URL would re-run with a now-invalid code.
+    window.history.replaceState(null, "", window.location.pathname)
 
     void (async () => {
       if (oauthError) return setError("Google sign in was cancelled or did not complete.")
