@@ -48,6 +48,7 @@ export const SheetPanel = memo(function SheetPanel({
   const activeBoardId = useBoardAppStore((s) => s.boardId)
   const openNodeSurface = useBoardAppStore((s) => s.openNodeSurface)
   const setActiveSurfaceRename = useBoardAppStore((s) => s.setActiveSurfaceRename)
+  const setActiveSurfaceLabel = useBoardAppStore((s) => s.setActiveSurfaceLabel)
 
   // A sub-page lives in a layer that isn't on the canvas, so it's absent from the
   // live store. Load it OFF-SCENE from the local replica — read + sync-correct
@@ -158,6 +159,13 @@ export const SheetPanel = memo(function SheetPanel({
     setActiveSurfaceRename(persistTitle)
     return () => setActiveSurfaceRename(null)
   }, [setActiveSurfaceRename, persistTitle])
+
+  // Publish the live title so the breadcrumb can show it even for a synced
+  // sub-page that isn't in the on-device list yet (loaded here via REST).
+  useEffect(() => {
+    setActiveSurfaceLabel(noteLabel ?? "")
+    return () => setActiveSurfaceLabel(null)
+  }, [setActiveSurfaceLabel, noteLabel])
 
   const handleNoteChange = useCallback(
     (markdown: string) => {

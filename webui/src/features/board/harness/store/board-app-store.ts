@@ -121,6 +121,12 @@ export type BoardAppState = {
    * second, competing store for the same node. `null` when no surface is open.
    */
   activeSurfaceRename: ((title: string) => void) | null
+  /**
+   * Live title of the open surface, registered by the active panel. Lets the
+   * breadcrumb show the leaf title for a surface that isn't in the on-device list
+   * yet (a synced sub-page loaded via REST). `null` when no surface is open.
+   */
+  activeSurfaceLabel: string | null
 
   // Which floating chrome dialog/menu is open (one at a time).
   chromeDialog: ChromeDialog | null
@@ -155,6 +161,7 @@ export type BoardAppActions = {
   openNodeSurface: (nodeId: string, kind: NodeSurfaceKind) => void
   closeNodeSurface: () => void
   setActiveSurfaceRename: (rename: ((title: string) => void) | null) => void
+  setActiveSurfaceLabel: (label: string | null) => void
 
   setChromeDialog: (dialog: ChromeDialog | null) => void
 }
@@ -181,6 +188,7 @@ const initialState: BoardAppState = {
   boardBackgroundTexture: null,
   activeNodeSurface: null,
   activeSurfaceRename: null,
+  activeSurfaceLabel: null,
   chromeDialog: null,
 }
 
@@ -207,6 +215,7 @@ export const useBoardAppStore = create<BoardAppState & BoardAppActions>((set, ge
       chatSheetOpen: false,
       activeNodeSurface: null,
       activeSurfaceRename: null,
+      activeSurfaceLabel: null,
       chromeDialog: null,
       boardBackground: boardId ? getBoardBackground(boardId) : null,
       boardBackgroundTexture: boardId ? getBoardBackgroundTexture(boardId) : null,
@@ -250,18 +259,23 @@ export const useBoardAppStore = create<BoardAppState & BoardAppActions>((set, ge
     // Drop the outgoing surface's rename hook; the incoming panel registers its
     // own on mount. Until then the breadcrumb safely falls back to an off-scene
     // rename for the new leaf.
-    set({ activeNodeSurface: { nodeId, kind }, activeSurfaceRename: null })
+    set({
+      activeNodeSurface: { nodeId, kind },
+      activeSurfaceRename: null,
+      activeSurfaceLabel: null,
+    })
     const boardId = get().boardId
     if (!boardId || !_navigateOpen) return
     _navigateOpen(kind, boardId, nodeId)
   },
   closeNodeSurface: () => {
-    set({ activeNodeSurface: null, activeSurfaceRename: null })
+    set({ activeNodeSurface: null, activeSurfaceRename: null, activeSurfaceLabel: null })
     const boardId = get().boardId
     if (!boardId || !_navigateClose) return
     _navigateClose(boardId)
   },
   setActiveSurfaceRename: (rename) => set({ activeSurfaceRename: rename }),
+  setActiveSurfaceLabel: (label) => set({ activeSurfaceLabel: label }),
 
   setChromeDialog: (dialog) => set({ chromeDialog: dialog }),
 }))
