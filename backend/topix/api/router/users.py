@@ -12,6 +12,7 @@ from topix.api.datatypes.requests import (
     ForgotPasswordRequest,
     GoogleDesktopSigninRequest,
     GoogleSigninRequest,
+    GoogleWebRedirectSigninRequest,
     RefreshRequest,
     ResetPasswordRequest,
     UserSignupRequest,
@@ -21,6 +22,7 @@ from topix.api.utils.auth_methods import (
     get_google_desktop_client_id,
     is_google_connect_available,
     is_google_desktop_available,
+    is_google_web_redirect_available,
 )
 from topix.api.utils.decorators import with_standard_response
 from topix.api.utils.email_verification import (
@@ -34,7 +36,11 @@ from topix.api.utils.email_verification import (
     send_email_verification_link,
     utc_now,
 )
-from topix.api.utils.google_connect import exchange_desktop_code, verify_google_id_token
+from topix.api.utils.google_connect import (
+    exchange_desktop_code,
+    exchange_web_code,
+    verify_google_id_token,
+)
 from topix.api.utils.password_reset import (
     DEFAULT_RESET_RESEND_COOLDOWN_SECONDS,
     build_password_reset_url,
@@ -107,10 +113,14 @@ async def get_auth_methods():
     """Return which authentication methods are currently available."""
     google_available = is_google_connect_available()
     desktop_available = is_google_desktop_available()
+    web_redirect_available = is_google_web_redirect_available()
     return {
         "local": True,
         "google": google_available,
         "google_client_id": get_google_client_id() if google_available else None,
+        # Web redirect (auth-code + PKCE) — available only when the web client
+        # secret is configured for the server-side code exchange.
+        "google_web_redirect": web_redirect_available,
         # The desktop app authorizes against its own "Desktop app" OAuth client.
         "google_desktop_client_id": get_google_desktop_client_id() if desktop_available else None,
     }
@@ -202,6 +212,23 @@ async def google_signin_desktop(
         )
     id_token = await exchange_desktop_code(body.code, body.code_verifier, body.redirect_uri)
     payload = verify_google_id_token(id_token, audience=get_google_desktop_client_id())
+    return await _google_signin_with_payload(request, payload)
+
+
+@router.post("/google-signin-web")
+@with_standard_response
+async def google_signin_web(
+    request: Request,
+    body: Annotated[GoogleWebRedirectSigninRequest, Body(description="Web redirect auth code + PKCE")],
+):
+    """Web Google sign-in: exchange the redirect auth code (PKCE) server-side, then issue tokens."""
+    if not is_google_web_redirect_available():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Google web sign-in is not available",
+        )
+    id_token = await exchange_web_code(body.code, body.code_verifier, body.redirect_uri)
+    payload = verify_google_id_token(id_token, audience=get_google_client_id())
     return await _google_signin_with_payload(request, payload)
 
 

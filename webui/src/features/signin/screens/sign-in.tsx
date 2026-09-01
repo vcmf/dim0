@@ -1,9 +1,7 @@
 import * as React from "react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useNavigate, Link } from "@tanstack/react-router"
-import { decodeJwt, resolveBillingPlan } from "@/lib/decode-jwt"
-import { useAppStore } from "@/store"
-import { getAuthMethods, getEmailVerificationStatus, googleSignin, type TokenPayload, signin } from "@/api"
+import { useMutation, useQuery } from "@tanstack/react-query"
+import { Link } from "@tanstack/react-router"
+import { getAuthMethods, signin } from "@/api"
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
@@ -12,61 +10,42 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Loader2Icon, LockIcon, MailIcon } from "@/components/icons"
 import { PasswordInput } from "../components/password-input"
-import { renderGoogleSigninButton } from "../lib/google-connect"
+import { initiateWebGoogleSignin } from "../lib/web-google"
 import { desktopGoogleSignin } from "../lib/desktop-google"
+import { useCompleteSignin } from "../hooks/use-complete-signin"
 import { isTauri } from "@/platform"
 
 /** Renders the sign-in screen and routes successful authentication into the app. */
 export function SigninPage() {
-  const navigate = useNavigate()
-  const queryClient = useQueryClient()
-  const setUserId = useAppStore(s => s.setUserId)
-  const setUserEmail = useAppStore(s => s.setUserEmail)
-  const setUserPlan = useAppStore(s => s.setUserPlan)
-  const setEmailVerificationEnabled = useAppStore(s => s.setEmailVerificationEnabled)
-  const setEmailVerified = useAppStore(s => s.setEmailVerified)
-  const googleButtonRef = React.useRef<HTMLDivElement | null>(null)
-  const renderedGoogleClientIdRef = React.useRef<string | null>(null)
-  const renderingGoogleClientIdRef = React.useRef<string | null>(null)
+  const completeSignin = useCompleteSignin()
 
   const [email, setEmail] = React.useState("")
   const [password, setPassword] = React.useState("")
   const [googleError, setGoogleError] = React.useState<string | null>(null)
+  const [googleRedirecting, setGoogleRedirecting] = React.useState(false)
 
   const authMethodsQuery = useQuery({
     queryKey: ["auth-methods"],
     queryFn: getAuthMethods,
   })
 
-  const completeSignin = React.useCallback(async (token: TokenPayload) => {
-    queryClient.clear()
-    const p = decodeJwt(token.access_token)
-    if (p.sub) setUserId(String(p.sub))
-    if (typeof p.email === "string") setUserEmail(p.email)
-    setUserPlan(resolveBillingPlan(p))
-    const status = await getEmailVerificationStatus()
-    setEmailVerificationEnabled(status.enabled)
-    setEmailVerified(status.verified)
-    if (status.enabled && !status.verified) {
-      navigate({ to: "/verify-email", replace: true })
-      return
+  const startWebGoogle = React.useCallback(async (clientId: string) => {
+    setGoogleError(null)
+    setGoogleRedirecting(true)
+    try {
+      // Navigates the top-level window to Google's consent screen; control returns
+      // via the /signin/google/callback route.
+      await initiateWebGoogleSignin(clientId)
+    } catch (error) {
+      setGoogleError((error as Error).message || "Unable to continue with Google")
+      setGoogleRedirecting(false)
     }
-    navigate({ to: "/", replace: true })
-  }, [navigate, queryClient, setEmailVerificationEnabled, setEmailVerified, setUserEmail, setUserId, setUserPlan])
+  }, [])
 
   const localSigninMutation = useMutation({
     mutationFn: () => signin(email, password),
     onMutate: () => setGoogleError(null),
     onSuccess: completeSignin,
-  })
-
-  const googleSigninMutation = useMutation({
-    mutationFn: (idToken: string) => googleSignin(idToken),
-    onMutate: () => setGoogleError(null),
-    onSuccess: completeSignin,
-    onError: error => {
-      setGoogleError((error as Error).message || "Unable to continue with Google")
-    },
   })
 
   // Desktop: GIS can't run in the webview, so sign in via the system browser
@@ -80,51 +59,13 @@ export function SigninPage() {
     },
   })
 
-  React.useEffect(() => {
-    if (isTauri()) return // web-only: the GIS button doesn't work in the desktop webview
-    const authMethods = authMethodsQuery.data
-    const target = googleButtonRef.current
-    const clientId = authMethods?.google_client_id
-    if (!authMethods?.google || !clientId || !target) return
-    if (renderedGoogleClientIdRef.current === clientId || renderingGoogleClientIdRef.current === clientId) return
-
-    let cancelled = false
-    renderingGoogleClientIdRef.current = clientId
-
-    renderGoogleSigninButton({
-      clientId,
-      element: target,
-      onCredential: response => {
-        if (cancelled) return
-        if (!response.credential) {
-          setGoogleError("Google did not return a credential")
-          return
-        }
-        googleSigninMutation.mutate(response.credential)
-      },
-    }).then(() => {
-      if (cancelled) return
-      renderedGoogleClientIdRef.current = clientId
-    }).catch(error => {
-      if (cancelled) return
-      setGoogleError((error as Error).message || "Unable to load Google sign in")
-    }).finally(() => {
-      if (renderingGoogleClientIdRef.current === clientId) {
-        renderingGoogleClientIdRef.current = null
-      }
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [authMethodsQuery.data, googleSigninMutation])
-
   const authMethods = authMethodsQuery.data
   const desktop = isTauri()
   const showLocalSignin = authMethods?.local ?? true
-  // Web uses GIS (needs the web client id); desktop uses the system-browser flow
-  // (needs the "Desktop app" client id). Never both.
-  const showGoogleWeb = !desktop && Boolean(authMethods?.google && authMethods.google_client_id)
+  // Web uses the redirect (auth-code + PKCE) flow — gated on the backend having the
+  // web client secret configured (google_web_redirect). Desktop uses the
+  // system-browser flow (own "Desktop app" client id). Never both.
+  const showGoogleWeb = !desktop && Boolean(authMethods?.google_web_redirect && authMethods.google_client_id)
   // Desktop availability is independent of the web client — the backend only
   // returns google_desktop_client_id when the Desktop OAuth client is configured,
   // so its presence alone gates the button (a deploy may have desktop but no web).
@@ -218,19 +159,26 @@ export function SigninPage() {
             ) : null}
 
             {showGoogleWeb ? (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {googleError ? (
                   <p className="text-sm text-destructive">{googleError}</p>
                 ) : null}
-                <div className="w-full h-9 overflow-hidden rounded-md border border-border bg-white flex items-center justify-center">
-                  <div className="w-full h-full flex items-center justify-center scale-[1.02] origin-center" ref={googleButtonRef} />
-                </div>
-                {googleSigninMutation.isPending ? (
-                  <div className="flex items-center justify-center text-sm text-muted-foreground gap-2">
-                    <Loader2Icon className="h-4 w-4 animate-spin" />
-                    Connecting to Google…
-                  </div>
-                ) : null}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => void startWebGoogle(authMethods!.google_client_id!)}
+                  disabled={googleRedirecting}
+                >
+                  {googleRedirecting ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2Icon className="h-4 w-4 animate-spin" />
+                      Redirecting to Google…
+                    </span>
+                  ) : (
+                    "Continue with Google"
+                  )}
+                </Button>
               </div>
             ) : null}
 

@@ -10,6 +10,7 @@ import { ChatScreen } from "@/features/agent/screens/chat-screen"
 import { BoardScreen } from "@/features/board/screens/board-screen"
 import { SigninPage } from "@/features/signin/screens/sign-in"
 import { SignupPage } from "@/features/signin/screens/sign-up"
+import { GoogleCallbackPage } from "@/features/signin/screens/google-callback"
 import { clearTokens, getAccessToken } from "@/features/signin/auth-storage"
 import { decodeJwt } from "@/lib/decode-jwt"
 import { getEmailVerificationStatus } from "@/api"
@@ -79,6 +80,12 @@ const signupRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/signup",
   component: SignupPage,
+})
+
+const googleCallbackRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/signin/google/callback",
+  component: GoogleCallbackPage,
 })
 
 const verifyEmailRoute = createRoute({
@@ -331,6 +338,7 @@ const routeTree = rootRoute.addChildren([
   ]),
   signinRoute,
   signupRoute,
+  googleCallbackRoute,
   verifyEmailRoute,
   forgotPasswordRoute,
   resetPasswordRoute,

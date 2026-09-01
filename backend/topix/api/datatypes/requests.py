@@ -33,6 +33,14 @@ class GoogleDesktopSigninRequest(BaseModel):
     redirect_uri: str
 
 
+class GoogleWebRedirectSigninRequest(BaseModel):
+    """Web redirect Google sign-in: auth code + PKCE verifier + the redirect URI."""
+
+    code: str
+    code_verifier: str
+    redirect_uri: str
+
+
 class RefreshRequest(BaseModel):
     """Refresh token request model."""
 
