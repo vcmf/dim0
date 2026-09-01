@@ -1,6 +1,7 @@
 import * as React from "react"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
+import { Google } from "@lobehub/icons"
 import { getAuthMethods, signin } from "@/api"
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -185,7 +186,10 @@ export function SigninPage() {
                       Redirecting to Google…
                     </span>
                   ) : (
-                    "Continue with Google"
+                    <span className="inline-flex items-center gap-2">
+                      <Google.Color size={18} />
+                      Continue with Google
+                    </span>
                   )}
                 </Button>
               </div>
@@ -209,7 +213,10 @@ export function SigninPage() {
                       Continue in your browser…
                     </span>
                   ) : (
-                    "Continue with Google"
+                    <span className="inline-flex items-center gap-2">
+                      <Google.Color size={18} />
+                      Continue with Google
+                    </span>
                   )}
                 </Button>
                 <p className="text-center text-xs text-muted-foreground">
