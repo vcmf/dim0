@@ -44,8 +44,8 @@ def _bare(model: object) -> str:
 
     Capability checks must hold whether a model is addressed natively
     ("openai/gpt-5.4"), routed through OpenRouter ("openrouter/openai/gpt-5.4"),
-    carries a throughput variant ("z-ai/glm-5.2:nitro"), or is wrapped in a
-    LitellmModel — all collapse to the same bare name (e.g. "gpt-5.4", "glm-5.2").
+    carries a throughput variant ("z-ai/glm-5.3:nitro"), or is wrapped in a
+    LitellmModel — all collapse to the same bare name (e.g. "gpt-5.4", "glm-5.3").
     """
     name = model.model if hasattr(model, "model") else model
     if isinstance(name, Enum):

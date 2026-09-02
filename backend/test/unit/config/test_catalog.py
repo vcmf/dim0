@@ -53,7 +53,7 @@ def test_openai_only_routes_native(clean_keys):
 
     # OpenRouter-only models (z-ai/qwen/deepseek/...) are not reachable.
     ids = {m.id for m in llms}
-    assert "glm-5.2" not in ids
+    assert "glm-5.3" not in ids
     assert "gpt-5.4" in ids
 
     assert catalog.resolve_code("gpt-5.4") == "openai/gpt-5.4"
@@ -81,7 +81,7 @@ def test_openrouter_only_routes_via_openrouter(clean_keys):
     # So is Claude, with no native Anthropic key.
     assert catalog.resolve_code("claude-opus-4.8") == "openrouter/anthropic/claude-opus-4.8"
     # Non-OpenAI/Anthropic models carry the :nitro throughput variant.
-    assert catalog.resolve_code("glm-5.2") == "openrouter/z-ai/glm-5.2:nitro"
+    assert catalog.resolve_code("glm-5.3") == "openrouter/z-ai/glm-5.3:nitro"
     assert catalog.resolve_code("minimax-m2.7") == "openrouter/minimax/minimax-m2.7:nitro"
 
     # Embeddings work through OpenRouter (no OpenAI key required).
@@ -101,7 +101,7 @@ def test_nitro_only_on_non_openai_anthropic_routes(clean_keys):
     assert ":nitro" not in by_id["gpt-5.4"].call
     assert ":nitro" not in by_id["claude-opus-4.8"].call
     # Everyone else via OpenRouter: :nitro.
-    for mid in ("glm-5.2", "gemma-4-31b", "qwen3.6-plus", "deepseek-v4-pro", "kimi-k2.6", "minimax-m2.7"):
+    for mid in ("glm-5.3", "gemma-4-31b", "qwen3.6-plus", "deepseek-v4-pro", "kimi-k2.6", "minimax-m2.7"):
         assert by_id[mid].call.endswith(":nitro"), mid
 
 
