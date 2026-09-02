@@ -54,7 +54,9 @@ const load = (): Stored | null => {
 
 
 /** Fallback model id per provider when the user leaves the field blank. OpenRouter
- *  defaults to the GLM 5.3 Flash base model; OpenAI to gpt-5.4. */
+ *  uses the normal-tier base model, GLM 5.3 Flash, on its `:nitro` throughput route
+ *  (intentional — matches the managed base); OpenAI uses gpt-5.4. Applied at read
+ *  time in asConfig, so an existing OpenRouter cred with a blank model gets it too. */
 const defaultModel = (provider: ByokProvider): string =>
   provider === "openai" ? "gpt-5.4" : "z-ai/glm-5.3-flash:nitro"
 
