@@ -30,7 +30,30 @@ providers:
   exa:        { key: EXA_API_KEY }
 
 llm:
-  # --- OpenAI (native preferred, OpenRouter fallback without :nitro) ---
+  # Auto-routing defaults = the FIRST model of each tier in this list whose
+  # provider key is present (see config/catalog.py `default_resolved`). GLM 5.3
+  # Flash is the normal/lite base (it also backs the complexity classifier);
+  # gpt-5.4 is the complex/pro default. Both degrade gracefully by BYOK key:
+  # Flash is OpenRouter-only, so with no OpenRouter key lite falls through to
+  # gpt-5.4-mini; gpt-5.4 has both routes, so complex resolves for either key.
+
+  # --- z-ai GLM 5.3 Flash: base / normal-complexity model (OpenRouter only) ---
+  - id: glm-5.3-flash
+    label: GLM 5.3 Flash
+    family: z-ai
+    tier: lite
+    routes:
+      - { via: openrouter, model: z-ai/glm-5.3-flash:nitro }
+
+  # --- OpenAI (native preferred, OpenRouter fallback without :nitro).
+  #     gpt-5.4 is first so it's the auto complex/pro default. ---
+  - id: gpt-5.4
+    label: GPT-5.4
+    family: openai
+    tier: pro
+    routes:
+      - { via: openai,     model: gpt-5.4 }
+      - { via: openrouter, model: openai/gpt-5.4 }
   - id: gpt-5.5
     label: GPT-5.5
     family: openai
@@ -45,13 +68,6 @@ llm:
     routes:
       - { via: openai,     model: gpt-5.5-pro }
       - { via: openrouter, model: openai/gpt-5.5-pro }
-  - id: gpt-5.4
-    label: GPT-5.4
-    family: openai
-    tier: pro
-    routes:
-      - { via: openai,     model: gpt-5.4 }
-      - { via: openrouter, model: openai/gpt-5.4 }
   - id: gpt-5.4-mini
     label: GPT-5.4 Mini
     family: openai
@@ -90,19 +106,14 @@ llm:
       - { via: anthropic,  model: claude-haiku-4-5 }
       - { via: openrouter, model: anthropic/claude-haiku-4.5 }
 
-  # --- z-ai GLM (OpenRouter only) ---
-  - id: glm-5.2
-    label: GLM 5.2
+  # --- z-ai GLM 5.3 full: high-capability pro option (OpenRouter only). The auto
+  #     "complex" default is gpt-5.4 (above); this is a picker / pro fallback. ---
+  - id: glm-5.3
+    label: GLM 5.3
     family: z-ai
     tier: pro
     routes:
-      - { via: openrouter, model: z-ai/glm-5.2:nitro }
-  - id: glm-5.1
-    label: GLM 5.1
-    family: z-ai
-    tier: lite
-    routes:
-      - { via: openrouter, model: z-ai/glm-5.1:nitro }
+      - { via: openrouter, model: z-ai/glm-5.3:nitro }
 
   # --- Google Gemma (OpenRouter only) ---
   - id: gemma-4-31b
