@@ -53,9 +53,10 @@ const load = (): Stored | null => {
 }
 
 
-/** Fallback model id per provider when the user leaves the field blank. */
+/** Fallback model id per provider when the user leaves the field blank. OpenRouter
+ *  defaults to the GLM 5.3 Flash base model; OpenAI to gpt-5.4. */
 const defaultModel = (provider: ByokProvider): string =>
-  provider === "openai" ? "gpt-5.4" : "openai/gpt-5.4"
+  provider === "openai" ? "gpt-5.4" : "z-ai/glm-5.3-flash:nitro"
 
 
 type ByokState = {

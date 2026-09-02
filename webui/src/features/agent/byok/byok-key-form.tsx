@@ -77,7 +77,7 @@ export function ByokKeyForm({ onSaved }: { onSaved?: () => void }) {
         <input
           value={model}
           onChange={(e) => setModel(e.target.value)}
-          placeholder={provider === "openai" ? "gpt-5.4" : "openai/gpt-5.4"}
+          placeholder={provider === "openai" ? "gpt-5.4" : "z-ai/glm-5.3-flash:nitro"}
           className={fieldClass}
         />
       </label>
