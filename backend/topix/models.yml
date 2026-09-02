@@ -31,22 +31,16 @@ providers:
 
 llm:
   # Auto-routing defaults = the FIRST model of each tier in this list whose
-  # provider key is present (see config/catalog.py `default_resolved`). GLM 5.3
-  # Flash is the normal/lite base (it also backs the complexity classifier);
-  # gpt-5.4 is the complex/pro default. Both degrade gracefully by BYOK key:
-  # Flash is OpenRouter-only, so with no OpenRouter key lite falls through to
-  # gpt-5.4-mini; gpt-5.4 has both routes, so complex resolves for either key.
-
-  # --- z-ai GLM 5.3 Flash: base / normal-complexity model (OpenRouter only) ---
-  - id: glm-5.3-flash
-    label: GLM 5.3 Flash
-    family: z-ai
-    tier: lite
-    routes:
-      - { via: openrouter, model: z-ai/glm-5.3-flash:nitro }
+  # provider key is present (see config/catalog.py `default_resolved`). gpt-5.4 is
+  # the FIRST entry, so it's both the complex/pro default AND the no-tier fallback
+  # (`default_resolved(None)` returns models[0]) — the latter is what unreachable
+  # configured models fall back to, so it must stay a strong model, not lite.
+  # GLM 5.3 Flash is the first *lite* entry → the normal/base default (it also
+  # backs the complexity classifier). BYOK: Flash is OpenRouter-only, so with no
+  # OpenRouter key lite falls through to gpt-5.4-mini; gpt-5.4 has both routes.
 
   # --- OpenAI (native preferred, OpenRouter fallback without :nitro).
-  #     gpt-5.4 is first so it's the auto complex/pro default. ---
+  #     gpt-5.4 is first → complex/pro default + no-tier fallback. ---
   - id: gpt-5.4
     label: GPT-5.4
     family: openai
@@ -68,6 +62,16 @@ llm:
     routes:
       - { via: openai,     model: gpt-5.5-pro }
       - { via: openrouter, model: openai/gpt-5.5-pro }
+
+  # --- z-ai GLM 5.3 Flash: normal/base model (OpenRouter only). First *lite*
+  #     entry → the auto lite default; also backs the complexity classifier. ---
+  - id: glm-5.3-flash
+    label: GLM 5.3 Flash
+    family: z-ai
+    tier: lite
+    routes:
+      - { via: openrouter, model: z-ai/glm-5.3-flash:nitro }
+
   - id: gpt-5.4-mini
     label: GPT-5.4 Mini
     family: openai
