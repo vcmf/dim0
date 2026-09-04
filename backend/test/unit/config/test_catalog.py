@@ -140,6 +140,23 @@ def test_default_model_code_by_tier(clean_keys):
     assert smart_resolved.tier == "pro"
 
 
+def test_resolved_by_id(clean_keys):
+    """resolved_by_id returns the reachable model for an id, else None."""
+    clean_keys.setenv("OPENROUTER_API_KEY", "or-x")
+    r = catalog.resolved_by_id("gpt-oss-120b")
+    assert r is not None
+    assert r.id == "gpt-oss-120b"
+    assert r.call == "openrouter/openai/gpt-oss-120b"
+    # Unknown id → None.
+    assert catalog.resolved_by_id("no-such-model") is None
+
+
+def test_resolved_by_id_unreachable_is_none(clean_keys):
+    """An OpenRouter-only model is None when only the OpenAI key is present."""
+    clean_keys.setenv("OPENAI_API_KEY", "sk-x")
+    assert catalog.resolved_by_id("gpt-oss-120b") is None
+
+
 @pytest.mark.parametrize(
     "given",
     [

@@ -52,6 +52,27 @@ llm:
     routes:
       - { via: openai,     model: gpt-5.4 }
       - { via: openrouter, model: openai/gpt-5.4 }
+
+  # --- Auto-routing base + classifier ---
+  # `deepseek-v4-flash` is the first *lite* entry, so it's the normal/base auto
+  # default (OpenRouter, nitro; falls through to gpt-5.4-mini with no OpenRouter
+  # key). `gpt-oss-120b` is pinned as the complexity-classifier model in
+  # auto_model.py (resolved by id, not tier order), so its position here does not
+  # affect the base default. `gpt-5.5` stays the first entry overall → the no-tier
+  # fallback + complex/pro default.
+  - id: deepseek-v4-flash
+    label: DeepSeek V4 Flash
+    family: deepseek
+    tier: lite
+    routes:
+      - { via: openrouter, model: deepseek/deepseek-v4-flash:nitro }
+  - id: gpt-oss-120b
+    label: GPT-OSS 120B
+    family: openai
+    tier: lite
+    routes:
+      - { via: openrouter, model: openai/gpt-oss-120b }
+
   - id: gpt-5.4-mini
     label: GPT-5.4 Mini
     family: openai
@@ -126,19 +147,14 @@ llm:
     routes:
       - { via: openrouter, model: qwen/qwen3.6-plus:nitro }
 
-  # --- DeepSeek V4 (OpenRouter only) ---
+  # --- DeepSeek V4 (OpenRouter only). deepseek-v4-flash is the auto base, listed
+  #     up in the "Auto-routing base + classifier" block above. ---
   - id: deepseek-v4-pro
     label: DeepSeek V4 Pro
     family: deepseek
     tier: pro
     routes:
       - { via: openrouter, model: deepseek/deepseek-v4-pro:nitro }
-  - id: deepseek-v4-flash
-    label: DeepSeek V4 Flash
-    family: deepseek
-    tier: lite
-    routes:
-      - { via: openrouter, model: deepseek/deepseek-v4-flash:nitro }
 
   # --- Mistral (native preferred, OpenRouter fallback with :nitro) ---
   - id: mistral-large

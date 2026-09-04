@@ -241,6 +241,11 @@ def normalize_code(model: str) -> str | None:
     return None
 
 
+def resolved_by_id(model_id: str) -> Resolved | None:
+    """Return the reachable model with this canonical id, or None (unknown / no key)."""
+    return next((r for r in available_llms() if r.id == model_id), None)
+
+
 def default_resolved(tier: str | None = None) -> Resolved | None:
     """Best available model, optionally constrained to a tier (falls back to any)."""
     models = available_llms()
