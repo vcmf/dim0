@@ -15,7 +15,11 @@ from pydantic import BaseModel
 
 from topix.config import catalog
 
-AUTO_MODEL_TIMEOUT_SECONDS = 5
+# Cap on the classify call, which runs synchronously on the hot path before the
+# plan agent — so this is worst-case dead time. Kept tight since the classifier
+# rides the fast gpt-oss-120b:nitro route; a slow provider cold-start just falls
+# back to "medium".
+AUTO_MODEL_TIMEOUT_SECONDS = 3
 
 # Cheap/fast open model for the throwaway complexity classify — pinned so it stays
 # independent of the (possibly slower) base model. Falls back to the lite default
