@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button"
 import { applyIconUpdateToBoardContents } from "@/features/board/api/apply-icon-update-to-board-contents"
 import { applyTitleUpdateToBoardContents } from "@/features/board/api/apply-title-update-to-board-contents"
 import { useGetNote } from "@/features/board/api/get-note"
-import { useGetNotePath } from "@/features/board/api/get-note-path"
 import type { BoardContentItem } from "@/features/board/api/list-board-contents"
 import { useUpdateNote } from "@/features/board/api/update-note"
 import { SheetEditor } from "@/features/board/components/sheet/sheet-editor"
@@ -83,19 +82,12 @@ export const SheetPanel = memo(function SheetPanel({
     localData.graphUid ?? fetchedNote?.graphUid ?? activeBoardId ?? null
   const exists = isLocalNote || !!fetchedNote
 
-  const { data: restPath = [] } = useGetNotePath({
-    boardId: boardId ?? undefined,
-    noteId: nodeId,
-    // REST only for a synced note not materialized locally (mirror the useGetNote
-    // gate). A local sub-page's ancestor chain comes from the off-scene load
-    // below — the backend `/path` 404s on a local board.
-    enabled: !isLocalNote && off.ready && !!boardId,
-  })
-  // The stack "peek" ghost cards convey sub-page depth; the ancestor chain (and
-  // the breadcrumb path itself) now lives in the unified BoardBreadcrumb. Off-scene
-  // sub-pages resolve the chain locally; on-canvas top-level notes have none.
-  const notePath = off.node ? off.path : restPath
-  const ancestors = useMemo(() => notePath.slice(0, -1), [notePath])
+  // Depth for the decorative "peek" ghost cards. The full breadcrumb/path lives in
+  // the unified BoardBreadcrumb now, so this only needs the ancestor COUNT: for a
+  // local sub-page it's the off-scene chain length; a synced sub-page not in the
+  // replica just shows no stack (purely cosmetic) rather than paying a REST `/path`
+  // round-trip for a single integer.
+  const stackDepth = off.node ? Math.max(0, off.path.length - 1) : 0
 
   // Page provider — backs TipTap's /subpage slash command. List/get
   // hit the board API; create inserts a new sheet under this one;
@@ -312,7 +304,6 @@ export const SheetPanel = memo(function SheetPanel({
     )
   }
 
-  const stackDepth = Math.max(0, ancestors.length)
   const displayTitle = noteLabel?.trim() || "Untitled note"
 
   return (
