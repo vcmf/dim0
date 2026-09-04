@@ -8,8 +8,10 @@
 #
 # Adding a model = one entry here. No code change.
 #
-# OpenRouter routes use the `:nitro` throughput variant EXCEPT for OpenAI and
-# Anthropic models (single-provider on OpenRouter; nitro adds nothing there).
+# OpenRouter routes use the `:nitro` throughput variant EXCEPT for proprietary
+# OpenAI and Anthropic models (single-provider on OpenRouter; nitro adds nothing
+# there). Open-weight models keep :nitro even when the slug is vendor-branded
+# (e.g. `openai/gpt-oss-*`), since many providers serve them.
 
 providers:
   # LLM providers. `prefix` is prepended to the route's model string to form the
@@ -66,12 +68,15 @@ llm:
     tier: lite
     routes:
       - { via: openrouter, model: deepseek/deepseek-v4-flash:nitro }
+  # gpt-oss is OpenAI-branded but OPEN-WEIGHT and multi-provider on OpenRouter, so
+  # (unlike proprietary openai/* models) it keeps :nitro to route to the fastest
+  # provider — important for the latency-sensitive classifier.
   - id: gpt-oss-120b
     label: GPT-OSS 120B
     family: openai
     tier: lite
     routes:
-      - { via: openrouter, model: openai/gpt-oss-120b }
+      - { via: openrouter, model: openai/gpt-oss-120b:nitro }
 
   - id: gpt-5.4-mini
     label: GPT-5.4 Mini
