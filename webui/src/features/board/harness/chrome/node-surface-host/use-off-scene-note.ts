@@ -16,11 +16,11 @@ import type { Note } from "@/features/board/types/note"
 
 
 /**
- * The note's ancestor chain (root → note), the LOCAL analog of the backend
- * `useGetNotePath` — walk `parentId` up over the whole-board replica. Each entry
- * carries just what the sheet breadcrumb + stack need: id, kind (`style.type`),
- * label, and icon; the breadcrumb resolves live values via `useNode` on the id.
- * Cycle-safe.
+ * The note's ancestor chain (root → note) — walk `parentId` up over the
+ * whole-board replica (the local, offline-first analog of a backend note-path).
+ * Each entry carries just what the sheet stack + the breadcrumb need: id, kind
+ * (`style.type`), label, and icon; the breadcrumb resolves live values via
+ * `useNode` on the id. Cycle-safe.
  */
 type NoteChainData = {
   parentId?: string | null

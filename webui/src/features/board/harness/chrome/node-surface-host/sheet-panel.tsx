@@ -359,6 +359,10 @@ export const SheetPanel = memo(function SheetPanel({
                 onChange={(event) => setTitleDraft(event.target.value)}
                 onBlur={() => stopTitleEdit(true)}
                 onKeyDown={(event) => {
+                  // Keep typing (and Esc) inside the input: the surface host and
+                  // canvas listen on window — Esc would close the sheet and letter
+                  // keys would fire tool shortcuts.
+                  event.stopPropagation()
                   if (event.key === "Enter") {
                     event.preventDefault()
                     stopTitleEdit(true)
