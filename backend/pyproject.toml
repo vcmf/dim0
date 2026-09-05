@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "topix"
-version = "0.3.92"
+version = "0.3.93"
 description = "Learn - Note - Share with AI"
 readme = "README.md"
 requires-python = ">=3.13"

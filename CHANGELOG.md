@@ -1,3 +1,13 @@
+## v0.3.93 (2026-09-05)
+
+### Feat
+
+- **models**: route normal to DeepSeek V4 Flash, classifier to gpt-oss-120b (#272)
+
+### Fix
+
+- **board**: restore breadcrumb regressions from #267 (#273)
+
 ## v0.3.92 (2026-09-01)
 
 ### Feat
