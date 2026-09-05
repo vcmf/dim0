@@ -353,7 +353,7 @@ export const SheetPanel = memo(function SheetPanel({
         parentNoteId={nodeId}
         className="min-h-0 flex-1"
         bodyHeader={
-          <div className="mx-auto max-w-[720px] pb-8">
+          <div className="group mx-auto max-w-[720px] pb-8">
             <div className="mb-3 min-h-[40px]">
               <NoteIconControl
                 icon={currentIconValue}
