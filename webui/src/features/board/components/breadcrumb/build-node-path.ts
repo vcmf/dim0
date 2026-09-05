@@ -1,5 +1,6 @@
 import type { BoardContentItem, BoardContentKind } from "@/features/board/api/list-board-contents"
 import type { IconProperty } from "@/features/newsfeed/types/properties"
+import { parentChain } from "@/features/board/model/parent-chain"
 import { UNTITLED_LABEL } from "../../const"
 
 
@@ -22,22 +23,12 @@ export function buildNodePath(
   items: BoardContentItem[] | undefined,
   leafId: string | null,
 ): CrumbSegment[] {
-  if (!leafId || !items?.length) return []
-  const byId = new Map(items.map((item) => [item.id, item]))
-  const path: CrumbSegment[] = []
-  const seen = new Set<string>()
-  let current: string | null = leafId
-  while (current && !seen.has(current)) {
-    seen.add(current)
-    const item = byId.get(current)
-    if (!item) break
-    path.push({
+  return parentChain(items, leafId, (item) => item.id, (item) => item.parentId ?? null).map(
+    (item) => ({
       id: item.id,
       kind: item.kind,
       label: (item.label ?? "").trim() || UNTITLED_LABEL,
       icon: item.iconData ?? null,
-    })
-    current = item.parentId ?? null
-  }
-  return path.reverse()
+    }),
+  )
 }

@@ -8,6 +8,7 @@ import { getLocalStores } from "@/features/local-stores"
 import { BoardPersistence } from "@/features/board/persist/local/board-persistence"
 import { contentToScene, emptyContent } from "@/features/board/persist/local/codec"
 import { filterContentByLayer } from "@/features/board/model/layer"
+import { parentChain } from "@/features/board/model/parent-chain"
 import { getBoardPersistenceRef } from "@/features/board/persist/local/board-persistence-ref"
 import { getBoardSyncRef } from "@/features/board/harness/sync/board-sync-ref"
 import { affectsSurfaceTree } from "@/features/board/harness/canvas/use-sidebar-contents-sync"
@@ -15,31 +16,35 @@ import type { Note } from "@/features/board/types/note"
 
 
 /**
- * The note's ancestor chain (root → note), the LOCAL analog of the backend
- * `useGetNotePath` — walk `parentId` up over the whole-board replica. Each entry
- * carries just what the sheet breadcrumb + stack need: id, kind (`style.type`),
- * label, and icon; the breadcrumb resolves live values via `useNode` on the id.
- * Cycle-safe.
+ * The note's ancestor chain (root → note) — walk `parentId` up over the
+ * whole-board replica (the local, offline-first analog of a backend note-path).
+ * Each entry carries just what the sheet stack + the breadcrumb need: id, kind
+ * (`style.type`), label, and icon; the breadcrumb resolves live values via
+ * `useNode` on the id. Cycle-safe.
  */
+type NoteChainData = {
+  parentId?: string | null
+  styleType?: string
+  label?: Note["label"]
+  properties?: Note["properties"]
+}
+
+
 function buildNotePath(content: BoardContent, nodeId: string): Note[] {
-  const byId = new Map(content.nodes.map((n) => [n.id as unknown as string, n]))
-  const path: Note[] = []
-  const seen = new Set<string>()
-  let cur: string | null = nodeId
-  while (cur && !seen.has(cur)) {
-    seen.add(cur)
-    const node = byId.get(cur)
-    if (!node) break
-    const data = node.data as { parentId?: string | null; styleType?: string; label?: Note["label"]; properties?: Note["properties"] } | undefined
-    path.push({
-      id: cur,
+  return parentChain(
+    content.nodes,
+    nodeId,
+    (n) => n.id as unknown as string,
+    (n) => (n.data as NoteChainData | undefined)?.parentId ?? null,
+  ).map((node) => {
+    const data = node.data as NoteChainData | undefined
+    return {
+      id: node.id as unknown as string,
       style: { type: (data?.styleType ?? node.type) as Note["style"]["type"] },
       label: data?.label,
       properties: data?.properties ?? {},
-    } as Note)
-    cur = data?.parentId ?? null
-  }
-  return path.reverse()
+    } as Note
+  })
 }
 
 
