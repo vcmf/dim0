@@ -7,7 +7,7 @@ import abc
 from enum import IntEnum, StrEnum
 from typing import Annotated, Literal, Type
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from topix.agents.datatypes.annotations import SearchResult
 from topix.agents.datatypes.reasoning_step import ReasoningStep
@@ -35,6 +35,7 @@ class PropertyType(StrEnum):
     URL = "url"
     REASONING = "reasoning"
     MULTI_SOURCE = "multi_source"
+    INK = "ink"
 
 
 class Property(abc.ABC, BaseModel):
@@ -225,6 +226,20 @@ class MultiSourceProperty(Property):
     sources: list[SearchResult] = []
 
 
+class InkProperty(Property):
+    """Pressure-aware freehand samples and their precomputed render outline."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    type: Literal[PropertyType.INK] = PropertyType.INK
+    version: Literal[1] = 1
+    size: float
+    points: list[tuple[float, float, float]]
+    outline: list[tuple[float, float]]
+    intrinsic_width: float = Field(alias="intrinsicWidth")
+    intrinsic_height: float = Field(alias="intrinsicHeight")
+
+
 type DataProperty = Annotated[
     (
         NumberProperty
@@ -242,6 +257,7 @@ type DataProperty = Annotated[
         | PositionProperty
         | SizeProperty
         | ReasoningProperty
+        | InkProperty
     ),
     Field(discriminator="type")
 ]

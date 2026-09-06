@@ -1,6 +1,6 @@
 import { generateUuid, uuidToNumber } from "@/lib/common"
 import { createDefaultStyle, type NodeType, type Style } from "./style"
-import type { BooleanProperty, IconProperty, ImageProperty, NumberProperty, PositionProperty, SizeProperty, URLProperty, TextProperty, KeywordProperty } from "@/features/newsfeed/types/properties"
+import type { BooleanProperty, IconProperty, ImageProperty, InkProperty, NumberProperty, PositionProperty, SizeProperty, URLProperty, TextProperty, KeywordProperty } from "@/features/newsfeed/types/properties"
 
 
 /**
@@ -26,6 +26,7 @@ export interface NoteProperties {
   mimeType?: TextProperty
   status?: KeywordProperty
   summary?: TextProperty
+  inkData?: InkProperty
 }
 
 

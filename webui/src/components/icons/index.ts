@@ -55,6 +55,7 @@ export {
   DrawIcon,
   EditIcon,
   EditNoteIcon,
+  EraserIcon,
   EllipsisIcon,
   ExaBrandIcon,
   ExpandIcon,

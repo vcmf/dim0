@@ -2,6 +2,7 @@ import { codeSandboxDef } from "./code-sandbox"
 import { documentDef } from "./document"
 import { folderDef } from "./folder"
 import { miniAppDef } from "./mini-app"
+import { inkDef } from "./ink"
 import { sheetDef } from "./sheet"
 import { widgetDef } from "./widget"
 import type { BoardNodeTypeDef } from "../store/create-board-store"
@@ -18,6 +19,7 @@ export const boardNodeTypes: ReadonlyArray<BoardNodeTypeDef> = [
   miniAppDef,
   codeSandboxDef,
   sheetDef,
+  inkDef,
 ]
 
 
@@ -25,6 +27,7 @@ export { codeSandboxDef, CodeSandboxView } from "./code-sandbox"
 export { documentDef, DocumentView } from "./document"
 export { folderDef, FolderView } from "./folder"
 export { miniAppDef, MiniAppView } from "./mini-app"
+export { inkDef } from "./ink"
 export { sheetDef, SheetView } from "./sheet"
 export { widgetDef, WidgetView } from "./widget"
 export { useRenderCustomNodeView } from "./render-view"

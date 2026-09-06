@@ -48,6 +48,7 @@ _DIM0_TO_CANVAS_TYPE: dict[str, str] = {
     "code-sandbox": "code-sandbox",
     "widget": "widget",
     "mini-app": "mini-app",
+    "ink": "ink",
 }
 
 # Inverse map for the inbound persistence fallback (apply_ops.py). Auto-
@@ -63,7 +64,7 @@ _CANVAS_TO_DIM0_TYPE: dict[str, str] = {v: k for k, v in _DIM0_TO_CANVAS_TYPE.it
 # IMPORTANT: keep in sync with webui/.../convert/note-to-node.ts
 # (`AUTOFIT_DISABLED_TYPES`).
 _AUTOFIT_DISABLED_CANVAS_TYPES: frozenset[str] = frozenset({
-    "folder", "sheet", "code-sandbox", "widget", "mini-app", "document",
+    "folder", "sheet", "code-sandbox", "widget", "mini-app", "document", "ink",
 })
 
 

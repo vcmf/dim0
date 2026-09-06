@@ -10,6 +10,7 @@ from topix.datatypes.property import (
     DataProperty,
     IconProperty,
     ImageProperty,
+    InkProperty,
     NumberProperty,
     PositionProperty,
     SizeProperty,
@@ -71,6 +72,7 @@ class NoteProperties(ResourceProperties):
     programming_language: TextProperty = Field(
         default_factory=lambda: TextProperty(text="python")
     )
+    ink_data: InkProperty | None = None
 
 
 class Note(Resource):

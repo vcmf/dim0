@@ -83,6 +83,9 @@ export type BoardAppState = {
   // keyboard hook responds to V / H / F shortcuts. canvas-harness accepts any
   // string — built-ins use lib-defined names, customs can use their own.
   tool: string
+  /** Canonical freehand color and world-space base width. */
+  inkColor: string
+  inkSize: number
 
   /**
    * Which top-level surface is mounted. `"board"` is the canvas-harness
@@ -144,6 +147,8 @@ export type BoardAppActions = {
   setIsLoading: (loading: boolean) => void
 
   setTool: (tool: string) => void
+  setInkColor: (color: string) => void
+  setInkSize: (size: number) => void
 
   setViewMode: (mode: BoardAppState["viewMode"]) => void
   setViewSlides: (enabled: boolean) => void
@@ -176,6 +181,8 @@ const initialState: BoardAppState = {
   boardRole: null,
   isLoading: false,
   tool: "select",
+  inkColor: "#1f2937",
+  inkSize: 5,
   viewMode: "board",
   viewSlides: true,
   presentationMode: false,
@@ -228,6 +235,8 @@ export const useBoardAppStore = create<BoardAppState & BoardAppActions>((set, ge
   setIsLoading: (loading) => set({ isLoading: loading }),
 
   setTool: (tool) => set({ tool }),
+  setInkColor: (inkColor) => set({ inkColor }),
+  setInkSize: (inkSize) => set({ inkSize: Math.max(1, Math.min(32, inkSize)) }),
 
   setViewMode: (mode) => set({ viewMode: mode }),
   setViewSlides: (enabled) => set({ viewSlides: enabled }),

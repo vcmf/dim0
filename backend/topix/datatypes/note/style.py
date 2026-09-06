@@ -30,6 +30,7 @@ class NodeType(StrEnum):
     CODE_SANDBOX = "code-sandbox"
     WIDGET = "widget"
     MINI_APP = "mini-app"
+    INK = "ink"
 
 
 class StrokeStyle(StrEnum):
