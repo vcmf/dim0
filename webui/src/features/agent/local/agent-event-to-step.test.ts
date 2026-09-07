@@ -333,6 +333,18 @@ describe("stepsFromEvents", () => {
   })
 
 
+  it("renders arrange_notes as a readable 'Arranged N notes' step", () => {
+    const [step] = stepsFromEvents(
+      [
+        { type: "tool_start", toolName: "arrange_notes", args: {} },
+        { type: "tool_result", toolName: "arrange_notes", result: { arranged: 6 } },
+      ],
+      "b",
+    )
+    expect(step.type === "tool_call" && step.output).toBe("Arranged 6 notes")
+  })
+
+
   it("latestAssistantText ignores reasoning (answer body only)", () => {
     expect(
       latestAssistantText([

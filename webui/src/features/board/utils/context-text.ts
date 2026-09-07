@@ -6,7 +6,13 @@ type NoteLike = {
   // Canonical shape is RichText; a legacy local board may hold a bare string.
   label?: { markdown?: string } | string
   content?: { markdown?: string }
-  properties?: { summary?: { text?: string } }
+  properties?: {
+    summary?: { text?: string }
+    // Spatial info (from the Dim0 Note) — gives the agent where/how big the
+    // selected note is, so it can reason about layout.
+    nodePosition?: { position?: { x?: number; y?: number } }
+    nodeSize?: { size?: { width?: number; height?: number } }
+  }
   style?: { type?: string }
 }
 
@@ -41,10 +47,16 @@ const buildStructuredNoteBlock = (node: NoteNode) => {
   const noteId = trimOrEmpty(data?.id || node.id)
   const noteType = trimOrEmpty(data?.style?.type)
   const plainText = buildPlainNodeText(node)
+  const pos = data?.properties?.nodePosition?.position
+  const size = data?.properties?.nodeSize?.size
+  const hasPos = pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)
+  const hasSize = size && Number.isFinite(size.width) && Number.isFinite(size.height)
   const lines = [
     "<SelectedNote>",
     noteId ? `NoteId: ${noteId}` : "",
     noteType ? `NoteType: ${noteType}` : "",
+    hasPos ? `Pos: (${Math.round(pos!.x!)}, ${Math.round(pos!.y!)})` : "",
+    hasSize ? `Size: ${Math.round(size!.width!)}x${Math.round(size!.height!)}` : "",
   ]
 
   if (plainText.startsWith("Title: ")) {

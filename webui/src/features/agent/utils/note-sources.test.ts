@@ -4,6 +4,9 @@ import type { NoteRef } from "../types/tool-outputs"
 import { extractNoteSources } from "./note-sources"
 
 
+// The step name is "memory_search" (not "search_notes"): toToolName remaps the
+// engine's search_notes tool to that canonical ToolName before it reaches the
+// steps extractNoteSources reads, so this fixture matches the real pipeline.
 const noteSearchStep = (refs: NoteRef[]): ReasoningStep =>
   ({ type: "tool_call", id: `t-${refs[0]?.noteId ?? "x"}`, name: "memory_search", thought: "", state: "completed", eventMessages: [], output: { type: "note_search", references: refs } }) as ReasoningStep
 

@@ -100,8 +100,9 @@ def test_nitro_only_on_non_openai_anthropic_routes(clean_keys):
     # OpenAI + Anthropic via OpenRouter: no :nitro.
     assert ":nitro" not in by_id["gpt-5.4"].call
     assert ":nitro" not in by_id["claude-opus-4.8"].call
-    # Everyone else via OpenRouter: :nitro.
-    for mid in ("glm-5.2", "gemma-4-31b", "qwen3.6-plus", "deepseek-v4-pro", "kimi-k2.6", "minimax-m2.7"):
+    # Everyone else via OpenRouter: :nitro — including gpt-oss (open-weight,
+    # multi-provider) despite its vendor-branded openai/ slug.
+    for mid in ("glm-5.2", "gemma-4-31b", "qwen3.6-plus", "deepseek-v4-pro", "kimi-k2.6", "minimax-m2.7", "gpt-oss-120b"):
         assert by_id[mid].call.endswith(":nitro"), mid
 
 
@@ -138,6 +139,23 @@ def test_default_model_code_by_tier(clean_keys):
     smart_resolved = catalog.default_resolved("pro")
     assert fast_resolved.tier == "lite"
     assert smart_resolved.tier == "pro"
+
+
+def test_resolved_by_id(clean_keys):
+    """resolved_by_id returns the reachable model for an id, else None."""
+    clean_keys.setenv("OPENROUTER_API_KEY", "or-x")
+    r = catalog.resolved_by_id("gpt-oss-120b")
+    assert r is not None
+    assert r.id == "gpt-oss-120b"
+    assert r.call == "openrouter/openai/gpt-oss-120b:nitro"
+    # Unknown id → None.
+    assert catalog.resolved_by_id("no-such-model") is None
+
+
+def test_resolved_by_id_unreachable_is_none(clean_keys):
+    """An OpenRouter-only model is None when only the OpenAI key is present."""
+    clean_keys.setenv("OPENAI_API_KEY", "sk-x")
+    assert catalog.resolved_by_id("gpt-oss-120b") is None
 
 
 @pytest.mark.parametrize(

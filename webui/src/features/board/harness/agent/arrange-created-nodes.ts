@@ -2,7 +2,7 @@ import { asNodeId, type CanvasStore, type Edge } from "@canvas-harness/core"
 import type { LinkEdge, NoteNode } from "@/features/board/types/flow"
 import { autoLayout } from "@/features/board/lib/graph/auto-layout"
 import { defaultLayoutOptions, type Direction } from "@/features/board/lib/graph/settings"
-import { NOTE_TAIL_GAP } from "./beneath-border"
+import { offsetToOrigin, originBeneath } from "./beneath-border"
 
 
 type XY = { x: number; y: number }
@@ -171,6 +171,43 @@ const layoutBidirectional = async (
 
 
 /**
+ * Lay out a subset of nodes (mindmap-first, Dagre-LR fallback), returning
+ * top-left positions keyed by id. Empty map for < 2 present nodes. Edges are the
+ * links whose BOTH ends are in the set. Shared by the create-arrange and the
+ * on-demand `arrange` tool.
+ */
+const layoutNodes = async (store: CanvasStore, ids: string[]): Promise<Map<string, XY>> => {
+  const present = ids.filter((id) => store.getNode(asNodeId(id)))
+  if (present.length < 2) return new Map()
+  const idSet = new Set(present)
+  const sizeOf: SizeOf = (id) => {
+    const n = store.getNode(asNodeId(id))
+    return n ? { w: n.w, h: n.h } : { w: 0, h: 0 }
+  }
+  const edges: SimpleEdge[] = []
+  for (const e of store.getAllEdges()) {
+    const s = endNodeId(e.source)
+    const t = endNodeId(e.target)
+    if (s && t && idSet.has(s) && idSet.has(t)) edges.push({ source: s, target: t })
+  }
+  return (await layoutBidirectional(present, edges, sizeOf)) ?? (await runDagre(present, edges, sizeOf, "LR"))
+}
+
+
+/** Center of the union AABB of the given boxes (top-left + size). */
+const bboxCenter = (boxes: ReadonlyArray<{ x: number; y: number; w: number; h: number }>): XY => {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  for (const b of boxes) {
+    if (b.x < minX) minX = b.x
+    if (b.y < minY) minY = b.y
+    if (b.x + b.w > maxX) maxX = b.x + b.w
+    if (b.y + b.h > maxY) maxY = b.y + b.h
+  }
+  return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }
+}
+
+
+/**
  * Arrange the nodes an agent turn just created — the frontend analog of the
  * backend's post-turn `rearrange_created_notes`. Without this, every
  * `write_note` lands at (0,0) and a mindmap collapses to a single point.
@@ -181,38 +218,47 @@ const layoutBidirectional = async (
  * turn (as the system prompt promises). Single-node turns are left untouched.
  */
 export const arrangeCreatedNodes = async (store: CanvasStore, createdIds: string[]): Promise<void> => {
-  const ids = new Set(createdIds)
-  const present = createdIds.filter((id) => store.getNode(asNodeId(id)))
-  if (present.length < 2) return
-
-  const sizeOf: SizeOf = (id) => {
-    const n = store.getNode(asNodeId(id))
-    return n ? { w: n.w, h: n.h } : { w: 0, h: 0 }
-  }
-
-  const edges: SimpleEdge[] = []
-  for (const e of store.getAllEdges()) {
-    const s = endNodeId(e.source)
-    const t = endNodeId(e.target)
-    if (s && t && ids.has(s) && ids.has(t)) edges.push({ source: s, target: t })
-  }
-
-  const positions =
-    (await layoutBidirectional(present, edges, sizeOf)) ?? (await runDagre(present, edges, sizeOf, "LR"))
+  const positions = await layoutNodes(store, createdIds)
   if (positions.size === 0) return
 
-  // Translate the laid-out cluster below existing (non-created) content.
+  // Translate the laid-out cluster below existing (non-created) content — the
+  // same placement rule the mindmap-apply drain uses (originBeneath).
+  const ids = new Set(createdIds)
   const others = store.getAllNodes().filter((n) => !ids.has(String(n.id)))
-  const originX = others.length ? Math.min(...others.map((n) => n.x)) : 0
-  const originY = others.length ? Math.max(...others.map((n) => n.y + n.h)) + NOTE_TAIL_GAP : 0
-  const xs = [...positions.values()].map((p) => p.x)
-  const ys = [...positions.values()].map((p) => p.y)
-  const dx = originX - Math.min(...xs)
-  const dy = originY - Math.min(...ys)
+  const { x: dx, y: dy } = offsetToOrigin([...positions.values()], originBeneath(others))
 
   store.batch(() => {
     for (const [id, p] of positions) {
       store.updateNode(asNodeId(id), { x: p.x + dx, y: p.y + dy })
     }
   })
+}
+
+
+/**
+ * On-demand tidy of EXISTING nodes (the `arrange` tool): re-lays-out `ids` and
+ * keeps the tidied cluster centered where it currently sits — it reorganizes in
+ * place rather than relocating the cluster beneath other content. Returns how
+ * many nodes were moved (0 for < 2 present). Same layout engine as create-arrange.
+ */
+export const arrangeNodesInPlace = async (store: CanvasStore, ids: string[]): Promise<number> => {
+  const positions = await layoutNodes(store, ids)
+  if (positions.size === 0) return 0
+
+  // Re-read nodes after the await; drop any removed concurrently (sync/user delete)
+  // so the write-back can't throw on a missing node.
+  const laid = [...positions.entries()].flatMap(([id, p]) => {
+    const n = store.getNode(asNodeId(id))
+    return n ? [{ id, x: p.x, y: p.y, w: n.w, h: n.h, curX: n.x, curY: n.y }] : []
+  })
+  if (laid.length === 0) return 0
+  const laidCenter = bboxCenter(laid)
+  const curCenter = bboxCenter(laid.map((n) => ({ x: n.curX, y: n.curY, w: n.w, h: n.h })))
+  const dx = curCenter.x - laidCenter.x
+  const dy = curCenter.y - laidCenter.y
+
+  store.batch(() => {
+    for (const n of laid) store.updateNode(asNodeId(n.id), { x: n.x + dx, y: n.y + dy })
+  })
+  return laid.length
 }

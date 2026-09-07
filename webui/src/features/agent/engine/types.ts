@@ -10,6 +10,7 @@ import { z } from "zod"
 import type { CanvasStore, Node } from "@canvas-harness/core"
 import type { BoardRegistry } from "@/features/board/persist/local/board-registry"
 import type { MemoryRepo } from "@/features/board/persist/local/memory-repo"
+import type { BoardMutator, HeadlessMutator } from "./board-mutator"
 import type { LocalSearchIndex } from "@/features/board/search/local-index"
 
 
@@ -82,12 +83,27 @@ export interface LlmClient {
 export type ToolContext = {
   store: CanvasStore
   /**
-   * Current folder layer new notes/links belong to (null = root). Tools stamp
-   * it as `parentId` AT CREATION — the local analog of the backend passing
-   * `root_id` to `build_note`, so a note is born in the right sub-board rather
-   * than relying on a post-hoc rescope.
+   * Content-level write port (S1). Tools write through this, not `store`
+   * directly, so the runtime is decoupled from the collab op pipeline. Defaults
+   * (via `mutatorFor`) to a `StoreMutator` over `store`+`rootId` when absent.
+   */
+  board?: BoardMutator
+  /**
+   * The agent's **working folder** (null = root) — the layer new notes/links
+   * belong to, stamped as `parentId` AT CREATION. Starts at the user's layer but
+   * is MUTABLE mid-turn: the `navigate` tool sets it (like `cd`), decoupled from
+   * the on-screen layer. When it differs from `sceneRootId`, writes route through
+   * a headless off-scene mutator (see board-mutator.ts) so the user's view never
+   * moves.
    */
   rootId?: string | null
+  /**
+   * The layer the visible `store` is projecting (the user's on-screen view) —
+   * fixed for the turn. `mutatorFor` compares it to the working folder (`rootId`)
+   * to decide store (visible, renders) vs headless (off-scene) writes. Defaults
+   * to `rootId` when the runtime doesn't distinguish them (tests / lean ctx).
+   */
+  sceneRootId?: string | null
   /** The board this run acts on — memory tools bind board-scoped writes to it. */
   boardId?: string
   search?: LocalSearchIndex
@@ -98,6 +114,19 @@ export type ToolContext = {
    * `store` for the freshest current-layer edits.
    */
   boardNotes?: ReadonlyMap<string, Node>
+  /**
+   * Nodes CREATED THIS TURN (id → parentId + type), so folder-depth, `navigate`
+   * parent resolution, and cross-folder existence checks see folders/notes the
+   * agent just made — which the pre-turn `boardNotes` snapshot can't. The tools
+   * record into it on every create; absent in lean ctx / tests.
+   */
+  liveNodes?: Map<string, { parentId: string | null; type: string }>
+  /**
+   * Per-layer off-scene write sessions, cached for the turn so re-navigating a
+   * folder reuses its seeded store instead of re-reading the whole board each hop.
+   * Owned by `navigate`; disposed at turn end. Absent in lean ctx / tests.
+   */
+  sessions?: Map<string, HeadlessMutator>
   registry?: BoardRegistry
   /** Durable agent memory (board + global facts); absent in tests/headless. */
   memory?: MemoryRepo

@@ -1,18 +1,21 @@
 import { afterEach, describe, expect, it } from "vitest"
-import { asNodeId } from "@canvas-harness/core"
+import { asNodeId, type OpBatch } from "@canvas-harness/core"
 import { addEdge, freshStore, resetIdb } from "@/test/canvas"
 import type { DimNode } from "@/features/board/model"
 import { getLocalStores } from "@/features/local-stores"
 import { BoardPersistence } from "@/features/board/persist/local/board-persistence"
 import { InMemoryEngine } from "@/features/board/persist/local/in-memory-engine"
 import { setBoardPersistenceRef } from "@/features/board/persist/local/board-persistence-ref"
+import { setBoardSyncRef } from "@/features/board/harness/sync/board-sync-ref"
+import type { BoardSyncHandle } from "@/features/board/harness/sync/board-sync"
 import { useBoardAppStore } from "@/features/board/harness/store/board-app-store"
 import { collectSubtreeIds, removeNodeSubtree, removeNodesSubtreeAsync } from "./subtree"
 
 
 afterEach(() => {
-  // The persistence ref is a module singleton — isolate tests.
+  // The refs are module singletons — isolate tests.
   setBoardPersistenceRef(null)
+  setBoardSyncRef(null)
   useBoardAppStore.setState({ boardId: null })
 })
 
@@ -190,5 +193,40 @@ describe("removeNodeSubtree", () => {
     expect(live.getAllNodes().map((n) => n.id).sort()).toEqual(["s"])
     // Whole board: the deeper descendants were swept from the oplog too.
     expect((await persistence.load()).nodes.map((n) => n.id).sort()).toEqual(["s"])
+  })
+
+
+  it("routes the deep-layer sweep through the sync intake (scene:false) on a synced board", async () => {
+    const engine = new InMemoryEngine()
+    const persistence = new BoardPersistence("b", { engine })
+
+    // Seed the whole board: F at root, a deeper child c1 (an unloaded layer).
+    const full = freshStore("seed")
+    const unsub = persistence.attach(full)
+    addChild(full, "F")
+    addChild(full, "c1", "F")
+    await persistence.flush()
+    unsub()
+
+    const live = freshStore("live")
+    addChild(live, "F") // only the folder is loaded at the parent layer
+    persistence.attach(live)
+    setBoardPersistenceRef(persistence)
+
+    // Spy sync ref: capture how the deep-layer batch enters the coordinator.
+    const submitted: { batch: { ops: { type: string }[] }; scene?: boolean }[] = []
+    setBoardSyncRef({
+      submitLocalBatch: (batch: OpBatch, opts?: { scene?: boolean }) =>
+        submitted.push({ batch: batch as unknown as { ops: { type: string }[] }, scene: opts?.scene }),
+    } as unknown as BoardSyncHandle)
+
+    await removeNodesSubtreeAsync(live, [asNodeId("F")])
+
+    // The deep sweep entered submitLocalBatch exactly once, off-scene (not
+    // rebase-tracked), carrying the deeper node's removal — so a synced board
+    // pumps it to the relay instead of leaving it to ship opportunistically.
+    expect(submitted).toHaveLength(1)
+    expect(submitted[0].scene).toBe(false)
+    expect(submitted[0].batch.ops.some((op) => op.type === "node.remove")).toBe(true)
   })
 })

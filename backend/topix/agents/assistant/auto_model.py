@@ -15,7 +15,16 @@ from pydantic import BaseModel
 
 from topix.config import catalog
 
-AUTO_MODEL_TIMEOUT_SECONDS = 2
+# Cap on the classify call, which runs synchronously on the hot path before the
+# plan agent — so this is worst-case dead time. Kept tight since the classifier
+# rides the fast gpt-oss-120b:nitro route; a slow provider cold-start just falls
+# back to "medium".
+AUTO_MODEL_TIMEOUT_SECONDS = 3
+
+# Cheap/fast open model for the throwaway complexity classify — pinned so it stays
+# independent of the (possibly slower) base model. Falls back to the lite default
+# when unavailable (e.g. no OpenRouter key).
+CLASSIFIER_MODEL_ID = "gpt-oss-120b"
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +187,11 @@ async def classify_auto_model_complexity(messages: list[dict[str, str]]) -> Comp
     native Anthropic/Gemini/Mistral/DeepSeek key), not just OpenAI-compatible ones.
     """
     started_at = time.perf_counter()
-    fast = catalog.default_resolved("lite") or catalog.default_resolved()
+    fast = (
+        catalog.resolved_by_id(CLASSIFIER_MODEL_ID)
+        or catalog.default_resolved("lite")
+        or catalog.default_resolved()
+    )
     if fast is None:
         logger.info("Auto model classifier skipped (no model available)")
         return "medium"

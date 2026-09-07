@@ -7,6 +7,7 @@ import type { Link } from "@/features/board/types/link"
 import type { Note } from "@/features/board/types/note"
 import { linkToEdge } from "../convert/link-to-edge"
 import { noteToNode } from "../convert/note-to-node"
+import { NOTE_TAIL_GAP, offsetToOrigin, originBeneath } from "./beneath-border"
 
 
 /**
@@ -29,11 +30,16 @@ export const useHarnessApplyMindMap = (
   store: CanvasStore,
   boardId: string | null,
   rootId: string | null,
+  ready: boolean,
 ): void => {
   const drainingRef = useRef(false)
 
   useEffect(() => {
-    if (!boardId) return
+    // Wait for hydration: draining into an empty (not-yet-loaded) store would
+    // place the cluster at {0,0} (originBeneath of nothing) and then be overlapped
+    // by the existing nodes that hydrate a moment later. When `ready` flips true
+    // this effect re-runs and drains anything staged in the meantime.
+    if (!boardId || !ready) return
 
     const drain = (): void => {
       if (drainingRef.current) return
@@ -44,9 +50,23 @@ export const useHarnessApplyMindMap = (
       drainingRef.current = true
       try {
         const ops: Op[] = []
+        // Place each staged cluster beneath existing board content (and beneath
+        // any cluster already placed in this drain), left-aligned — the same
+        // rule write_note + arrangeCreatedNodes follow. autoLayout anchors the
+        // staged nodes near the origin with no knowledge of what's on the board,
+        // so without this translate they land on top of existing nodes.
+        const start = originBeneath(store.getAllNodes())
+        const originX = start.x
+        let frontierY = start.y
         for (const mindmap of pending) {
           const { nodes, edges } = mindmap
-          const harnessNodes = convertStagedNodes(nodes, rootId, boardId)
+          const staged = convertStagedNodes(nodes, rootId, boardId)
+          const shift = offsetToOrigin(staged, { x: originX, y: frontierY })
+          const harnessNodes = staged.map((n) => ({ ...n, x: n.x + shift.x, y: n.y + shift.y }))
+          if (harnessNodes.length > 0) {
+            // Next cluster stacks below this one.
+            frontierY = Math.max(...harnessNodes.map((n) => n.y + n.h)) + NOTE_TAIL_GAP
+          }
           const nodeMap = new Map(
             harnessNodes.map((n) => [n.id as unknown as string, n]),
           )
@@ -77,7 +97,7 @@ export const useHarnessApplyMindMap = (
       const b = next.mindmaps.get(boardId)?.length ?? 0
       if (b > a) drain()
     })
-  }, [store, boardId, rootId])
+  }, [store, boardId, rootId, ready])
 }
 
 

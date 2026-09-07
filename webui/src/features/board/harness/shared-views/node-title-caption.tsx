@@ -119,13 +119,13 @@ export const NodeTitleCaption = memo(function NodeTitleCaption({
         },
       })
       // The list view reads this node live from the store (updated above);
-      // the sidebar reads the ["boardContents", boardId] cache, so patch it
+      // the sidebar reads the ["localBoardContents", boardId] cache, so patch it
       // optimistically too — otherwise a canvas rename leaves the sidebar
       // stale until a refetch. Mirror of the icon path.
       const boardId = (prevData.graphUid as string | undefined) ?? undefined
       if (boardId) {
         queryClient.setQueriesData<BoardContentItem[]>(
-          { queryKey: ["boardContents", boardId] },
+          { queryKey: ["localBoardContents", boardId] },
           (old) =>
             applyTitleUpdateToBoardContents(old, nodeId as unknown as string, next || null),
         )

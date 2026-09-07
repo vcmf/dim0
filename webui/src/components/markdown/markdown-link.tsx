@@ -8,6 +8,10 @@ const boardLinkRe = /^\/boards\/([^/]+)\/([^/]+)\/([^/]+)$/
 const PAGE_HREF_PREFIX = "page://"
 const DOC_HREF_PREFIX = "#doc-"
 
+// Dispatched on a Sources card when a linkified title targets it, so a
+// React-controlled card (no DOM `open` attribute) can reveal its passages.
+export const REVEAL_SOURCE_EVENT = "reveal-source"
+
 // Schemes we allow on a rendered <a href>. Everything else (javascript:,
 // data:, vbscript:, blob:, file:, …) is treated as unsafe and neutralized.
 // page:// and #doc- are handled by dedicated branches before this gate.
@@ -79,7 +83,10 @@ export function MarkdownLink({ children, href, ...rest }: MarkdownLinkProps) {
       event.preventDefault()
       const el = document.getElementById(href.slice(1)) // "#doc-x" → "doc-x"
       if (!el) return
+      // The card is React-controlled: ask it to open its passages via an event
+      // (legacy <details> cards still honor the DOM `open` attribute).
       if (el instanceof HTMLDetailsElement) el.open = true
+      else el.dispatchEvent(new CustomEvent(REVEAL_SOURCE_EVENT))
       el.scrollIntoView({ behavior: "smooth", block: "start" })
     }
     return (

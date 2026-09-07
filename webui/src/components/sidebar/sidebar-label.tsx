@@ -11,10 +11,11 @@ import { NewChatUrl, SheetUrl } from "@/routes"
 import { ContextBoard } from "@/features/agent/components/context-board"
 import { UNTITLED_LABEL } from "@/features/board/const"
 import { useBoardAppStore } from "@/features/board/harness/store/board-app-store"
+import { BoardBreadcrumb } from "@/features/board/components/breadcrumb/board-breadcrumb"
+import { isTauri } from "@/platform"
 import { useHarnessNodeExternal } from "@/features/board/harness/store/use-harness-node-external"
 import { useGetNote } from "@/features/board/api/get-note"
 import { useUpdateNote } from "@/features/board/api/update-note"
-import { FolderBreadcrumb } from "@/features/board/components/folder-breadcrumb"
 import { useAppStore } from "@/store"
 import type { NoteNodeData } from "@/features/board/harness/convert/note-to-node"
 
@@ -32,11 +33,6 @@ export const SidebarLabel = ({ mobileContextOnly = false }: { mobileContextOnly?
   const chatId  = chatParams?.id
   const boardId = boardParams?.id
   const localBoardId = localBoardParams?.boardId
-  const boardRootId = useSearch({
-    from: "/boards/$id",
-    select: (s: { root_id?: string }) => s.root_id,
-    shouldThrow: false,
-  })
   const sheetBoardId = sheetParams?.id
   const sheetNoteId = sheetParams?.noteId
   const subscriptionId = subscriptionParams?.id
@@ -81,7 +77,6 @@ export const SidebarLabel = ({ mobileContextOnly = false }: { mobileContextOnly?
   const { data: subscriptionList } = useListSubscriptions()
   const { updateBoard } = useUpdateBoard()
   const { updateChat }  = useUpdateChat()
-  const boardCanEdit = useBoardAppStore(state => state.canEdit)
   const boardLabel = useBoardAppStore(state => state.boardLabel)
   const setBoardLabel = useBoardAppStore(state => state.setBoardLabel)
   // Sheet title is read from the live harness store via a module-level
@@ -257,51 +252,13 @@ export const SidebarLabel = ({ mobileContextOnly = false }: { mobileContextOnly?
     )
   }
 
-  // BOARD
-  if (active.view === "board" && active.id) {
-    if (boardRootId) {
-      return (
-        <div className={`${wrapClass} flex-1 min-w-0`}>
-          <FolderBreadcrumb
-            boardId={active.id}
-            rootId={boardRootId}
-            inline
-            boardLabel={label || UNTITLED_LABEL}
-          />
-        </div>
-      )
-    }
-
-    return (
-      <div className={`${wrapClass} flex-1 min-w-0`}>
-        {boardCanEdit ? (
-          <LabelEditor
-            key={`board:${active.id}`}
-            initialLabel={label}
-            onSave={handleSaveEdit}
-            className='min-w-0'
-          />
-        ) : (
-          <span className='flex-1 min-w-0 truncate sm:max-w-[24rem] max-w-[12.5rem]' title={label.trim() || UNTITLED_LABEL}>
-            {label.trim() || UNTITLED_LABEL}
-          </span>
-        )}
-      </div>
-    )
-  }
-
-  // LOCAL BOARD — always editable (it's this device's own board; name is `title`)
-  if (active.view === "local-board" && active.id) {
-    return (
-      <div className={`${wrapClass} flex-1 min-w-0`}>
-        <LabelEditor
-          key={`local-board:${active.id}`}
-          initialLabel={label}
-          onSave={handleSaveEdit}
-          className='min-w-0'
-        />
-      </div>
-    )
+  // BOARD + LOCAL BOARD: the unified BoardBreadcrumb is the board title + folder
+  // path + rename. Desktop renders it here, in the reserved title bar next to the
+  // app icon (the backdrop never covers that row). Web returns null and lets the
+  // canvas overlay own it, since this absolute header IS covered by the sheet
+  // backdrop.
+  if (active.view === "board" || active.view === "local-board") {
+    return isTauri() ? <BoardBreadcrumb local={active.view === "local-board"} /> : null
   }
 
   // SHEET (full view)

@@ -67,7 +67,12 @@ def test_nitro_only_on_non_openai_anthropic_openrouter_routes():
         for r in m.routes:
             if r.via != "openrouter":
                 continue
-            single_provider = r.model.startswith(("openai/", "anthropic/"))
+            # Proprietary OpenAI/Anthropic models are single-provider on OpenRouter
+            # (no nitro). Open-weight models are multi-provider even when the slug
+            # is vendor-branded (e.g. openai/gpt-oss-*), so they keep nitro.
+            single_provider = (
+                r.model.startswith(("openai/", "anthropic/")) and "gpt-oss" not in r.model
+            )
             has_nitro = r.model.endswith(":nitro")
             if single_provider and has_nitro:
                 violations.append(("unexpected :nitro", m.id, r.model))

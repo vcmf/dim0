@@ -123,6 +123,10 @@ const toOutput = (name: string, args: unknown, result: unknown, boardId: string)
       .filter((r) => r.noteId !== "")
     return { type: "note_search", references }
   }
+  if (name === "arrange_notes") {
+    const n = field(result, "arranged")
+    return `Arranged ${typeof n === "number" ? n : 0} notes`
+  }
   if (name.startsWith("learn_generate")) {
     return `Loaded ${name.replace("learn_generate_", "").replace(/_/g, " ")} guidance`
   }

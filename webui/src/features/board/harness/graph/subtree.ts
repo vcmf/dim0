@@ -7,7 +7,9 @@
  *      store, in one batch (so a single undo restores them, edges included).
  *   2. Deeper layers — a folder's children live in a deeper layer that isn't in
  *      the store. Sweep them from the WHOLE board via persistence (the oplog
- *      covers every layer), recording their removal so they don't orphan.
+ *      covers every layer), recording their removal so they don't orphan, then
+ *      enter the sync intake (`submitLocalBatch`, off-scene) so a synced board
+ *      pumps them to the relay promptly instead of only on the next edit.
  *
  * On backend boards there's no local persistence ref, so only step 1 runs and the
  * server performs its own cascade (unchanged behaviour).
@@ -16,6 +18,7 @@ import type { CanvasStore, NodeId, Op } from "@canvas-harness/core"
 import type { OpBatch } from "@canvas-harness/core"
 import type { DimNode } from "@/features/board/model"
 import { getBoardPersistenceRef } from "@/features/board/persist/local/board-persistence-ref"
+import { getBoardSyncRef } from "@/features/board/harness/sync/board-sync-ref"
 import { makeBatch } from "@/features/board/harness/make-batch"
 import { isDurableDelete } from "@/features/board/harness/node-types/durable-delete"
 import { cascadeRemovedDocs } from "@/features/board/harness/agent/use-doc-node-cascade"
@@ -96,8 +99,16 @@ const sweepDeepDescendants = async (
       ...removeEdges.map((edge) => ({ type: "edge.remove", edge }) as Op),
       ...removeNodes.map((node) => ({ type: "node.remove", node }) as Op),
     ]
-    persistence.record(makeBatch(store, origin, ops))
+    const batch = makeBatch(store, origin, ops)
+    persistence.record(batch)
     await persistence.flush()
+    // On a synced board, enter the sync-correct intake so the batch pumps to the
+    // relay promptly (and is serverSeq-stamped on ack) instead of shipping only
+    // opportunistically on the next unrelated edit. `scene: false` — these ops
+    // target unloaded layers, so they must NOT join the in-scene rebase set. On a
+    // local board there's no sync ref (null) and the oplog record alone is
+    // sync-correct (no outbox to desync).
+    getBoardSyncRef()?.submitLocalBatch(batch, { scene: false })
     return removeNodes.filter((n) => n.type === "document").map((n) => String(n.id))
   } catch (err) {
     console.warn("[harness] deep subtree cascade failed", err)

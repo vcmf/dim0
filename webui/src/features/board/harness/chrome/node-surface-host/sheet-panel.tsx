@@ -1,6 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
 import { useCanvasStore, useNode } from "@canvas-harness/react"
 import type { NodeId } from "@canvas-harness/core"
 import { CancelPlainIcon, DownloadIcon } from "@/components/icons"
@@ -9,20 +8,16 @@ import { Button } from "@/components/ui/button"
 import { applyIconUpdateToBoardContents } from "@/features/board/api/apply-icon-update-to-board-contents"
 import { applyTitleUpdateToBoardContents } from "@/features/board/api/apply-title-update-to-board-contents"
 import { useGetNote } from "@/features/board/api/get-note"
-import { useGetNotePath } from "@/features/board/api/get-note-path"
 import type { BoardContentItem } from "@/features/board/api/list-board-contents"
 import { useUpdateNote } from "@/features/board/api/update-note"
 import { SheetEditor } from "@/features/board/components/sheet/sheet-editor"
-import {
-  SheetBreadcrumb,
-  type BreadcrumbSegmentKind,
-} from "@/features/board/components/sheet/sheet-breadcrumb"
 import { SheetStackBackground } from "@/features/board/components/sheet/sheet-stack-background"
 import { createBoardPageProvider } from "@/features/board/providers/board-page-provider"
 import type { Note, NoteProperties } from "@/features/board/types/note"
 import type { IconProperty } from "@/features/newsfeed/types/properties"
 import type { NoteNodeData } from "../../convert/note-to-node"
 import { useBoardAppStore } from "../../store/board-app-store"
+import { useOffSceneNote } from "./use-off-scene-note"
 
 
 export type SheetPanelProps = {
@@ -46,22 +41,34 @@ export const SheetPanel = memo(function SheetPanel({
   nodeId,
   onClose,
 }: SheetPanelProps) {
-  const store = useCanvasStore()
-  const navigate = useNavigate()
+  const liveStore = useCanvasStore()
   const queryClient = useQueryClient()
-  const localNode = useNode(nodeId as NodeId)
-  const localData = (localNode?.data ?? {}) as Partial<NoteNodeData>
+  const liveNode = useNode(nodeId as NodeId)
   const activeBoardId = useBoardAppStore((s) => s.boardId)
   const openNodeSurface = useBoardAppStore((s) => s.openNodeSurface)
+  const setActiveSurfaceRename = useBoardAppStore((s) => s.setActiveSurfaceRename)
+  const setActiveSurfaceLabel = useBoardAppStore((s) => s.setActiveSurfaceLabel)
 
+  // A sub-page lives in a layer that isn't on the canvas, so it's absent from the
+  // live store. Load it OFF-SCENE from the local replica — read + sync-correct
+  // edit — instead of the REST path, which 404s for a local (unsynced) board.
+  const off = useOffSceneNote(liveStore, activeBoardId ?? null, nodeId, !liveNode)
+  const localNode = liveNode ?? off.node
+  // The store that actually holds the note: the live canvas store for an on-canvas
+  // sheet, else the off-scene store (whose edits sync via its own change wiring).
+  const store = liveNode ? liveStore : off.store ?? liveStore
+  const localData = (localNode?.data ?? {}) as Partial<NoteNodeData>
   const isLocalNote = !!localNode
+  // While the off-scene load is in flight we don't yet know if the note exists —
+  // don't flash "no longer exists".
+  const offSceneLoading = !liveNode && !!activeBoardId && !off.ready
 
-  // REST fallback for sheets not present on the current canvas scope
-  // (sub-pages reached via the editor's `/subpage` slash command).
+  // REST fallback ONLY for a synced note not yet materialized locally: the
+  // off-scene load has settled (`off.ready`) without finding it in the replica.
   const { data: fetchedNote, isLoading: isFetchingNote } = useGetNote({
     boardId: activeBoardId ?? undefined,
     noteId: nodeId,
-    enabled: !isLocalNote && !!activeBoardId,
+    enabled: !isLocalNote && off.ready && !!activeBoardId,
   })
 
   // Resolved view of the note — prefer local store, fall back to fetch.
@@ -75,33 +82,12 @@ export const SheetPanel = memo(function SheetPanel({
     localData.graphUid ?? fetchedNote?.graphUid ?? activeBoardId ?? null
   const exists = isLocalNote || !!fetchedNote
 
-  const { data: notePath = [] } = useGetNotePath({
-    boardId: boardId ?? undefined,
-    noteId: nodeId,
-    // Mirror the useGetNote gate above: a local note's path is resolved from the
-    // store/local breadcrumb, never the backend (which 401s logged-out).
-    enabled: !isLocalNote && !!boardId,
-  })
-  const ancestors = useMemo(() => notePath.slice(0, -1), [notePath])
-  // The open note's live title/icon are `noteLabel` / its iconData (store for
-  // local notes, fetch for sub-pages); the path's trailing segment can lag a
-  // just-made rename or icon change, so override it. Ancestor crumbs resolve
-  // their own live values inside the breadcrumb.
-  const liveIcon =
-    localData.properties?.iconData?.icon ??
-    fetchedNote?.properties?.iconData?.icon ??
-    null
-  const lastSegment = notePath[notePath.length - 1]
-  const currentSegment: Note | undefined = lastSegment
-    ? {
-        ...lastSegment,
-        label: noteLabel ? { markdown: noteLabel } : lastSegment.label,
-        properties: {
-          ...lastSegment.properties,
-          iconData: liveIcon ? { type: "icon", icon: liveIcon } : { type: "icon" },
-        },
-      }
-    : undefined
+  // Depth for the decorative "peek" ghost cards. The full breadcrumb/path lives in
+  // the unified BoardBreadcrumb now, so this only needs the ancestor COUNT: for a
+  // local sub-page it's the off-scene chain length; a synced sub-page not in the
+  // replica just shows no stack (purely cosmetic) rather than paying a REST `/path`
+  // round-trip for a single integer.
+  const stackDepth = off.node ? Math.max(0, off.path.length - 1) : 0
 
   // Page provider — backs TipTap's /subpage slash command. List/get
   // hit the board API; create inserts a new sheet under this one;
@@ -115,47 +101,6 @@ export const SheetPanel = memo(function SheetPanel({
       onNavigate: (id) => openNodeSurface(id, "sheet"),
     })
   }, [boardId, nodeId, openNodeSurface])
-
-  const handleSegmentClick = useCallback(
-    (note: Note, kind: BreadcrumbSegmentKind) => {
-      if (kind === "folder") {
-        onClose()
-        if (boardId) {
-          navigate({
-            to: "/boards/$id",
-            params: { id: boardId },
-            search: (prev: Record<string, unknown>) => ({
-              ...prev,
-              root_id: note.id,
-            }),
-          })
-        }
-        return
-      }
-      if (kind === "sheet" || kind === "code-sandbox" || kind === "widget") {
-        openNodeSurface(note.id, kind)
-      }
-    },
-    [boardId, navigate, onClose, openNodeSurface],
-  )
-
-  const [titleEditing, setTitleEditing] = useState(false)
-  const [titleDraft, setTitleDraft] = useState(noteLabel ?? "")
-  const titleInputRef = useRef<HTMLInputElement | null>(null)
-
-  useEffect(() => {
-    if (titleEditing) return
-    setTitleDraft(noteLabel ?? "")
-  }, [noteLabel, titleEditing])
-
-  useEffect(() => {
-    if (!titleEditing) return
-    const frame = requestAnimationFrame(() => {
-      titleInputRef.current?.focus()
-      titleInputRef.current?.select()
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [titleEditing])
 
   const { mutate: updateNoteMutate } = useUpdateNote()
   const persistRemote = useCallback(
@@ -177,12 +122,14 @@ export const SheetPanel = memo(function SheetPanel({
       // store.updateNode below already keeps it in sync.
       if (boardId) {
         queryClient.setQueriesData<BoardContentItem[]>(
-          { queryKey: ["boardContents", boardId] },
+          { queryKey: ["localBoardContents", boardId] },
           (old) => applyTitleUpdateToBoardContents(old, nodeId, trimmed || null),
         )
       }
       if (isLocalNote) {
-        const prevData = (localNode?.data ?? {}) as Record<string, unknown>
+        // Read the freshest data from the target store (not the render-time
+        // snapshot) so a prior off-scene edit isn't clobbered by a stale merge.
+        const prevData = (store.getNode(nodeId as NodeId)?.data ?? {}) as Record<string, unknown>
         store.updateNode(nodeId as NodeId, {
           data: {
             ...prevData,
@@ -193,8 +140,38 @@ export const SheetPanel = memo(function SheetPanel({
         persistRemote({ label: trimmed ? { markdown: trimmed } : undefined })
       }
     },
-    [isLocalNote, localNode?.data, nodeId, noteLabel, persistRemote, store, boardId, queryClient],
+    [isLocalNote, nodeId, noteLabel, persistRemote, store, boardId, queryClient],
   )
+
+  // Register the leaf rename with the store so the unified breadcrumb edits this
+  // open sheet through the panel's own store (live / off-scene / REST) instead of
+  // spinning up a competing store. Cleared on unmount (and on scope/surface change
+  // by the store) so the breadcrumb falls back to an off-scene rename otherwise.
+  useEffect(() => {
+    setActiveSurfaceRename(persistTitle)
+    return () => setActiveSurfaceRename(null)
+  }, [setActiveSurfaceRename, persistTitle])
+
+  // The document's own title lives here (Notion-style: icon + title + body); the
+  // breadcrumb leaf shows the same name as navigation context and edits the same
+  // store, so the two stay in sync.
+  const [titleEditing, setTitleEditing] = useState(false)
+  const [titleDraft, setTitleDraft] = useState(noteLabel ?? "")
+  const titleInputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    if (titleEditing) return
+    setTitleDraft(noteLabel ?? "")
+  }, [noteLabel, titleEditing])
+
+  useEffect(() => {
+    if (!titleEditing) return
+    const frame = requestAnimationFrame(() => {
+      titleInputRef.current?.focus()
+      titleInputRef.current?.select()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [titleEditing])
 
   const stopTitleEdit = useCallback(
     (save: boolean) => {
@@ -204,6 +181,13 @@ export const SheetPanel = memo(function SheetPanel({
     },
     [persistTitle, titleDraft, noteLabel],
   )
+
+  // Publish the live title so the breadcrumb can show it even for a synced
+  // sub-page that isn't in the on-device list yet (loaded here via REST).
+  useEffect(() => {
+    setActiveSurfaceLabel(noteLabel ?? "")
+    return () => setActiveSurfaceLabel(null)
+  }, [setActiveSurfaceLabel, noteLabel])
 
   const handleNoteChange = useCallback(
     (markdown: string) => {
@@ -235,13 +219,13 @@ export const SheetPanel = memo(function SheetPanel({
       // expanded folder) gets the matching item updated in place.
       if (boardId) {
         queryClient.setQueriesData<BoardContentItem[]>(
-          { queryKey: ["boardContents", boardId] },
+          { queryKey: ["localBoardContents", boardId] },
           (old) => applyIconUpdateToBoardContents(old, nodeId, next),
         )
       }
 
       if (isLocalNote) {
-        const prevData = (localNode?.data ?? {}) as Record<string, unknown>
+        const prevData = (store.getNode(nodeId as NodeId)?.data ?? {}) as Record<string, unknown>
         const prevProps =
           (prevData.properties as Partial<NoteProperties> | undefined) ?? {}
         store.updateNode(nodeId as NodeId, {
@@ -265,7 +249,6 @@ export const SheetPanel = memo(function SheetPanel({
     },
     [
       isLocalNote,
-      localNode?.data,
       nodeId,
       store,
       fetchedNote,
@@ -300,7 +283,7 @@ export const SheetPanel = memo(function SheetPanel({
   // REST fetch has settled (otherwise sub-pages flash that message
   // before their data arrives).
   if (!exists) {
-    if (isFetchingNote) {
+    if (offSceneLoading || isFetchingNote) {
       return (
         <div
           className={`${PANEL_CLASS} items-center justify-center text-sm text-muted-foreground`}
@@ -323,19 +306,13 @@ export const SheetPanel = memo(function SheetPanel({
 
   const displayTitle = noteLabel?.trim() || "Untitled note"
 
-  const stackDepth = Math.max(0, ancestors.length)
-
   return (
     <div className={PANEL_CLASS} onClick={(e) => e.stopPropagation()}>
       <SheetStackBackground depth={stackDepth} />
-      <div className="flex w-full items-center justify-between gap-2 px-3 py-1.5">
-        <div className="min-w-0 flex-1 pr-2">
-          <SheetBreadcrumb
-            ancestors={ancestors}
-            current={currentSegment}
-            onSegmentClick={handleSegmentClick}
-          />
-        </div>
+      {/* Breadcrumb / path lives in the unified BoardBreadcrumb (above the
+          backdrop); the panel header keeps only the surface actions — the
+          document title itself sits in the body below. */}
+      <div className="flex w-full items-center justify-end gap-2 px-3 py-1.5">
         <div className="flex shrink-0 items-center gap-1">
           <Button
             variant="ghost"
@@ -382,6 +359,10 @@ export const SheetPanel = memo(function SheetPanel({
                 onChange={(event) => setTitleDraft(event.target.value)}
                 onBlur={() => stopTitleEdit(true)}
                 onKeyDown={(event) => {
+                  // Keep typing (and Esc) inside the input: the surface host and
+                  // canvas listen on window — Esc would close the sheet and letter
+                  // keys would fire tool shortcuts.
+                  event.stopPropagation()
                   if (event.key === "Enter") {
                     event.preventDefault()
                     stopTitleEdit(true)

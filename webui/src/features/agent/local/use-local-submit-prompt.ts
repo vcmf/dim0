@@ -13,6 +13,7 @@ import { isOverQuotaError } from "@/features/agent/engine/services/run"
 import { createFlushGate } from "@/features/agent/utils/stream/throttle"
 import { useIsSignedIn } from "@/lib/auth"
 import { agentBuildTools, memoryTools, searchNotes } from "@/features/agent/engine/tools"
+import { StoreMutator, HeadlessMutator } from "@/features/agent/engine/board-mutator"
 import { skillTools } from "@/features/agent/engine/skills"
 import { getSearchIndexRef } from "@/features/board/search/search-index-ref"
 import { buildWholeBoardSearch } from "@/features/board/search/use-search-index"
@@ -272,6 +273,12 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
       }
 
       const createdNodeIds: string[] = []
+      // Subset of createdNodeIds to auto-arrange: excludes notes the agent PINNED
+      // at an explicit/relational position (result.placed), so `near`/x-y survive.
+      // (Anchors are NOT excluded: pinning a same-turn auto anchor would fragment a
+      // mindmap rooted at it. `near` is meant for stable/existing anchors; anchoring
+      // to a note created the same turn is the deferred pinned-aware-layout case.)
+      const arrangeNodeIds: string[] = []
       // Coalesce token-delta repaints to ~10fps (shared with the backend-agent
       // stream builder). Structural events (tool start/result) force an
       // immediate repaint; the final frame below always flushes.
@@ -366,7 +373,26 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
             () => useToolConfirm.getState().request(req),
           )
         const memory = (await getLocalStores()).memories
-        for await (const ev of runAgent({ system: systemWithDocs, userMessage: userMessageForAgent, history, tools, llm, ctx: { store, rootId, boardId, search, boardNotes, memory, confirmTool } })) {
+        // `rootId` is the agent's working folder (mutable via `navigate`);
+        // `sceneRootId` is the user's on-screen layer (fixed) — the mutator routes
+        // off-scene writes when they diverge. Hoisted so the turn can dispose any
+        // headless session it left open.
+        const ctx = {
+          store,
+          rootId,
+          sceneRootId: rootId,
+          boardId,
+          search,
+          boardNotes,
+          memory,
+          confirmTool,
+          board: new StoreMutator(store, rootId) as StoreMutator | HeadlessMutator,
+          // Nodes created THIS turn (folder depth / navigate parent / cross-folder
+          // guards read it) + per-layer off-scene sessions (cached, disposed below).
+          liveNodes: new Map<string, { parentId: string | null; type: string }>(),
+          sessions: new Map<string, HeadlessMutator>(),
+        }
+        for await (const ev of runAgent({ system: systemWithDocs, userMessage: userMessageForAgent, history, tools, llm, ctx })) {
           // Streaming yields cumulative assistant_text / reasoning per token —
           // replace the previous snapshot in place instead of appending one event
           // per token. (assistant_text renders live; reasoning is shown at turn-end.)
@@ -380,9 +406,14 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
             ev.type === "tool_result" &&
             (ev.toolName === "write_note" || ev.toolName === "create_note") &&
             ev.result && typeof ev.result === "object" && "id" in ev.result &&
-            (ev.result as { created?: unknown }).created === true
+            (ev.result as { created?: unknown }).created === true &&
+            // Off-scene writes (into a navigated-away working folder) aren't in the
+            // visible store — arranging/recentering them would target phantom nodes.
+            (ev.result as { offScene?: unknown }).offScene !== true
           ) {
-            createdNodeIds.push(String((ev.result as { id: unknown }).id))
+            const id = String((ev.result as { id: unknown }).id)
+            createdNodeIds.push(id)
+            if ((ev.result as { placed?: unknown }).placed !== true) arrangeNodeIds.push(id)
           }
           const now = Date.now()
           // Token streams (assistant_text AND reasoning) ride the ~10fps throttle;
@@ -411,9 +442,13 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
             }
           }
         }
+        // Release every off-scene session cached this turn (writes are already
+        // recorded + pumped; this just detaches the throwaway stores' subscriptions).
+        for (const session of ctx.sessions.values()) session.dispose()
         render(false)
         // Post-turn arrange (frontend analog of backend rearrange_created_notes).
-        await arrangeCreatedNodes(store, createdNodeIds)
+        // Only auto-placed notes — pinned (near/explicit) ones keep their spot.
+        await arrangeCreatedNodes(store, arrangeNodeIds)
         // Recenter the canvas on the freshly created nodes — parity with the
         // online path's `?center=` navigation, which useCenterFromUrl reads to
         // fit the union rect (zoom-capped) and select them.

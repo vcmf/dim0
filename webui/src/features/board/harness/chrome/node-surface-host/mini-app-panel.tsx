@@ -17,6 +17,7 @@ import { CodeArea } from "@/features/board/components/flow/code-area"
 import { MiniAppMount } from "@/features/mini-app"
 
 import type { NoteNodeData } from "../../convert/note-to-node"
+import { useBoardAppStore } from "../../store/board-app-store"
 
 
 export interface MiniAppPanelProps {
@@ -36,6 +37,14 @@ export const MiniAppPanel = memo(function MiniAppPanel({
   const store = useCanvasStore()
   const node = useNode(nodeId as NodeId)
   const data = (node?.data ?? {}) as Partial<NoteNodeData>
+  const setActiveSurfaceLabel = useBoardAppStore((s) => s.setActiveSurfaceLabel)
+
+  // A mini-app isn't a surface kind in the on-device list, so publish its live
+  // title for the unified breadcrumb (which otherwise can't resolve a leaf here).
+  useEffect(() => {
+    setActiveSurfaceLabel(data.label?.markdown ?? "")
+    return () => setActiveSurfaceLabel(null)
+  }, [setActiveSurfaceLabel, data.label?.markdown])
 
   const [activeTab, setActiveTab] = useState("rendered")
   const [sourceDraft, setSourceDraft] = useState(node?.content ?? "")

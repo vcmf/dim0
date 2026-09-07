@@ -33,7 +33,10 @@ export async function listLocalBoardContents(boardId: string): Promise<BoardCont
     // Runtime `data` is `NoteNodeData` (the converter's payload) even though the
     // model types it as the leaner `DimNodeData`; read the surface fields off it.
     const data = node.data as NoteNodeData | undefined
-    const kind = data?.styleType as BoardContentKind | undefined
+    // Prefer the display `styleType`, but fall back to the canonical `node.type`:
+    // agent-authored surfaces (built via the mutator, not the convert layer) set
+    // only `node.type`, so without this they'd be missing from the tree/picker.
+    const kind = (data?.styleType ?? node.type) as BoardContentKind | undefined
     if (!kind || !SURFACE_KINDS.has(kind)) continue
     // label is `RichText` at runtime; fall back to a plain string defensively.
     const label =

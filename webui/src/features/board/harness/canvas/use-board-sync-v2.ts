@@ -34,6 +34,7 @@ import { dedupeRepeatUpdates } from "../sync/outbound-dedupe"
 import { ReconnectSupervisor } from "../sync/reconnect-supervisor"
 import { attachBoardSync } from "../sync/board-sync"
 import type { BoardSyncHandle } from "../sync/board-sync"
+import { setBoardSyncRef } from "../sync/board-sync-ref"
 import { createWebSocketRelay } from "../sync/ws-relay"
 import { applyGraphToStore } from "../persist/snapshot-load"
 import { applyContentToStore } from "@/features/board/persist/local/apply-content"
@@ -152,6 +153,9 @@ export const useBoardSyncV2 = (
             enrichOutbound: (batch) => enrichEdgeMidpoints(dedupeRepeatUpdates(batch), store),
             coalesceMs: 75, // merge a burst (e.g. rotate's per-tick ops) into one send
           })
+          // Publish the sync-correct intake so headless/cross-layer writers enter
+          // the same rebase + send path instead of writing the oplog directly.
+          setBoardSyncRef(handle)
         })
       })
       .catch((err) => {
@@ -167,6 +171,7 @@ export const useBoardSyncV2 = (
       cancelled = true
       document.removeEventListener("visibilitychange", onVisibility)
       supervisor?.stop()
+      setBoardSyncRef(null)
       handle?.detach()
       detachPersist?.()
       setBoardPersistenceRef(null)

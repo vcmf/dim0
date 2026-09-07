@@ -7,7 +7,6 @@ import { Chat } from "@/features/agent/components/chat-view"
 import { ToolConfirmDialog } from "@/features/agent/components/chat/tool-confirm-dialog"
 import { useLocalMessagesStore } from "@/features/agent/store/local-messages-store"
 import { HarnessCanvas } from "@/features/board/harness/canvas"
-import { LocalFolderBreadcrumb } from "@/features/board/local/local-folder-breadcrumb"
 import { NotesSearchDialog } from "@/features/board/local/notes-search-dialog"
 import { useBoardAppStore } from "@/features/board/harness/store/board-app-store"
 import { useHarnessSurfaceFromUrl } from "@/features/board/harness/hooks/use-surface-from-url"
@@ -61,8 +60,6 @@ export function LocalBoardScreen() {
             (not inside FloatingAssistant) so it stays present when the full
             sheet is open — otherwise a gated call from the sheet hangs the run. */}
         <ToolConfirmDialog />
-
-        <LocalFolderBreadcrumb boardId={boardId} rootId={rootId ?? null} />
 
         <NotesSearchDialog boardId={boardId} />
 

@@ -92,7 +92,7 @@ export function isNodeTypeAtLimit(type: string, plan: BillingPlan, count: number
 // ----------------------------------------------------------------------------
 // Folder nesting depth (universal): root(0) -> child(1) -> child-of-child(2).
 // A 4th level is not allowed, so a sub-board can only be created at depth < 2.
-// `currentFolderDepth` lives on board-app-store (set by folder-breadcrumb).
+// `currentFolderDepth` lives on board-app-store (set by the board breadcrumb).
 // ----------------------------------------------------------------------------
 export const MAX_BOARD_DEPTH = 2
 

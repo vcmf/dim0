@@ -85,6 +85,9 @@ export type AuthMethods = {
   local: boolean
   google: boolean
   google_client_id?: string | null
+  /** Web redirect (auth-code + PKCE) sign-in — available only when the web client
+   *  secret is configured server-side for the code exchange. */
+  google_web_redirect?: boolean
   /** Desktop (Tauri) authorizes against its own "Desktop app" OAuth client. */
   google_desktop_client_id?: string | null
 }
@@ -321,13 +324,19 @@ export async function getAuthMethods(): Promise<AuthMethods> {
 
 
 /**
- * Exchange a Google ID token for app JWT tokens.
+ * Web Google sign-in: hand the redirect auth code + PKCE verifier to the backend,
+ * which exchanges them (secret stays server-side) and returns app tokens. Replaces
+ * the legacy GIS id_token flow, which depended on third-party cookies / postMessage.
  */
-export async function googleSignin(idToken: string): Promise<TokenPayload> {
-  const res = await trackedFetch(new URL("/users/google-signin", API_URL).toString(), {
+export async function googleSigninWeb(
+  code: string,
+  codeVerifier: string,
+  redirectUri: string,
+): Promise<TokenPayload> {
+  const res = await trackedFetch(new URL("/users/google-signin-web", API_URL).toString(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id_token: idToken }),
+    body: JSON.stringify({ code, code_verifier: codeVerifier, redirect_uri: redirectUri }),
   })
 
   if (!res.ok) {

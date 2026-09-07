@@ -14,6 +14,7 @@ import {
 } from "@/components/icons"
 import { IconPropertyView } from "@/components/icons/icon-property-view"
 import { formatDistanceToNow } from "@/features/board/utils/date"
+import { nodeStamp } from "@/features/board/utils/node-meta"
 import type { IconProperty } from "@/features/newsfeed/types/properties"
 import { useDocumentLikeNodes } from "../canvas/use-document-like-nodes"
 import type { NoteNodeData } from "../convert/note-to-node"
@@ -83,8 +84,10 @@ const ListRow = memo(function ListRow({ node, index, isLast }: RowProps) {
   const meta = metaOf(node)
   const Icon = meta.icon
   const data = node.data as Partial<NoteNodeData> | undefined
+  // Canonical `meta` (agent notes) or legacy top-level strings — same stamp the
+  // sheet card shows.
   const { text: timeAgo, tooltip: fullDate } = formatDistanceToNow(
-    data?.updatedAt ?? data?.createdAt,
+    nodeStamp(data).iso,
   )
 
   const handleOpen = useCallback(() => {

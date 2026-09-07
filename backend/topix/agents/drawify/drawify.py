@@ -82,7 +82,7 @@ def _convert_drawn_node(node: DrawnNode, z_index: int) -> Note:
     )
     note.style.type = _node_type_from_drawn(node.type)
     note.style.font_size = _font_size_from_label(node.font_size)
-    note.style.font_family = FontFamily.INFORMAL
+    note.style.font_family = FontFamily.HANDWRITING
     note.style.roundness = _roundness_from_drawn(node.rounded)
 
     if node.background:
@@ -109,7 +109,7 @@ def _convert_drawn_edge(edge: DrawnEdge, id_map: dict[str, str]) -> Link | None:
     )
     link.style.source_arrowhead = _arrowhead_from_label(edge.tail)
     link.style.target_arrowhead = _arrowhead_from_label(edge.head)
-    link.style.font_family = FontFamily.INFORMAL
+    link.style.font_family = FontFamily.HANDWRITING
 
     if edge.label:
         link.label = RichText(markdown=edge.label)

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { asNodeId } from "@canvas-harness/core"
 import type { CanvasStore, Node } from "@canvas-harness/core"
 import { freshStore, resetIdb } from "@/test/canvas"
@@ -17,6 +17,9 @@ import {
   writeNote,
   getNote,
   editNote,
+  arrangeNotes,
+  navigate,
+  createFolder,
   searchNotes,
   listBoards,
   saveMemory,
@@ -24,6 +27,10 @@ import {
   deleteMemory,
   recallMemory,
 } from "./tools"
+import { HeadlessMutator, StoreMutator } from "./board-mutator"
+import { BoardPersistence } from "@/features/board/persist/local/board-persistence"
+import { setBoardPersistenceRef } from "@/features/board/persist/local/board-persistence-ref"
+import { setBoardSyncRef } from "@/features/board/harness/sync/board-sync-ref"
 
 
 // A LocalSearchIndex that returns a fixed id list (we test the id→result mapping,
@@ -195,6 +202,14 @@ describe("linkNotes", () => {
     expect((store.getAllEdges()[0].data as { parentId?: string }).parentId).toBe("folder-1")
   })
 
+  it("errors (no dangling edge) when an endpoint note doesn't exist", async () => {
+    seed(store, "a")
+    const before = store.getAllEdges().length
+    const res = (await linkNotes.run({ sourceId: "a", targetId: "ghost" }, ctx)) as { error?: string }
+    expect(res.error).toMatch(/not found/)
+    expect(store.getAllEdges().length).toBe(before) // nothing created
+  })
+
   it("stamps a canonical edge style so the live edge matches the reloaded one", async () => {
     // Regression: a live edge with no `style` fell back to the lib defaults and
     // looked rougher until reload. The convert layer sets a filled arrowhead.
@@ -279,8 +294,38 @@ describe("writeNote", () => {
 
   it("creates a note with the given id when note_id doesn't exist yet", async () => {
     const res = (await writeNote.run({ content: "b", note_id: "brand-new" }, ctx)) as { id: string; created: boolean }
-    expect(res).toEqual({ id: "brand-new", created: true })
+    expect(res).toEqual({ id: "brand-new", created: true, placed: false }) // no position → not pinned
     expect(store.getNode(asNodeId("brand-new"))).toBeDefined()
+  })
+
+  it("rewriting without note_type keeps the note's existing type (doesn't reset to rect)", async () => {
+    const made = (await writeNote.run({ content: "b", note_type: "sheet" }, ctx)) as { id: string }
+    expect(store.getNode(asNodeId(made.id))?.type).toBe("sheet")
+    await writeNote.run({ content: "rewritten", note_id: made.id }, ctx)
+    expect(store.getNode(asNodeId(made.id))?.type).toBe("sheet") // preserved, not → rect
+  })
+
+  it("refuses to write to a note that lives in another folder (no colliding duplicate)", async () => {
+    // Resolvable whole-board (boardNotes) but absent from the current-layer store.
+    const other = {
+      id: asNodeId("other"), type: "rect", x: 0, y: 0, w: 100, h: 50, angle: 0, z: 0, groups: [],
+      content: "elsewhere", data: { label: { markdown: "Elsewhere" }, meta: { v: 1, createdAt: 0, updatedAt: 0 } },
+    } as unknown as Node
+    const c = { store, rootId: null, boardNotes: new Map([["other", other]]) } as unknown as ToolContext
+    const before = store.getAllNodes().length
+    const res = (await writeNote.run({ content: "x", note_id: "other" }, c)) as { error?: string }
+    expect(res.error).toMatch(/another folder/)
+    expect(store.getAllNodes().length).toBe(before) // no duplicate node created
+  })
+
+  it("edit_note refuses a note that lives in another folder (consistent with write_note)", async () => {
+    const other = {
+      id: asNodeId("other"), type: "rect", x: 0, y: 0, w: 100, h: 50, angle: 0, z: 0, groups: [],
+      content: "body", data: { label: { markdown: "E" }, meta: { v: 1, createdAt: 0, updatedAt: 0 } },
+    } as unknown as Node
+    const c = { store, rootId: null, boardNotes: new Map([["other", other]]) } as unknown as ToolContext
+    const res = (await editNote.run({ note_id: "other", field: "content", old: "body", new: "x" }, c)) as { error?: string }
+    expect(res.error).toMatch(/another folder/)
   })
 
   it("rejects an invalid mini-app without creating a node", async () => {
@@ -297,6 +342,44 @@ describe("writeNote", () => {
     )) as { id?: string; error?: string }
     expect(res.error).toBeUndefined()
     expect(store.getNode(asNodeId(res.id!))?.type).toBe("mini-app")
+  })
+
+  it("validates a bare rewrite of an existing mini-app (note_type omitted)", async () => {
+    const made = (await writeNote.run(
+      { content: "function Widget() { return <div>hi</div> }", note_type: "mini-app" },
+      ctx,
+    )) as { id: string }
+    // No note_type → rewriteNote preserves the mini-app type, so the invalid
+    // source must still be caught (regression guard for the type-preserve fix).
+    const res = (await writeNote.run({ content: "const x =", note_id: made.id }, ctx)) as { error?: string }
+    expect(res.error).toMatch(/mini-app invalid/)
+    // Original source left intact (rejected before the write).
+    expect(store.getNode(asNodeId(made.id))?.content).toBe("function Widget() { return <div>hi</div> }")
+  })
+})
+
+
+describe("arrangeNotes", () => {
+  it("arranges the given note_ids and reports the count", async () => {
+    seed(store, "a", { content: "a" })
+    seed(store, "b", { content: "b" })
+    seed(store, "c", { content: "c" })
+    const res = (await arrangeNotes.run({ note_ids: ["a", "b", "c"] }, ctx)) as { arranged: number }
+    expect(res.arranged).toBe(3)
+  })
+
+  it("arranges the whole current view when note_ids is omitted", async () => {
+    seed(store, "a", { content: "a" })
+    seed(store, "b", { content: "b" })
+    const res = (await arrangeNotes.run({}, ctx)) as { arranged: number }
+    expect(res.arranged).toBe(2)
+  })
+
+  it("refuses to arrange too many notes at once (whole-board cap)", async () => {
+    for (let i = 0; i < 61; i += 1) seed(store, `n${i}`, { content: `${i}` })
+    const res = (await arrangeNotes.run({}, ctx)) as { error?: string; arranged?: number }
+    expect(res.error).toMatch(/Too many notes/)
+    expect(res.arranged).toBeUndefined()
   })
 })
 
@@ -569,5 +652,234 @@ describe("memory tools", () => {
     const del = (await deleteMemory.run({ id: "ghost" }, ctx)) as { ok: boolean }
     expect(upd.ok).toBe(false)
     expect(del.ok).toBe(false)
+  })
+})
+
+
+describe("navigate (working folder)", () => {
+  // A folder node lives on the WHOLE board (boardNotes); the visible store is the
+  // root layer. Navigating into the folder must route writes off-scene.
+  const folder = (id: string, label: string): Node =>
+    ({
+      id: asNodeId(id),
+      type: "folder",
+      x: 0, y: 0, w: 100, h: 50, angle: 0, groups: [],
+      data: { label: { markdown: label }, meta: { v: 1, createdAt: 0, updatedAt: 0 } },
+    }) as unknown as Node
+
+  beforeEach(() => {
+    // A whole-board persistence so the off-scene write path is exercised;
+    // no relay (persistence-only is sync-correct on a local board).
+    setBoardPersistenceRef(new BoardPersistence("b", { engine: new InMemoryEngine() }))
+    setBoardSyncRef(null)
+  })
+  afterEach(() => {
+    setBoardPersistenceRef(null)
+    setBoardSyncRef(null)
+  })
+
+  it("into a folder sets the working folder and routes writes off-scene", async () => {
+    const store = freshStore("c")
+    const nav: ToolContext = {
+      store,
+      rootId: null,
+      sceneRootId: null,
+      boardNotes: new Map([["F", folder("F", "Ideas")]]),
+    }
+    const res = (await navigate.run({ target: "F" }, nav)) as { working_folder: string; label: string }
+    expect(res.working_folder).toBe("F")
+    expect(res.label).toBe("Ideas")
+    expect(nav.rootId).toBe("F")
+    expect(nav.board).toBeInstanceOf(HeadlessMutator)
+
+    // A note created now lands in F, off-scene — never in the visible root store.
+    const note = (await createNote.run({ title: "T", body: "B" }, nav)) as { id: string; offScene?: boolean }
+    expect(note.offScene).toBe(true)
+    expect(store.getNode(asNodeId(note.id))).toBeUndefined()
+  })
+
+  it('navigating back to "root" restores store (visible) writes', async () => {
+    const store = freshStore("c")
+    const nav: ToolContext = {
+      store,
+      rootId: "F",
+      sceneRootId: null,
+      board: new HeadlessMutator(store, "F"),
+      boardNotes: new Map([["F", folder("F", "Ideas")]]),
+    }
+    await navigate.run({ target: "root" }, nav)
+    expect(nav.rootId).toBe(null)
+    expect(nav.board).toBeInstanceOf(StoreMutator)
+    // Now a create renders into the visible store.
+    const note = (await createNote.run({ title: "R", body: "B" }, nav)) as { id: string; offScene?: boolean }
+    expect(note.offScene).toBeUndefined()
+    expect(store.getNode(asNodeId(note.id))).toBeDefined()
+  })
+
+  it('"up" walks to the parent folder', async () => {
+    const store = freshStore("c")
+    const nav: ToolContext = {
+      store,
+      rootId: "child",
+      sceneRootId: null,
+      boardNotes: new Map([
+        ["parent", folder("parent", "Parent")],
+        ["child", { ...folder("child", "Child"), data: { ...(folder("child", "Child").data as object), parentId: "parent" } } as unknown as Node],
+      ]),
+    }
+    const res = (await navigate.run({ target: "up" }, nav)) as { working_folder: string }
+    expect(res.working_folder).toBe("parent")
+    expect(nav.rootId).toBe("parent")
+  })
+
+  it("rejects a non-folder or unknown target", async () => {
+    const store = freshStore("c")
+    const nav: ToolContext = {
+      store,
+      rootId: null,
+      sceneRootId: null,
+      boardNotes: new Map([["n1", { ...folder("n1", "x"), type: "rect" } as unknown as Node]]),
+    }
+    expect((await navigate.run({ target: "n1" }, nav)) as { error?: string }).toHaveProperty("error")
+    expect((await navigate.run({ target: "ghost" }, nav)) as { error?: string }).toHaveProperty("error")
+    expect(nav.rootId).toBe(null) // unchanged on error
+  })
+
+  it("read/edit/rewrite/arrange act on the off-scene working folder, not the user's view", async () => {
+    const store = freshStore("c")
+    seed(store, "visible", { label: "OnScreen", content: "user note" }) // the user's on-screen layer
+    const nav: ToolContext = {
+      store,
+      rootId: null,
+      sceneRootId: null,
+      boardNotes: new Map([["F", folder("F", "Ideas")]]),
+    }
+    await navigate.run({ target: "F" }, nav)
+    const note = (await createNote.run({ title: "T", body: "hello" }, nav)) as { id: string }
+
+    // get_note reads the note authored off-scene (was "not found" before the fix).
+    expect(((await getNote.run({ note_id: note.id }, nav)) as { content: string }).content).toBe("hello")
+    // edit_note edits it in place, off-scene.
+    await editNote.run({ note_id: note.id, field: "content", old: "hello", new: "bye" }, nav)
+    expect(((await getNote.run({ note_id: note.id }, nav)) as { content: string }).content).toBe("bye")
+    // write_note rewrite targets the off-scene note (not a duplicate/error).
+    const rw = (await writeNote.run({ content: "rewritten", note_id: note.id }, nav)) as { created: boolean }
+    expect(rw.created).toBe(false)
+    // arrange_notes (no ids) tidies the working folder — the user's on-screen note
+    // is never relocated.
+    const visibleX = store.getNode(asNodeId("visible"))!.x
+    await arrangeNotes.run({}, nav)
+    expect(store.getNode(asNodeId("visible"))!.x).toBe(visibleX)
+  })
+
+  it("create_folder makes a folder in the working folder and returns its id", async () => {
+    const store = freshStore("c")
+    const nav: ToolContext = { store, rootId: null, sceneRootId: null, boardNotes: new Map() }
+    const res = (await createFolder.run({ label: "Project" }, nav)) as { folder_id: string; label: string }
+    expect(res.label).toBe("Project")
+    expect(store.getNode(asNodeId(res.folder_id))?.type).toBe("folder")
+  })
+
+  it("create_folder rejects nesting past the max depth", async () => {
+    const store = freshStore("c")
+    // Working folder `b` sits at depth 2 (root → a → b); a child would be depth 3.
+    const a = folder("a", "A")
+    const b = { ...folder("b", "B"), data: { ...(folder("b", "B").data as object), parentId: "a" } } as unknown as Node
+    const nav: ToolContext = { store, rootId: "b", sceneRootId: null, boardNotes: new Map([["a", a], ["b", b]]) }
+    const res = (await createFolder.run({ label: "TooDeep" }, nav)) as { error?: string }
+    expect(res).toHaveProperty("error")
+  })
+
+  it("create_folder → navigate → author: builds and populates a sub-board without touching the view", async () => {
+    const store = freshStore("c")
+    seed(store, "visible", { label: "OnScreen" }) // the user's on-screen note
+    const nav: ToolContext = { store, rootId: null, sceneRootId: null, boardNotes: new Map() }
+    // Folder created at the visible root → present in the user's view.
+    const f = (await createFolder.run({ label: "Project" }, nav)) as { folder_id: string }
+    expect(store.getNode(asNodeId(f.folder_id))?.type).toBe("folder")
+    // navigate into the freshly-created folder (resolved from the live store, not
+    // the pre-turn snapshot), then author inside it — off-scene.
+    await navigate.run({ target: f.folder_id }, nav)
+    expect(nav.board).toBeInstanceOf(HeadlessMutator)
+    const note = (await createNote.run({ title: "N", body: "inside" }, nav)) as { id: string; offScene?: boolean }
+    expect(note.offScene).toBe(true)
+    expect(store.getNode(asNodeId(note.id))).toBeUndefined() // authored off-scene, not in the user's view
+    expect(store.getNode(asNodeId("visible"))).toBeDefined() // the user's note is untouched
+  })
+
+  // A full ctx mirroring the real run — carries the this-turn creation index and
+  // the per-layer session cache the guards/navigation rely on.
+  const liveCtx = (store: CanvasStore): ToolContext => ({
+    store,
+    rootId: null,
+    sceneRootId: null,
+    boardNotes: new Map(),
+    liveNodes: new Map(),
+    sessions: new Map(),
+  })
+
+  it("enforces the nesting cap across folders created in the SAME turn", async () => {
+    const store = freshStore("c")
+    const nav = liveCtx(store)
+    const a = (await createFolder.run({ label: "A" }, nav)) as { folder_id: string }
+    await navigate.run({ target: a.folder_id }, nav) // depth 1
+    const b = (await createFolder.run({ label: "B" }, nav)) as { folder_id: string; error?: string }
+    expect(b.error).toBeUndefined()
+    await navigate.run({ target: b.folder_id }, nav) // depth 2
+    const c = (await createFolder.run({ label: "C" }, nav)) as { error?: string }
+    expect(c).toHaveProperty("error") // a 4th level would exceed MAX_BOARD_DEPTH
+  })
+
+  it('navigate "up" from a folder created this turn lands at its true parent', async () => {
+    const store = freshStore("c")
+    const nav = liveCtx(store)
+    const a = (await createFolder.run({ label: "A" }, nav)) as { folder_id: string }
+    await navigate.run({ target: a.folder_id }, nav)
+    const b = (await createFolder.run({ label: "B" }, nav)) as { folder_id: string } // B lives in A, off-scene
+    await navigate.run({ target: b.folder_id }, nav)
+    const up = (await navigate.run({ target: "up" }, nav)) as { working_folder: string }
+    expect(up.working_folder).toBe(a.folder_id) // A, not root
+  })
+
+  it("write_note refuses to duplicate an id created this turn in another layer", async () => {
+    const store = freshStore("c")
+    const nav = liveCtx(store)
+    // Create note N at the visible root.
+    const n = (await writeNote.run({ content: "root note" }, nav)) as { id: string }
+    // Navigate into a folder, then try to write_note with N's id there.
+    const f = (await createFolder.run({ label: "F" }, nav)) as { folder_id: string }
+    await navigate.run({ target: f.folder_id }, nav)
+    const res = (await writeNote.run({ content: "dup", note_id: n.id }, nav)) as { error?: string }
+    expect(res).toHaveProperty("error") // refused, not a colliding duplicate
+  })
+
+  it("enforces the per-level folder count cap (universal 10)", async () => {
+    const store = freshStore("c")
+    // Seed the root layer at the folder limit.
+    for (let i = 0; i < 10; i += 1) {
+      store.addNode({
+        id: asNodeId(`f${i}`),
+        type: "folder",
+        x: 0, y: 0, w: 100, h: 100, angle: 0, groups: [],
+        data: { label: { markdown: `F${i}` }, meta: { v: 1, createdAt: 0, updatedAt: 0 } } satisfies DimNodeData,
+      })
+    }
+    const res = (await createFolder.run({ label: "overflow" }, liveCtx(store))) as { error?: string }
+    expect(res).toHaveProperty("error")
+  })
+
+  it("re-entering a folder in the same turn sees notes it wrote before leaving", async () => {
+    const store = freshStore("c")
+    const nav: ToolContext = {
+      store,
+      rootId: null,
+      sceneRootId: null,
+      boardNotes: new Map([["F", folder("F", "Ideas")]]),
+    }
+    await navigate.run({ target: "F" }, nav)
+    const note = (await createNote.run({ title: "T", body: "x" }, nav)) as { id: string }
+    await navigate.run({ target: "root" }, nav)
+    await navigate.run({ target: "F" }, nav) // a fresh session must re-seed from the oplog (incl. `note`)
+    expect(((await getNote.run({ note_id: note.id }, nav)) as { content?: string }).content).toBe("x")
   })
 })
