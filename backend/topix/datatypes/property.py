@@ -227,7 +227,7 @@ class MultiSourceProperty(Property):
 
 
 class InkProperty(Property):
-    """Pressure-aware freehand samples and their precomputed render outline."""
+    """Portable pressure-aware ink geometry; outlines are derived by the engine."""
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -235,7 +235,9 @@ class InkProperty(Property):
     version: Literal[1] = 1
     size: float
     points: list[tuple[float, float, float]]
-    outline: list[tuple[float, float]]
+    thinning: float | None = None
+    smoothing: float | None = None
+    streamline: float | None = None
     intrinsic_width: float = Field(alias="intrinsicWidth")
     intrinsic_height: float = Field(alias="intrinsicHeight")
 

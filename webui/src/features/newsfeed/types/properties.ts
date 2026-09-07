@@ -100,7 +100,9 @@ export interface InkProperty extends BaseProperty<'ink'> {
   version: 1
   size: number
   points: Array<[x: number, y: number, pressure: number]>
-  outline: Array<[x: number, y: number]>
+  thinning?: number
+  smoothing?: number
+  streamline?: number
   intrinsicWidth: number
   intrinsicHeight: number
 }

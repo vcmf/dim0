@@ -1,3 +1,4 @@
+import { readInkProperty } from "../ink/ink-data"
 import type { Node } from "@canvas-harness/core"
 import type { Note, NoteProperties } from "@/features/board/types/note"
 import { applyColorsToStyle } from "../theme/color-adapter"
@@ -38,7 +39,7 @@ export const nodeToNote = (node: Node): Note => {
     mimeType: extraProperties.mimeType,
     status: extraProperties.status,
     summary: extraProperties.summary,
-    inkData: extraProperties.inkData ?? relayProperties.ink_data,
+    inkData: readInkProperty(node) ?? extraProperties.inkData ?? relayProperties.ink_data,
   }
 
   return {

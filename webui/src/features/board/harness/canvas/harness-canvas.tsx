@@ -17,6 +17,7 @@ import {
   CanvasProvider,
   Minimap,
   type ArrowToolDefaults,
+  type InkToolDefaults,
   type CanvasPointerEvent,
 } from "@canvas-harness/react"
 import {
@@ -52,7 +53,7 @@ import { BoardKindBadge } from "@/features/board/components/board-kind-badge"
 import { BoardBreadcrumb } from "@/features/board/components/breadcrumb/board-breadcrumb"
 import { useBoardAppStore } from "../store/board-app-store"
 import { createBoardStore } from "../store/create-board-store"
-import { adaptEdgeColors, applyColorsToEdgeStyle } from "../theme/color-adapter"
+import { adaptNodeColors, adaptEdgeColors, applyColorsToEdgeStyle } from "../theme/color-adapter"
 import { getBoardThemeMode } from "../theme/theme-mode-ref"
 import { useBoardTheme } from "../theme/use-board-theme"
 import { useThemeColorProjection } from "../theme/use-theme-color-projection"
@@ -81,7 +82,7 @@ import { useViewportPersistence } from "./use-viewport-persistence"
 import { useTrackBoardCameraMotion } from "./board-camera-motion"
 import { useSidebarContentsSync } from "./use-sidebar-contents-sync"
 import { HarnessWrapRefProvider } from "./wrap-ref-provider"
-import { InkInputLayer } from "../ink/ink-input-layer"
+import { createDim0InkNode } from "../ink/ink-data"
 
 
 /**
@@ -120,6 +121,16 @@ export function HarnessCanvas({ local = false }: { local?: boolean } = {}) {
   const inkSize = useBoardAppStore((s) => s.inkSize)
   const viewMode = useBoardAppStore((s) => s.viewMode)
   const theme = useBoardTheme()
+  const displayInkColor = getBoardThemeMode() === "dark"
+    ? (adaptNodeColors({ strokeColor: inkColor }, "dark").strokeColor ?? inkColor)
+    : inkColor
+  const inkDefaults = useMemo<InkToolDefaults>(() => ({
+    size: inkSize,
+    color: displayInkColor,
+    createNode: (input) => boardId && canEdit
+      ? createDim0InkNode(input, { boardId, parentId: rootId, color: inkColor })
+      : null,
+  }), [boardId, rootId, canEdit, inkColor, inkSize, displayInkColor])
   const [ready, setReady] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
   // Captured via `<Canvas onRenderer>`; presentation mode toggles
@@ -448,19 +459,10 @@ export function HarnessCanvas({ local = false }: { local?: boolean } = {}) {
             viewMode={viewMode}
             canCollab={!local}
             arrowDefaults={arrowDefaults}
+            inkDefaults={inkDefaults}
             onCreateDrag={handleCreateDrag}
             onDoubleClick={handleDoubleClick}
             onRenderer={handleRenderer}
-          />
-          <InkInputLayer
-            store={store}
-            wrapRef={wrapRef}
-            boardId={boardId}
-            rootId={rootId}
-            tool={tool}
-            canEdit={canEdit}
-            color={inkColor}
-            size={inkSize}
           />
           <CanvasContextMenu wrapRef={wrapRef} store={store} rendererRef={rendererRef} />
         </div>
@@ -476,6 +478,7 @@ type InnerProps = {
   ready: boolean
   viewMode: "board" | "files" | "list"
   canCollab: boolean
+  inkDefaults: InkToolDefaults
   arrowDefaults: ArrowToolDefaults
   onCreateDrag: ReturnType<typeof useCreateHandlers>["handleCreateDrag"]
   onDoubleClick: (e: CanvasPointerEvent) => void
@@ -490,6 +493,7 @@ function HarnessCanvasInner({
   viewMode,
   canCollab,
   arrowDefaults,
+  inkDefaults,
   onCreateDrag,
   onDoubleClick,
   onRenderer,
@@ -501,9 +505,8 @@ function HarnessCanvasInner({
   // already-self-hiding chrome (readonly chip, top-right strip) stays
   // managed by their own components.
   const presenting = useBoardAppStore((s) => s.presentationMode)
-  // The overlay owns pen/mouse ink gestures. Let touch continue through the
-  // harness pan path so one finger moves the board and pinch zoom still works.
-  const canvasTool = tool === "ink" || tool === "eraser" ? "pan" : tool
+  const canEdit = useBoardAppStore((s) => s.canEdit)
+  const canvasTool = (!canEdit || presenting) && (tool === "ink" || tool === "eraser") ? "pan" : tool
   return (
     <>
       {isBoard ? (
@@ -522,6 +525,7 @@ function HarnessCanvasInner({
             renderCustomNodeView={renderView}
             editorAdapter={createHarnessTextareaEditor}
             arrowDefaults={arrowDefaults}
+            inkDefaults={inkDefaults}
             onCreateDrag={onCreateDrag}
             onDoubleClick={onDoubleClick}
             onRenderer={onRenderer}

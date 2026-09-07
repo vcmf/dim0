@@ -1,4 +1,4 @@
-import { asGroupId, asNodeId } from "@canvas-harness/core"
+import { asGroupId, asNodeId, type InkStrokeData } from "@canvas-harness/core"
 import type { Node } from "@canvas-harness/core"
 import type { Note, NoteProperties, RichText } from "@/features/board/types/note"
 import { asRichLabel } from "@/features/board/model"
@@ -141,11 +141,16 @@ export const noteToNode = (note: Note | Document): Node => {
   // reusing it for natural dims keeps resize aspect preservation
   // correct without stashing a second set of dims on the Note.
   const finalData: NoteNodeData & {
+    ink?: InkStrokeData
     src?: string
     naturalW?: number
     naturalH?: number
     alt?: string
   } = data
+  if (canvasType === "ink" && rest.inkData) {
+    const { type, version, size, points, intrinsicWidth, intrinsicHeight, thinning, smoothing, streamline } = rest.inkData
+    finalData.ink = { type, version, size, points, intrinsicWidth, intrinsicHeight, thinning, smoothing, streamline }
+  }
   if (canvasType === "image") {
     const url = note.properties?.imageUrl?.image?.url
     if (url) {

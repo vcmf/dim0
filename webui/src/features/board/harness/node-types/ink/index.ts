@@ -1,1 +1,0 @@
-export { inkDef } from "./def"

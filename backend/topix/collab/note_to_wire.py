@@ -143,6 +143,8 @@ def note_to_wire_node(note: Note) -> dict[str, Any]:
         # round-trips them via nodeToNote.
         "properties": _properties_minus_lifted(props),
     }
+    if canvas_type == "ink" and props.ink_data is not None:
+        data["ink"] = props.ink_data.model_dump(by_alias=True, exclude_none=True)
     stored = _note_stored_colors(note)
     if stored:
         data["_storedColors"] = stored
