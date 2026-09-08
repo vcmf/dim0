@@ -2,9 +2,10 @@
 # Dim0 desktop installer for macOS and Linux.
 #   curl -fsSL https://raw.githubusercontent.com/vcmf/dim0/main/install.sh | sh
 #
-# Downloads the newest release for your OS from GitHub. Terminal downloads are not
-# Gatekeeper-quarantined, so on macOS this launches with no security prompt (the app
-# is ad-hoc signed; a browser .dmg download is not notarized yet and would prompt).
+# Downloads the newest release for your OS from GitHub. The macOS app is signed with
+# a Developer ID and notarized, so it launches with no prompt from any download path
+# (this terminal one and a browser .dmg alike). The quarantine strip below is now
+# belt-and-suspenders rather than the thing that makes it work.
 set -eu
 
 REPO="vcmf/dim0"

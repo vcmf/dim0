@@ -85,10 +85,51 @@ jobs:
         run: npm ci
         working-directory: webui
 
-      - name: Build desktop installers
-        run: npm run tauri-build
-        working-directory: webui
+      # Notarization (macOS) authenticates with an App Store Connect API key.
+      # Tauri wants the key as a file on disk (APPLE_API_KEY_PATH); the .p8 is
+      # stored as a secret and written to the runner's temp dir here. macOS-only —
+      # the other platforms don't notarize.
+      - name: Write Apple notarization key (macOS)
+        # Only when actually signing (identity set) — a fork without the secrets
+        # skips this and takes the ad-hoc path, leaving no stray empty key file.
+        if: matrix.platform == 'macos-latest' && vars.APPLE_SIGNING_IDENTITY != ''
+        shell: bash
         env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          key_path="$RUNNER_TEMP/apple_api_key.p8"
+          # Trailing newline: strict PEM/ES256 parsers (notarytool) can reject a
+          # key with none, and GitHub may store the secret without one.
+          printf '%s\n' "$APPLE_API_KEY_P8" > "$key_path"
+          echo "APPLE_API_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+
+      # Committed tauri.conf.json pins `signingIdentity: "-"` (ad-hoc) so the repo
+      # builds for anyone — forks and contributors without an Apple cert. The real
+      # Developer ID is injected HERE, at release time only, via `--config`: when
+      # the APPLE_SIGNING_IDENTITY repo VARIABLE is set (not a secret — the identity
+      # string is public), the macOS leg overrides it and signs + notarizes; unset
+      # (a fork) ⇒ it falls through to the ad-hoc build. Linux/Windows always take
+      # the plain path.
+      - name: Build desktop installers
+        working-directory: webui
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = "macos-latest" ] && [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+            npm run tauri-build -- --config "{\"bundle\":{\"macOS\":{\"signingIdentity\":\"$APPLE_SIGNING_IDENTITY\"}}}"
+          else
+            npm run tauri-build
+          fi
+        env:
+          # macOS code-signing + notarization. Tauri imports APPLE_CERTIFICATE
+          # (base64 .p12) into a temp keychain and signs with APPLE_SIGNING_IDENTITY
+          # (applied via --config above), then notarizes + staples using the App
+          # Store Connect API key (issuer + key id + APPLE_API_KEY_PATH from the step
+          # above). All ignored on Linux/Windows and on a fork without the secrets.
+          APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           # The one build-time value the desktop app needs: the public server URL
           # users sign in to, from the API_ORIGIN repo VARIABLE (a public URL, not
           # a secret). Passed straight into the environment — Vite bakes

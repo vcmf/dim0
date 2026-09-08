@@ -1,6 +1,7 @@
 # -------- Settings (tweak if needed) --------
 PROFILE ?= dev                 # dev | local
 ENVFILE ?= .env                # path to your env file (repo root by default)
+SIGNING_ENVFILE ?= .env.signing # macOS signing/notarization env for desktop-build (repo-root)
 DIM0_VERSION ?= $(shell cat VERSION)
 COMPOSE_BASE := docker compose -p dim0-src -f build/docker-compose.yml
 COMPOSE := ENVFILE=$(ENVFILE) $(COMPOSE_BASE) --env-file $(ENVFILE)
@@ -10,6 +11,7 @@ DB_SERVICES := $(if $(filter prod,$(PROFILE)),postgres qdrant redis,postgres-$(P
 
 # Allow: make VAR=value ...
 # Ex: make up PROFILE=local API_PORT=9090 API_HOST_PORT=9090 API_ORIGIN=http://localhost:9090
+# Ex: make desktop-build SIGNING_ENVFILE=.env.signing.prod   # sign with a different key set
 
 # -------- Meta --------
 .PHONY: help
@@ -40,9 +42,24 @@ build: ## Just (re)build images (no start)
 desktop-dev: ## Run the Tauri desktop app in dev (native window + hot reload); needs Rust
 	cd webui && npm_config_envfile="$(strip $(ENVFILE))" npm run tauri-dev
 
+# Optional local signing: if a `.env.signing` (see .env.signing.sample) exists on
+# macOS, source it and inject the Developer ID via `--config` so the build is signed
+# + notarized exactly like a CI release — for a pre-ship smoke test. Uses the cert in
+# your login keychain (no .p12 here) + the App Store Connect key for notarization.
+# Absent (or non-macOS) ⇒ the plain ad-hoc build, unchanged. `set -a` exports the
+# sourced vars into the tauri process (`.env` still feeds VITE_* via dotenv).
+# Pick a different file like ENVFILE: `make desktop-build SIGNING_ENVFILE=.env.signing.prod`.
 .PHONY: desktop-build
-desktop-build: ## Build the desktop installer for this OS → webui/src-tauri/target/release/bundle
-	cd webui && npm_config_envfile="$(strip $(ENVFILE))" npm run tauri-build
+desktop-build: ## Build desktop installer → webui/src-tauri/target/release/bundle (signs+notarizes if .env.signing exists)
+	@sf="$(strip $(SIGNING_ENVFILE))"; case "$$sf" in /*) ;; *) sf="$(CURDIR)/$$sf" ;; esac; \
+	if [ "$$(uname -s)" = "Darwin" ] && [ -f "$$sf" ]; then set -a; . "$$sf"; set +a; fi; \
+	if [ -n "$$APPLE_SIGNING_IDENTITY" ]; then \
+		echo "→ signing + notarizing with $$APPLE_SIGNING_IDENTITY"; \
+		cd webui && npm_config_envfile="$(strip $(ENVFILE))" npm run tauri-build -- \
+			--config "{\"bundle\":{\"macOS\":{\"signingIdentity\":\"$$APPLE_SIGNING_IDENTITY\"}}}"; \
+	else \
+		cd webui && npm_config_envfile="$(strip $(ENVFILE))" npm run tauri-build; \
+	fi
 
 .PHONY: pull
 pull: ## Pull published backend and webui images for DIM0_VERSION
