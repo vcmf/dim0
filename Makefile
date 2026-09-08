@@ -52,12 +52,17 @@ desktop-dev: ## Run the Tauri desktop app in dev (native window + hot reload); n
 .PHONY: desktop-build
 desktop-build: ## Build desktop installer → webui/src-tauri/target/release/bundle (signs+notarizes if .env.signing exists)
 	@sf="$(strip $(SIGNING_ENVFILE))"; case "$$sf" in /*) ;; *) sf="$(CURDIR)/$$sf" ;; esac; \
-	if [ "$$(uname -s)" = "Darwin" ] && [ -f "$$sf" ]; then set -a; . "$$sf"; set +a; fi; \
-	if [ -n "$$APPLE_SIGNING_IDENTITY" ]; then \
+	sign=; \
+	if [ "$$(uname -s)" = "Darwin" ] && [ -f "$$sf" ]; then \
+		set -a; . "$$sf"; set +a; \
+		[ -n "$$APPLE_SIGNING_IDENTITY" ] && sign=1; \
+	fi; \
+	if [ -n "$$sign" ]; then \
 		echo "→ signing + notarizing with $$APPLE_SIGNING_IDENTITY"; \
 		cd webui && npm_config_envfile="$(strip $(ENVFILE))" npm run tauri-build -- \
 			--config "{\"bundle\":{\"macOS\":{\"signingIdentity\":\"$$APPLE_SIGNING_IDENTITY\"}}}"; \
 	else \
+		unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_PATH APPLE_SIGNING_IDENTITY; \
 		cd webui && npm_config_envfile="$(strip $(ENVFILE))" npm run tauri-build; \
 	fi
 
