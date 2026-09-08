@@ -105,19 +105,21 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
         run: |
+          # bash indirect expansion (${!v}) — NOT eval, whose word-splitting would
+          # execute the multi-line .p8/.p12 secrets line by line.
           missing=
           for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_P8; do
-            eval "val=\${$v}"
-            [ -n "$val" ] || missing="$missing $v"
+            [ -n "${!v}" ] || missing="$missing $v"
           done
           if [ -n "$missing" ]; then
             echo "::error::APPLE_SIGNING_IDENTITY is set but these secrets are missing:$missing"
             exit 1
           fi
           key_path="$RUNNER_TEMP/apple_api_key.p8"
-          # Trailing newline: strict PEM/ES256 parsers (notarytool) can reject a
-          # key without one, and GitHub may store the secret without it.
-          printf '%s\n' "$APPLE_API_KEY_P8" > "$key_path"
+          # Exactly one trailing newline: strip any the stored secret carried, then
+          # add one — strict PEM/ES256 parsers (notarytool) can reject a key with
+          # none, and a doubled blank line is likewise avoided.
+          printf '%s\n' "${APPLE_API_KEY_P8%$'\n'}" > "$key_path"
           # Propagate to the build step ONLY when signing (absent otherwise).
           {
             echo "APPLE_API_KEY_PATH=$key_path"

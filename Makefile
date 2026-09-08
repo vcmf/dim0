@@ -58,6 +58,10 @@ desktop-build: ## Build desktop installer → webui/src-tauri/target/release/bun
 		[ -n "$$APPLE_SIGNING_IDENTITY" ] && sign=1; \
 	fi; \
 	if [ -n "$$sign" ]; then \
+		case "$$APPLE_API_KEY_PATH" in /*|"") ;; *) APPLE_API_KEY_PATH="$(CURDIR)/$$APPLE_API_KEY_PATH"; export APPLE_API_KEY_PATH ;; esac; \
+		if [ -z "$$APPLE_API_ISSUER" ] || [ -z "$$APPLE_API_KEY" ] || [ -z "$$APPLE_API_KEY_PATH" ] || [ ! -f "$$APPLE_API_KEY_PATH" ]; then \
+			echo "$(strip $(SIGNING_ENVFILE)): identity set but notarization creds missing/invalid (need APPLE_API_ISSUER, APPLE_API_KEY, and a readable APPLE_API_KEY_PATH)" >&2; exit 1; \
+		fi; \
 		echo "→ signing + notarizing with $$APPLE_SIGNING_IDENTITY"; \
 		cd webui && npm_config_envfile="$(strip $(ENVFILE))" npm run tauri-build -- \
 			--config "{\"bundle\":{\"macOS\":{\"signingIdentity\":\"$$APPLE_SIGNING_IDENTITY\"}}}"; \
