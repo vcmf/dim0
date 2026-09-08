@@ -1,3 +1,9 @@
+## v0.3.94 (2026-09-08)
+
+### Feat
+
+- **desktop**: sign and notarize macOS release in CI (#275)
+
 ## v0.3.93 (2026-09-05)
 
 ### Feat
