@@ -6,6 +6,9 @@ mlruns/
 .ipynb_checkpoints
 .pytest_cache
 .coverage
+coverage.xml
+htmlcov/
+webui/coverage/
 .vscode/
 data/
 *.csv

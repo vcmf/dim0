@@ -190,6 +190,10 @@ lint-ui: ## Webui type-check + eslint (check-all)
 test-ui: ## Webui vitest suite (one-shot)
 	cd webui && npm run test:run
 
+.PHONY: test-ui-cov
+test-ui-cov: ## Webui vitest suite with coverage (writes webui/coverage/lcov.info)
+	cd webui && npm run test:cov
+
 .PHONY: lint-backend
 lint-backend: ## Backend ruff check (runs before backend tests in CI)
 	cd backend && uv run ruff check topix test/unit
@@ -208,6 +212,10 @@ setup-mini-app-compiler: ## Install mini-app compiler node deps (sucrase) for th
 .PHONY: test-backend
 test-backend: setup-mini-app-compiler ## Backend unit tests (integration deferred — they need DBs)
 	cd backend && uv run pytest test/unit
+
+.PHONY: test-backend-cov
+test-backend-cov: setup-mini-app-compiler ## Backend unit tests with coverage (writes backend/coverage.xml)
+	cd backend && uv run pytest test/unit --cov=topix --cov-report=xml --cov-report=term-missing:skip-covered
 
 .PHONY: test-tauri
 test-tauri: ## Desktop (Tauri) Rust unit tests — the rusqlite storage layer (needs Rust + WebKit/GTK)
