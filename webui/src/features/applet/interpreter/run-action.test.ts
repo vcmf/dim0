@@ -93,6 +93,17 @@ describe("paths", () => {
   it("rejects a forbidden path segment", () => {
     expect(() => applyH({ do: "set", path: "__proto__.x", arg: lit(1) }, {})).toThrow(/forbidden path segment/)
   })
+
+  it("rejects a huge array index (no giant sparse array)", () => {
+    expect(() => applyH({ do: "set", path: "list.1000000000", arg: lit(1) }, { list: [1, 2] })).toThrow(
+      /array index out of range/,
+    )
+  })
+
+  it("allows setting at index == length (append slot)", () => {
+    const { state: next } = applyH({ do: "set", path: "list.2", arg: lit(3) }, { list: [1, 2] })
+    expect(next.list).toEqual([1, 2, 3])
+  })
 })
 
 

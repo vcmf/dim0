@@ -95,8 +95,14 @@ function setIn(obj: unknown, parts: string[], value: unknown): unknown {
   const [head, ...rest] = parts
 
   if (Array.isArray(obj)) {
-    const copy = obj.slice()
+    // Bound the index so a static path like "list.1000000000" can't allocate a
+    // giant sparse array (a DoS the eval budgets don't cover — they bound
+    // evaluation, not result size). Allow [0, length] (== length appends).
     const i = Number(head)
+    if (!Number.isInteger(i) || i < 0 || i > obj.length) {
+      throw new AppletError(`array index out of range: ${head}`)
+    }
+    const copy = obj.slice()
     copy[i] = rest.length ? setIn(copy[i], rest, value) : value
     return copy
   }

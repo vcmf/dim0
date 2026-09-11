@@ -69,7 +69,7 @@ export function evalExpr(node: Expr, env: Env, ctx: Ctx, depth = 0): unknown {
       const out: Record<string, unknown> = {}
       for (const p of node.properties) {
         if (p.type === "SpreadElement") {
-          Object.assign(out, spreadObject(spreadValue(p, env, ctx, d)))
+          Object.assign(out, spreadObject(evalExpr(p.argument, env, ctx, d)))
           continue
         }
         const key = p.computed
@@ -129,6 +129,20 @@ export function evalExpr(node: Expr, env: Env, ctx: Ctx, depth = 0): unknown {
 
 export function truthy(x: unknown): boolean {
   return Boolean(x)
+}
+
+
+// Run a whitelisted native method and convert any native throw (TypeError from
+// `[].reduce(fn)`, RangeError from `toFixed(500)` / a huge argument spread, …)
+// into an AppletError, so the renderer's degrade-gracefully contract (errors.ts)
+// always holds — the interpreter throws only AppletError.
+function native<T>(fn: () => T): T {
+  try {
+    return fn()
+  } catch (e) {
+    if (e instanceof AppletError) throw e
+    throw new AppletError(e instanceof Error ? e.message : String(e))
+  }
 }
 
 
@@ -231,9 +245,10 @@ function evalCall(node: Call, env: Env, ctx: Ctx, d: number): unknown {
     if (ns) {
       const fn = NAMESPACE_METHODS[ns]?.[method]
       if (!fn) throw new AppletError(`unknown ${ns} method: ${method}`)
-      return fn(...evalArgs(node.arguments, env, ctx, d))
+      const args = evalArgs(node.arguments, env, ctx, d) // spread is length-capped in `spread`
+      return native(() => fn(...args))
     }
-    return callValueMethod(recv, method, node.arguments, env, ctx, d)
+    return native(() => callValueMethod(recv, method, node.arguments, env, ctx, d))
   }
 
   throw new AppletError("unsupported call target")
@@ -253,12 +268,8 @@ function evalArgs(args: (Expr | Spread)[], env: Env, ctx: Ctx, d: number): unkno
 function spread(node: Spread, env: Env, ctx: Ctx, d: number): unknown[] {
   const v = evalExpr(node.argument, env, ctx, d)
   if (!Array.isArray(v)) throw new AppletError("spread of a non-array value")
+  ctx.budget.checkArray(v.length) // bounds `Math.max(...huge)` and array-literal spreads
   return v
-}
-
-
-function spreadValue(node: Spread, env: Env, ctx: Ctx, d: number): unknown {
-  return evalExpr(node.argument, env, ctx, d)
 }
 
 
@@ -279,10 +290,14 @@ function makeClosure(node: Expr | Spread | undefined, env: Env, ctx: Ctx, d: num
     throw new AppletError("this method requires an arrow function argument")
   }
   const arrow: Arrow = node
+  // Clone the enclosing scope ONCE per closure (not per element): params are
+  // rebound each call, non-param bindings stay from the parent. No closure
+  // escapes and calls are synchronous, so reuse is safe. Defaults resolve
+  // against `child`, so `(a, b = a) => …` sees the already-bound param.
+  const child: Env = new Map(env)
   return (...args: unknown[]) => {
     ctx.budget.tick()
-    const child: Env = new Map(env)
-    arrow.params.forEach((p, i) => bindPattern(p, args[i], child, env, ctx))
+    arrow.params.forEach((p, i) => bindPattern(p, args[i], child, child, ctx))
     return evalExpr(arrow.body, child, ctx, d)
   }
 }

@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest"
 
 import { evalExpr, makeCtx } from "./eval-expr"
+import { AppletError } from "./errors"
 import type { Env, Expr } from "./types"
 import { arr, arrow, bin, call, id, lit, mem, obj, objPat, spread, un } from "./test-ast"
 
@@ -141,5 +142,29 @@ describe("denial-of-service is bounded", () => {
 
   it("rejects spreading a non-array", () => {
     expect(() => run(arr(spread(lit(5))))).toThrow(/spread of a non-array/)
+  })
+
+  it("caps a huge array spread into a namespace call (Math.max(...huge))", () => {
+    const big = { xs: new Array(10_001).fill(1) }
+    expect(() => run(call(mem(id("Math"), "max"), spread(id("xs"))), big)).toThrow(/array length/)
+  })
+})
+
+
+// Native methods can throw TypeError/RangeError; the interpreter must convert
+// those to AppletError so the renderer's graceful-degradation catch always applies
+// (errors.ts). A native error escaping here would tear down the board.
+describe("AppletError-only contract holds for native throws", () => {
+  it("[].reduce(fn) with no initial value throws AppletError, not TypeError", () => {
+    const sum = arrow(["a", "b"], bin("+", id("a"), id("b")))
+    expect(() => run(call(mem(arr(), "reduce"), sum))).toThrow(AppletError)
+  })
+
+  it("toFixed with an out-of-range digit count throws AppletError", () => {
+    expect(() => run(call(mem(lit(5), "toFixed"), lit(500)))).toThrow(AppletError)
+  })
+
+  it("toString with an out-of-range radix throws AppletError", () => {
+    expect(() => run(call(mem(lit(5), "toString"), lit(100)))).toThrow(AppletError)
   })
 })
