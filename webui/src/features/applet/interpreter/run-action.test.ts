@@ -71,6 +71,12 @@ describe("guarded actions", () => {
     }
     expect(applyH(branch, { v: 0 }, { ok: false }).state.v).toBe(2)
   })
+
+  it("caps a deeply nested batch tree (AppletError, not a stack overflow)", () => {
+    let action: Action = { do: "set", path: "x", arg: lit(1) }
+    for (let i = 0; i < 200; i++) action = { do: "batch", actions: [action] }
+    expect(() => applyH(action, { x: 0 })).toThrow(/too deep|too many operations/)
+  })
 })
 
 

@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest"
 import { evalExpr, makeCtx } from "./eval-expr"
 import { AppletError } from "./errors"
 import type { Env, Expr } from "./types"
-import { arr, arrow, bin, call, id, lit, mem, obj, objPat, spread, un } from "./test-ast"
+import { arr, arrow, bin, call, id, lit, mem, obj, objPat, objSpread, spread, un } from "./test-ast"
 
 
 const E = (scope: Record<string, unknown> = {}): Env => new Map(Object.entries(scope))
@@ -96,6 +96,34 @@ describe("host globals are unreachable", () => {
 })
 
 
+// Regression: the whitelist tables are plain object literals, so `in`/bracket
+// access would match inherited Object.prototype names (constructor, toString, …).
+// Every lookup uses Object.hasOwn — these must all be rejected, not resolved.
+describe("inherited Object.prototype names are not a backdoor", () => {
+  it.each(["constructor", "toString", "valueOf", "hasOwnProperty", "isPrototypeOf"])(
+    "bare identifier `%s` is undefined",
+    (name) => {
+      expect(() => run(id(name))).toThrow(/undefined reference/)
+    },
+  )
+
+  it.each(["constructor", "toString", "valueOf"])("calling `%s()` is not whitelisted", (name) => {
+    expect(() => run(call(id(name)))).toThrow(/non-whitelisted/)
+  })
+
+  it("hasOwnProperty(x) is not whitelisted", () => {
+    expect(() => run(call(id("hasOwnProperty"), lit("x")))).toThrow(/non-whitelisted/)
+  })
+
+  it.each(["toString", "valueOf", "hasOwnProperty", "constructor"])(
+    "Math.%s(...) is an unknown method",
+    (method) => {
+      expect(() => run(call(mem(id("Math"), method), lit("x")))).toThrow(/unknown Math method|forbidden method/)
+    },
+  )
+})
+
+
 describe("disallowed node types are rejected (defense in depth)", () => {
   it.each(["NewExpression", "AssignmentExpression", "UpdateExpression", "SequenceExpression", "FunctionExpression", "TaggedTemplateExpression", "AwaitExpression"])(
     "%s",
@@ -147,6 +175,12 @@ describe("denial-of-service is bounded", () => {
   it("caps a huge array spread into a namespace call (Math.max(...huge))", () => {
     const big = { xs: new Array(10_001).fill(1) }
     expect(() => run(call(mem(id("Math"), "max"), spread(id("xs"))), big)).toThrow(/array length/)
+  })
+
+  it("caps a huge object spread ({...bigObject})", () => {
+    const huge: Record<string, number> = {}
+    for (let i = 0; i < 10_001; i++) huge["k" + i] = 1
+    expect(() => run(objSpread(id("h")), { h: huge })).toThrow(/array length/)
   })
 })
 

@@ -50,7 +50,7 @@ export function bindPattern(
       const consumed = new Set<string>()
       for (const prop of pattern.properties) {
         if (prop.type === "RestElement") {
-          bindPattern(prop.argument, restObject(value, consumed), target, evalEnv, ctx)
+          bindPattern(prop.argument, restObject(value, consumed, ctx), target, evalEnv, ctx)
           continue
         }
         const key = propKey(prop.key, prop.computed, evalEnv, ctx)
@@ -81,10 +81,12 @@ function propKey(key: Expr, computed: boolean, evalEnv: Env, ctx: Ctx): string {
 
 
 // Own enumerable keys of `value` not already destructured — the `...rest` object.
-function restObject(value: unknown, consumed: Set<string>): Record<string, unknown> {
+function restObject(value: unknown, consumed: Set<string>, ctx: Ctx): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   if (typeof value !== "object" || value === null) return out
-  for (const key of Object.keys(value)) {
+  const keys = Object.keys(value)
+  ctx.budget.checkArray(keys.length) // bound `({...rest}) => …` over a huge object
+  for (const key of keys) {
     if (!consumed.has(key) && !BLOCKED_KEYS.has(key)) {
       out[key] = (value as Record<string, unknown>)[key]
     }

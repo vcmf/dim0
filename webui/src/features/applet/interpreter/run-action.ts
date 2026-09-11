@@ -34,12 +34,14 @@ export function runHandler(action: Action, env: Env, state: StateObject, ctx: Ct
 }
 
 
-function apply(action: Action, env: Env, state: unknown, ctx: Ctx, toasts: Toast[]): unknown {
+function apply(action: Action, env: Env, state: unknown, ctx: Ctx, toasts: Toast[], depth = 0): unknown {
   ctx.budget.tick()
+  ctx.budget.checkDepth(depth) // a deeply nested batch/guard tree must throw AppletError, not overflow the stack
+  const d = depth + 1
 
   if ("guard" in action) {
-    if (truthy(evalExpr(action.guard, env, ctx))) return apply(action.then, env, state, ctx, toasts)
-    return action.else ? apply(action.else, env, state, ctx, toasts) : state
+    if (truthy(evalExpr(action.guard, env, ctx))) return apply(action.then, env, state, ctx, toasts, d)
+    return action.else ? apply(action.else, env, state, ctx, toasts, d) : state
   }
 
   switch (action.do) {
@@ -60,7 +62,7 @@ function apply(action: Action, env: Env, state: unknown, ctx: Ctx, toasts: Toast
       return state
     case "batch": {
       let s = state
-      for (const a of action.actions) s = apply(a, env, s, ctx, toasts)
+      for (const a of action.actions) s = apply(a, env, s, ctx, toasts, d)
       return s
     }
     default:

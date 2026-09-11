@@ -69,7 +69,7 @@ export function evalExpr(node: Expr, env: Env, ctx: Ctx, depth = 0): unknown {
       const out: Record<string, unknown> = {}
       for (const p of node.properties) {
         if (p.type === "SpreadElement") {
-          Object.assign(out, spreadObject(evalExpr(p.argument, env, ctx, d)))
+          Object.assign(out, spreadObject(evalExpr(p.argument, env, ctx, d), ctx))
           continue
         }
         const key = p.computed
@@ -160,7 +160,10 @@ function keyName(key: Expr): string {
 
 function resolveIdent(name: string, env: Env): unknown {
   if (env.has(name)) return env.get(name)
-  if (NAMESPACE_NAMES.has(name) || name in COERCIONS) return makeNamespace(name)
+  // `Object.hasOwn`, never `in`: COERCIONS is a plain object literal, so `in`
+  // would match inherited names (`constructor`, `toString`, `valueOf`, …) and let
+  // them resolve as globals — a whitelist bypass.
+  if (NAMESPACE_NAMES.has(name) || Object.hasOwn(COERCIONS, name)) return makeNamespace(name)
   throw new AppletError(`undefined reference: ${name}`)
 }
 
@@ -226,9 +229,11 @@ function evalCall(node: Call, env: Env, ctx: Ctx, d: number): unknown {
   const callee = node.callee
 
   // Identifier callee → a coercion only: Number(x) / String(x) / Boolean(x).
+  // `Object.hasOwn`, never `in`: otherwise `constructor()` / `toString()` /
+  // `valueOf()` would resolve to inherited Object.prototype functions.
   if (callee.type === "Identifier") {
     const name = callee.name
-    if (!env.has(name) && name in COERCIONS) {
+    if (!env.has(name) && Object.hasOwn(COERCIONS, name)) {
       return COERCIONS[name](...evalArgs(node.arguments, env, ctx, d))
     }
     throw new AppletError(`call to non-whitelisted function: ${name}`)
@@ -243,7 +248,10 @@ function evalCall(node: Call, env: Env, ctx: Ctx, d: number): unknown {
 
     const ns = namespaceName(recv)
     if (ns) {
-      const fn = NAMESPACE_METHODS[ns]?.[method]
+      // `Object.hasOwn` at both levels: bracket access on the plain-object tables
+      // would otherwise resolve inherited names (`Math.toString`, `Math.valueOf`).
+      const table = Object.hasOwn(NAMESPACE_METHODS, ns) ? NAMESPACE_METHODS[ns] : undefined
+      const fn = table && Object.hasOwn(table, method) ? table[method] : undefined
       if (!fn) throw new AppletError(`unknown ${ns} method: ${method}`)
       const args = evalArgs(node.arguments, env, ctx, d) // spread is length-capped in `spread`
       return native(() => fn(...args))
@@ -273,10 +281,12 @@ function spread(node: Spread, env: Env, ctx: Ctx, d: number): unknown[] {
 }
 
 
-function spreadObject(v: unknown): Record<string, unknown> {
+function spreadObject(v: unknown, ctx: Ctx): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   if (typeof v !== "object" || v === null) return out
-  for (const k of Object.keys(v)) {
+  const keys = Object.keys(v)
+  ctx.budget.checkArray(keys.length) // bound `{...bigObject}` like array spreads
+  for (const k of keys) {
     if (!BLOCKED_KEYS.has(k)) out[k] = (v as Record<string, unknown>)[k]
   }
   return out
