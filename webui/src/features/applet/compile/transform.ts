@@ -56,7 +56,23 @@ function readWidgetAttrs(attrs: RawNode[]): { scopes: AppletTree["scopes"]; pers
       throw new CompileError(`unknown <Widget> attribute '${an}' (allowed: state, data, derived, persist)`, locOf(attr))
     }
   }
+  checkScopeOverlap(scopes)
   return { scopes, persist }
+}
+
+
+// A key defined in more than one scope silently shadows at runtime — reject it.
+function checkScopeOverlap(scopes: AppletTree["scopes"]): void {
+  const seen = new Map<string, string>()
+  for (const which of ["state", "data", "derived"] as const) {
+    const obj = scopes[which]
+    if (!obj) continue
+    for (const key of Object.keys(obj)) {
+      const prev = seen.get(key)
+      if (prev) throw new CompileError(`key '${key}' is defined in both ${prev} and ${which} — use one scope`)
+      seen.set(key, which)
+    }
+  }
 }
 
 
@@ -148,19 +164,27 @@ function compileChild(expr: RawNode): Node | null {
   const list = asMapList(expr)
   if (list) return list
 
-  if (expr.type === "ConditionalExpression" && (isJsx(expr.consequent as RawNode) || isJsx(expr.alternate as RawNode))) {
-    const cond: CondNode = {
-      k: "cond",
-      test: validateExpr(expr.test as RawNode),
-      then: compileBranch(expr.consequent as RawNode),
+  // A ternary / `&&` is element-rendering when a branch yields an element (an
+  // element, a list, or a nested conditional) rather than a plain value. Each
+  // branch is compiled like any child; either may be JSX-empty (renders nothing).
+  if (expr.type === "ConditionalExpression") {
+    const thenNode = compileChild(expr.consequent as RawNode)
+    const elseNode = compileChild(expr.alternate as RawNode)
+    if (yieldsElement(thenNode) || yieldsElement(elseNode)) {
+      const cond: CondNode = { k: "cond", test: validateExpr(expr.test as RawNode) }
+      if (thenNode) cond.then = thenNode
+      if (elseNode) cond.else = elseNode
+      return cond
     }
-    const alt = compileBranchOpt(expr.alternate as RawNode)
-    if (alt) cond.else = alt
-    return cond
+    // both branches are values → an ordinary value ternary, handled as text below
   }
 
-  if (expr.type === "LogicalExpression" && expr.operator === "&&" && isJsx(expr.right as RawNode)) {
-    return { k: "cond", test: validateExpr(expr.left as RawNode), then: compileBranch(expr.right as RawNode) }
+  if (expr.type === "LogicalExpression" && expr.operator === "&&") {
+    const right = compileChild(expr.right as RawNode)
+    if (yieldsElement(right)) {
+      return { k: "cond", test: validateExpr(expr.left as RawNode), then: right as Node }
+    }
+    // value `&&` (e.g. `cond && "x"`) → text below
   }
 
   const txt: TxtNode = { k: "txt", x: validateExpr(expr) }
@@ -168,8 +192,14 @@ function compileChild(expr: RawNode): Node | null {
 }
 
 
-// `src.map((item, index) => <JSX>)` → list node. Returns null when it's not a
-// JSX-returning map (then it's an ordinary value expression, handled as text).
+function yieldsElement(node: Node | null): boolean {
+  return node !== null && node.k !== "txt"
+}
+
+
+// `src.map((item, index) => <element>)` → list node. The arrow body is compiled
+// like any child; a value-returning body (`x => x * 2`) yields a text node → not a
+// list, so we return null and the whole `.map` is handled as a value expression.
 function asMapList(expr: RawNode): ListNode | null {
   if (expr.type !== "CallExpression") return null
   const callee = expr.callee as RawNode
@@ -179,8 +209,8 @@ function asMapList(expr: RawNode): ListNode | null {
   if (args.length !== 1 || args[0].type !== "ArrowFunctionExpression") return null
 
   const arrow = args[0]
-  const body = arrow.body as RawNode
-  if (body.type !== "JSXElement") return null // value-returning map → not a list
+  const tpl = compileChild(arrow.body as RawNode)
+  if (!yieldsElement(tpl)) return null // value-returning map → not a list
 
   const params = arrow.params as RawNode[]
   if (!params[0] || params[0].type !== "Identifier") {
@@ -190,28 +220,13 @@ function asMapList(expr: RawNode): ListNode | null {
     k: "list",
     src: validateExpr(callee.object as RawNode),
     item: params[0].name as string,
-    tpl: compileNode(body),
+    tpl: tpl as Node,
   }
   if (params[1]) {
     if (params[1].type !== "Identifier") throw new CompileError("the .map index parameter must be a simple name", locOf(arrow))
     list.index = params[1].name as string
   }
   return list
-}
-
-
-// A ternary/`&&` branch can be an element, a `.map` list, a nested conditional,
-// or a value — the same cases as any child, so delegate to compileChild.
-function compileBranch(node: RawNode): Node {
-  const n = compileChild(node)
-  if (!n) throw new CompileError("empty conditional branch", locOf(node))
-  return n
-}
-
-
-function compileBranchOpt(node: RawNode): Node | null {
-  // compileChild returns null for a JSX-empty else (null / false / true)
-  return compileChild(node)
 }
 
 
@@ -295,11 +310,6 @@ function asLiteralJson(node: RawNode): { value: JsonValue } | null {
 
 
 // ---- JSX name helpers ----
-
-function isJsx(node: RawNode): boolean {
-  return node.type === "JSXElement" || node.type === "JSXFragment"
-}
-
 
 function jsxName(name: RawNode, at: RawNode): string {
   if (name.type !== "JSXIdentifier") throw new CompileError("namespaced/member element names are not supported", locOf(at))

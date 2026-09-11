@@ -7,7 +7,8 @@
 
 import { evalExpr, truthy, type Ctx } from "./eval-expr"
 import { AppletError } from "./errors"
-import { BLOCKED_KEYS, safeGet } from "./safe-get"
+import { splitAndCheckPath } from "./path"
+import { safeGet } from "./safe-get"
 import type { Action, Env } from "./types"
 
 
@@ -72,11 +73,9 @@ function apply(action: Action, env: Env, state: unknown, ctx: Ctx, toasts: Toast
 
 
 function splitPath(path: string): string[] {
-  const parts = path.split(".")
-  for (const p of parts) {
-    if (p === "" || BLOCKED_KEYS.has(p)) throw new AppletError(`forbidden path segment: ${p || "(empty)"}`)
-  }
-  return parts
+  const r = splitAndCheckPath(path)
+  if ("error" in r) throw new AppletError(r.error)
+  return r.segments
 }
 
 

@@ -6,6 +6,13 @@
 // It does NOT handle JSX — a `.map(x => <li>)` returning elements is lifted to a
 // list node by the transformer before it reaches here; this sees value
 // expressions only.
+//
+// Two parity gaps are ACCEPTED (the runtime interpreter is the real backstop, so
+// these are UX-only, never security): (1) value-method calls can't be checked per
+// receiver TYPE without type inference, so `title.map(...)` on a string validates
+// here yet throws at render; (2) identifiers aren't resolved against the declared
+// scope, so a typo'd reference validates here and fails at render as "undefined
+// reference". Both are candidate follow-ups (scope-aware validation).
 
 import {
   COERCIONS,
@@ -183,20 +190,23 @@ function vCall(node: RawNode): Expr {
       throw err(`'${callee.name}' is not a callable function — only Number/String/Boolean, or a method call`, callee)
     }
   } else if (callee.type === "MemberExpression") {
-    // a non-computed `.method()` must match the interpreter's dispatch: a
-    // namespace method for a namespace receiver (Math.max), else a value method.
-    // (BLOCKED_KEYS names get their own message from vMember below.)
-    if (!callee.computed) {
-      const obj = callee.object as RawNode
-      const prop = callee.property as RawNode
-      const name = prop.name as string
-      if (prop.type === "Identifier" && !BLOCKED_KEYS.has(name)) {
-        if (obj.type === "Identifier" && NAMESPACE_NAMES.has(obj.name as string)) {
-          const table = NAMESPACE_METHODS[obj.name as string]
-          if (!table || !Object.hasOwn(table, name)) throw err(`${obj.name}.${name}() is not available in an applet`, prop)
-        } else if (!VALUE_METHODS.has(name)) {
-          throw err(`method '.${name}()' is not available in an applet`, prop)
-        }
+    // computed method calls (`obj[fn]()`) can't be checked statically → reject so
+    // author-time validation stays aligned with runtime dispatch.
+    if (callee.computed) {
+      throw err("call methods by name (e.g. .map(…)), not with a computed key", callee)
+    }
+    // a `.method()` must match the interpreter's dispatch: a namespace method for
+    // a namespace receiver (Math.max), else a value method. (BLOCKED_KEYS names
+    // get their own message from vMember below.)
+    const obj = callee.object as RawNode
+    const prop = callee.property as RawNode
+    const name = prop.name as string
+    if (prop.type === "Identifier" && !BLOCKED_KEYS.has(name)) {
+      if (obj.type === "Identifier" && NAMESPACE_NAMES.has(obj.name as string)) {
+        const table = NAMESPACE_METHODS[obj.name as string]
+        if (!table || !Object.hasOwn(table, name)) throw err(`${obj.name}.${name}() is not available in an applet`, prop)
+      } else if (!VALUE_METHODS.has(name)) {
+        throw err(`method '.${name}()' is not available in an applet`, prop)
       }
     }
   } else {

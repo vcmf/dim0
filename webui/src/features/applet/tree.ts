@@ -55,10 +55,11 @@ export interface ListNode {
 }
 
 
-/** From `test ? <then> : <else>` or `test && <then>`. */
+/** From `test ? <then> : <else>` or `test && <then>`. Either branch may be
+ *  absent (a JSX-empty branch like `null`/`false` renders nothing). */
 export interface CondNode {
   k: "cond"
   test: Expr
-  then: Node
+  then?: Node
   else?: Node
 }

@@ -20,6 +20,9 @@ export function compileApplet(source: string): CompileResult {
     return { ok: true, tree }
   } catch (e) {
     if (e instanceof CompileError) return { ok: false, message: e.message, line: e.line, column: e.column }
+    // deeply-nested source can overflow the parser/transformer stack — return a
+    // result rather than throwing out of the write_note gate.
+    if (e instanceof RangeError) return { ok: false, message: "the applet is nested too deeply" }
     throw e
   }
 }

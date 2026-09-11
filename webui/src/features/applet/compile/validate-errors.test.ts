@@ -89,6 +89,23 @@ describe("author-time / runtime allowlist parity (review round 2)", () => {
 })
 
 
+describe("robustness + more parity (review round 3)", () => {
+  it("rejects a computed method call", () => {
+    failsWith(`<Widget data={{ obj: {}, fn: "" }}><div>{obj[fn]()}</div></Widget>`, /call methods by name/)
+  })
+
+  it("rejects a key defined in two scopes", () => {
+    failsWith(`<Widget state={{ x: 1 }} data={{ x: 2 }}><div/></Widget>`, /defined in both/)
+  })
+
+  it("deeply nested source returns a result instead of throwing", () => {
+    const deep = "!".repeat(50_000) + "true"
+    const r = compileApplet(`<Widget><div>{${deep}}</div></Widget>`)
+    expect(r.ok).toBe(false) // parser/transformer stack bound → structured error, no uncaught throw
+  })
+})
+
+
 describe("attribute + handler errors", () => {
   it("forbidden style attribute", () => {
     failsWith(`<Widget><div style={{}}/></Widget>`, /'style' attribute is not allowed/)

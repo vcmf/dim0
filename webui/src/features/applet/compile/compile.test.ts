@@ -201,6 +201,31 @@ describe("edge cases (review round 2)", () => {
 })
 
 
+describe("edge cases (review round 3)", () => {
+  it("ternary with an empty THEN branch compiles (cond ? null : <el>)", () => {
+    const t = tree(`<Widget state={{ open: false }}><div>{open ? null : <span>off</span>}</div></Widget>`)
+    const cond = (t.root as { children: Array<{ k: string; then?: unknown; else?: { k: string } }> }).children[0]
+    expect(cond.k).toBe("cond")
+    expect(cond.then).toBeUndefined()
+    expect(cond.else?.k).toBe("el")
+  })
+
+  it("lifts .map(x => cond ? <A/> : <B/>) to a list with a cond template", () => {
+    const t = tree(`<Widget data={{ items: [] }}><ul>{items.map(x => x.done ? <b>d</b> : <i>t</i>)}</ul></Widget>`)
+    const list = (t.root as { children: Array<{ k: string; tpl: { k: string } }> }).children[0]
+    expect(list.k).toBe("list")
+    expect(list.tpl.k).toBe("cond")
+  })
+
+  it("lifts .map(x => cond && <A/>) to a list", () => {
+    const t = tree(`<Widget data={{ items: [] }}><ul>{items.map(x => x.on && <li>{x.name}</li>)}</ul></Widget>`)
+    const list = (t.root as { children: Array<{ k: string; tpl: { k: string } }> }).children[0]
+    expect(list.k).toBe("list")
+    expect(list.tpl.k).toBe("cond")
+  })
+})
+
+
 describe("derived scope", () => {
   it("stores derived values as expressions", () => {
     const t = tree(`
