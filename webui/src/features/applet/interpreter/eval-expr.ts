@@ -15,10 +15,12 @@ import {
   NAMESPACE_METHODS,
   NAMESPACE_NAMES,
   namespaceName,
+  num,
   NUMBER_METHODS,
   PLAIN_ARRAY_METHODS,
   STRING_METHODS,
 } from "./globals"
+import { copyOwnEnumerable } from "./object-spread"
 import { BLOCKED_KEYS, safeGet } from "./safe-get"
 import type { Arrow, Call, Env, Expr, Ident, Member, Spread } from "./types"
 
@@ -69,7 +71,7 @@ export function evalExpr(node: Expr, env: Env, ctx: Ctx, depth = 0): unknown {
       const out: Record<string, unknown> = {}
       for (const p of node.properties) {
         if (p.type === "SpreadElement") {
-          Object.assign(out, spreadObject(evalExpr(p.argument, env, ctx, d), ctx))
+          Object.assign(out, copyOwnEnumerable(evalExpr(p.argument, env, ctx, d), ctx))
           continue
         }
         const key = p.computed
@@ -81,17 +83,22 @@ export function evalExpr(node: Expr, env: Env, ctx: Ctx, depth = 0): unknown {
       return out
     }
     case "UnaryExpression": {
-      if (node.operator === "typeof") return typeof evalExpr(node.argument, env, ctx, d)
+      if (node.operator === "typeof") {
+        // `typeof <unbound identifier>` is "undefined" in JS — the one operator
+        // safe on an unbound name; don't throw an undefined-reference here.
+        if (node.argument.type === "Identifier" && !isBound(node.argument.name, env)) return "undefined"
+        return typeof evalExpr(node.argument, env, ctx, d)
+      }
       const x = evalExpr(node.argument, env, ctx, d)
       switch (node.operator) {
         case "!":
           return !truthy(x)
         case "-":
-          return -toNum(x)
+          return -num(x)
         case "+":
-          return +toNum(x)
+          return +num(x)
         case "~":
-          return ~toNum(x)
+          return ~num(x)
         default:
           throw new AppletError(`unsupported unary operator: ${node.operator}`)
       }
@@ -146,8 +153,8 @@ function native<T>(fn: () => T): T {
 }
 
 
-function toNum(x: unknown): number {
-  return typeof x === "number" ? x : Number(x)
+function isBound(name: string, env: Env): boolean {
+  return env.has(name) || NAMESPACE_NAMES.has(name) || Object.hasOwn(COERCIONS, name)
 }
 
 
@@ -171,17 +178,17 @@ function resolveIdent(name: string, env: Env): unknown {
 function evalBinary(op: string, l: unknown, r: unknown): unknown {
   switch (op) {
     case "+":
-      return typeof l === "string" || typeof r === "string" ? String(l) + String(r) : toNum(l) + toNum(r)
+      return typeof l === "string" || typeof r === "string" ? String(l) + String(r) : num(l) + num(r)
     case "-":
-      return toNum(l) - toNum(r)
+      return num(l) - num(r)
     case "*":
-      return toNum(l) * toNum(r)
+      return num(l) * num(r)
     case "/":
-      return toNum(l) / toNum(r)
+      return num(l) / num(r)
     case "%":
-      return toNum(l) % toNum(r)
+      return num(l) % num(r)
     case "**":
-      return toNum(l) ** toNum(r)
+      return num(l) ** num(r)
     case "===":
       return l === r
     case "!==":
@@ -199,17 +206,17 @@ function evalBinary(op: string, l: unknown, r: unknown): unknown {
     case ">=":
       return (l as number) >= (r as number)
     case "&":
-      return toNum(l) & toNum(r)
+      return num(l) & num(r)
     case "|":
-      return toNum(l) | toNum(r)
+      return num(l) | num(r)
     case "^":
-      return toNum(l) ^ toNum(r)
+      return num(l) ^ num(r)
     case "<<":
-      return toNum(l) << toNum(r)
+      return num(l) << num(r)
     case ">>":
-      return toNum(l) >> toNum(r)
+      return num(l) >> num(r)
     case ">>>":
-      return toNum(l) >>> toNum(r)
+      return num(l) >>> num(r)
     default:
       // denies `in` and `instanceof` (§8.3)
       throw new AppletError(`unsupported binary operator: ${op}`)
@@ -281,18 +288,6 @@ function spread(node: Spread, env: Env, ctx: Ctx, d: number): unknown[] {
 }
 
 
-function spreadObject(v: unknown, ctx: Ctx): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  if (typeof v !== "object" || v === null) return out
-  const keys = Object.keys(v)
-  ctx.budget.checkArray(keys.length) // bound `{...bigObject}` like array spreads
-  for (const k of keys) {
-    if (!BLOCKED_KEYS.has(k)) out[k] = (v as Record<string, unknown>)[k]
-  }
-  return out
-}
-
-
 // Build a JS callback from an arrow node — invoked only by our own array-method
 // implementations (never stored, never handed out), so it cannot escape.
 function makeClosure(node: Expr | Spread | undefined, env: Env, ctx: Ctx, d: number): (...a: unknown[]) => unknown {
@@ -303,11 +298,13 @@ function makeClosure(node: Expr | Spread | undefined, env: Env, ctx: Ctx, d: num
   // Clone the enclosing scope ONCE per closure (not per element): params are
   // rebound each call, non-param bindings stay from the parent. No closure
   // escapes and calls are synchronous, so reuse is safe. Defaults resolve
-  // against `child`, so `(a, b = a) => …` sees the already-bound param.
+  // against `child`, so `(a, b = a) => …` sees the already-bound param. `d` is
+  // threaded into bindPattern so param defaults / computed keys compose the depth
+  // budget instead of resetting it (no stack overflow via nested defaults).
   const child: Env = new Map(env)
   return (...args: unknown[]) => {
     ctx.budget.tick()
-    arrow.params.forEach((p, i) => bindPattern(p, args[i], child, child, ctx))
+    arrow.params.forEach((p, i) => bindPattern(p, args[i], child, child, ctx, d))
     return evalExpr(arrow.body, child, ctx, d)
   }
 }
@@ -364,10 +361,13 @@ function callArrayMethod(
         return recv.at(a[0] as number)
       case "join":
         return recv.join(a[0] as string | undefined)
-      case "flat":
-        return recv.flat(a[0] as number | undefined)
+      case "flat": {
+        const out = recv.flat(a[0] as number | undefined)
+        ctx.budget.checkArray(out.length) // bound the flattened OUTPUT size
+        return out
+      }
       case "concat":
-        return recv.concat(...a.map((x) => (Array.isArray(x) ? x : [x])))
+        return concatBounded(recv, a, ctx)
       default:
         throw new AppletError(`unknown array method: ${method}`)
     }
@@ -378,7 +378,7 @@ function callArrayMethod(
     const copy = recv.slice()
     if (args.length === 0) return copy.sort(defaultCompare)
     const cmp = makeClosure(args[0], env, ctx, d)
-    return copy.sort((x, y) => toNum(cmp(x, y)))
+    return copy.sort((x, y) => num(cmp(x, y)))
   }
   if (method === "reduce") {
     const cb = makeClosure(args[0], env, ctx, d)
@@ -403,10 +403,41 @@ function callArrayMethod(
     case "every":
       return recv.every((v, i) => truthy(cb(v, i)))
     case "flatMap":
-      return recv.flatMap((v, i): unknown => cb(v, i))
+      return flatMapBounded(recv, cb, ctx)
     default:
       throw new AppletError(`unknown array method: ${method}`)
   }
+}
+
+
+// Array methods whose OUTPUT can grow past the input length spend only O(n) ops
+// but could allocate an O(n²) array (a memory DoS the op/input budgets miss). Both
+// build incrementally and check the running length BEFORE each push, so they throw
+// as soon as the cap is crossed — never materializing the huge array.
+function concatBounded(recv: unknown[], args: unknown[], ctx: Ctx): unknown[] {
+  const out = recv.slice()
+  for (const x of args) {
+    const items = Array.isArray(x) ? x : [x]
+    for (const it of items) {
+      ctx.budget.checkArray(out.length + 1)
+      out.push(it)
+    }
+  }
+  return out
+}
+
+
+function flatMapBounded(recv: unknown[], cb: (...a: unknown[]) => unknown, ctx: Ctx): unknown[] {
+  const out: unknown[] = []
+  recv.forEach((v, i) => {
+    const r = cb(v, i)
+    const items = Array.isArray(r) ? r : [r]
+    for (const it of items) {
+      ctx.budget.checkArray(out.length + 1)
+      out.push(it)
+    }
+  })
+  return out
 }
 
 

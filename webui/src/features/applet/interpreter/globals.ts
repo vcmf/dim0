@@ -35,7 +35,7 @@ export const COERCIONS: Record<string, Fn> = {
 }
 
 
-function num(x: unknown): number {
+export function num(x: unknown): number {
   return typeof x === "number" ? x : Number(x)
 }
 

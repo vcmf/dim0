@@ -172,6 +172,34 @@ describe("denial-of-service is bounded", () => {
     expect(() => run(arr(spread(lit(5))))).toThrow(/spread of a non-array/)
   })
 
+  it("bounds array-method OUTPUT size (flatMap can't build an O(n²) array)", () => {
+    const scope = { xs: new Array(200).fill(0), ys: new Array(200).fill(0) }
+    // xs.flatMap(x => ys) would be 200*200 = 40,000 elements for ~200 ops
+    expect(() => run(call(mem(id("xs"), "flatMap"), arrow(["x"], id("ys"))), scope)).toThrow(/array length/)
+  })
+
+  it("depth budget composes through nested param defaults (no stack overflow)", () => {
+    // Each level's `({a = <inner map>}) => 0` default is evaluated when `a` is
+    // missing; the depth must accumulate, not reset, so checkDepth fires.
+    const paramWithDefault = (name: string, def: Expr) =>
+      ({
+        type: "ObjectPattern",
+        properties: [
+          {
+            type: "Property",
+            key: id(name),
+            value: { type: "AssignmentPattern", left: { type: "Identifier", name }, right: def },
+            computed: false,
+            kind: "init",
+          },
+        ],
+      }) as unknown as Parameters<typeof arrow>[0][number]
+
+    let inner: Expr = lit(0)
+    for (let i = 0; i < 120; i++) inner = call(mem(id("xs"), "map"), arrow([paramWithDefault("a", inner)], lit(0)))
+    expect(() => run(inner, { xs: [0] })).toThrow(/too deep|too many operations/)
+  })
+
   it("caps a huge array spread into a namespace call (Math.max(...huge))", () => {
     const big = { xs: new Array(10_001).fill(1) }
     expect(() => run(call(mem(id("Math"), "max"), spread(id("xs"))), big)).toThrow(/array length/)

@@ -40,13 +40,13 @@ function apply(action: Action, env: Env, state: unknown, ctx: Ctx, toasts: Toast
   const d = depth + 1
 
   if ("guard" in action) {
-    if (truthy(evalExpr(action.guard, env, ctx))) return apply(action.then, env, state, ctx, toasts, d)
+    if (truthy(evalExpr(action.guard, env, ctx, depth))) return apply(action.then, env, state, ctx, toasts, d)
     return action.else ? apply(action.else, env, state, ctx, toasts, d) : state
   }
 
   switch (action.do) {
     case "set":
-      return setIn(state, splitPath(action.path), evalExpr(action.arg, env, ctx))
+      return setIn(state, splitPath(action.path), evalExpr(action.arg, env, ctx, depth))
     case "toggle": {
       const path = splitPath(action.path)
       return setIn(state, path, !truthy(getIn(state, path)))
@@ -55,10 +55,10 @@ function apply(action: Action, env: Env, state: unknown, ctx: Ctx, toasts: Toast
       const path = splitPath(action.path)
       const cur = getIn(state, path)
       const arr = Array.isArray(cur) ? cur : []
-      return setIn(state, path, [...arr, evalExpr(action.arg, env, ctx)])
+      return setIn(state, path, [...arr, evalExpr(action.arg, env, ctx, depth)])
     }
     case "toast":
-      toasts.push({ message: String(evalExpr(action.arg, env, ctx)), level: action.level ?? "info" })
+      toasts.push({ message: String(evalExpr(action.arg, env, ctx, depth)), level: action.level ?? "info" })
       return state
     case "batch": {
       let s = state

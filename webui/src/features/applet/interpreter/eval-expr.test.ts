@@ -42,6 +42,13 @@ describe("literals & operators", () => {
     expect(run(un("typeof", lit("s")))).toBe("string")
   })
 
+  it("typeof of an unbound identifier is 'undefined' (matches JS)", () => {
+    expect(run(un("typeof", id("missing")))).toBe("undefined")
+    expect(run(bin("===", un("typeof", id("x")), lit("undefined")))).toBe(true)
+    // but a bound identifier still reports its real type
+    expect(run(un("typeof", id("x")), { x: 5 })).toBe("number")
+  })
+
   it("comparisons and equality", () => {
     expect(run(bin("<", lit(1), lit(2)))).toBe(true)
     expect(run(bin("===", lit(1), lit(1)))).toBe(true)

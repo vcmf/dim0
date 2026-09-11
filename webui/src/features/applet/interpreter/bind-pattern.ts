@@ -2,9 +2,12 @@
 // the leaf identifiers of object/array patterns (with defaults + rest) into a
 // child env. Patterns only *name* already-safe values via `safeGet`, so they add
 // no new read surface — the §8.4 escape-key denial applies to every pattern key.
+// `depth` is threaded so default/computed-key expressions compose the depth budget
+// (never reset it) — otherwise nested defaults could overflow the JS stack.
 
 import { AppletError } from "./errors"
 import { evalExpr, type Ctx } from "./eval-expr"
+import { copyOwnEnumerable } from "./object-spread"
 import { BLOCKED_KEYS, safeGet } from "./safe-get"
 import type { Env, Expr, Pattern } from "./types"
 
@@ -19,8 +22,11 @@ export function bindPattern(
   target: Env,
   evalEnv: Env,
   ctx: Ctx,
+  depth: number,
 ): void {
   ctx.budget.tick()
+  ctx.budget.checkDepth(depth)
+  const d = depth + 1
 
   switch (pattern.type) {
     case "Identifier":
@@ -28,8 +34,8 @@ export function bindPattern(
       return
 
     case "AssignmentPattern": {
-      const resolved = value === undefined ? evalExpr(pattern.right, evalEnv, ctx) : value
-      bindPattern(pattern.left, resolved, target, evalEnv, ctx)
+      const resolved = value === undefined ? evalExpr(pattern.right, evalEnv, ctx, d) : value
+      bindPattern(pattern.left, resolved, target, evalEnv, ctx, d)
       return
     }
 
@@ -38,9 +44,9 @@ export function bindPattern(
       pattern.elements.forEach((el, i) => {
         if (el === null) return
         if (el.type === "RestElement") {
-          bindPattern(el.argument, arr.slice(i), target, evalEnv, ctx)
+          bindPattern(el.argument, arr.slice(i), target, evalEnv, ctx, d)
         } else {
-          bindPattern(el, arr[i], target, evalEnv, ctx)
+          bindPattern(el, arr[i], target, evalEnv, ctx, d)
         }
       })
       return
@@ -50,12 +56,12 @@ export function bindPattern(
       const consumed = new Set<string>()
       for (const prop of pattern.properties) {
         if (prop.type === "RestElement") {
-          bindPattern(prop.argument, restObject(value, consumed, ctx), target, evalEnv, ctx)
+          bindPattern(prop.argument, copyOwnEnumerable(value, ctx, consumed), target, evalEnv, ctx, d)
           continue
         }
-        const key = propKey(prop.key, prop.computed, evalEnv, ctx)
+        const key = propKey(prop.key, prop.computed, evalEnv, ctx, d)
         consumed.add(key)
-        bindPattern(prop.value, safeGet(value, key), target, evalEnv, ctx)
+        bindPattern(prop.value, safeGet(value, key), target, evalEnv, ctx, d)
       }
       return
     }
@@ -66,9 +72,9 @@ export function bindPattern(
 }
 
 
-function propKey(key: Expr, computed: boolean, evalEnv: Env, ctx: Ctx): string {
+function propKey(key: Expr, computed: boolean, evalEnv: Env, ctx: Ctx, depth: number): string {
   let name: string
-  if (computed) name = String(evalExpr(key, evalEnv, ctx))
+  if (computed) name = String(evalExpr(key, evalEnv, ctx, depth))
   else if (key.type === "Identifier") name = key.name
   else if (key.type === "Literal") name = String(key.value)
   else throw new AppletError("unsupported destructuring key")
@@ -77,19 +83,4 @@ function propKey(key: Expr, computed: boolean, evalEnv: Env, ctx: Ctx): string {
     throw new AppletError(`forbidden destructuring key: ${name}`)
   }
   return name
-}
-
-
-// Own enumerable keys of `value` not already destructured — the `...rest` object.
-function restObject(value: unknown, consumed: Set<string>, ctx: Ctx): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  if (typeof value !== "object" || value === null) return out
-  const keys = Object.keys(value)
-  ctx.budget.checkArray(keys.length) // bound `({...rest}) => …` over a huge object
-  for (const key of keys) {
-    if (!consumed.has(key) && !BLOCKED_KEYS.has(key)) {
-      out[key] = (value as Record<string, unknown>)[key]
-    }
-  }
-  return out
 }
