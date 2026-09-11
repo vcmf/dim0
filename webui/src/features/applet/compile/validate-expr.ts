@@ -11,6 +11,7 @@ import {
   COERCIONS,
   HOF_ARRAY_METHODS,
   NAMESPACE_METHODS,
+  NAMESPACE_NAMES,
   NUMBER_METHODS,
   PLAIN_ARRAY_METHODS,
   STRING_METHODS,
@@ -21,15 +22,15 @@ import { CompileError } from "./errors"
 import { locOf, type RawNode } from "./parse"
 
 
-// Every method name the interpreter can dispatch (value methods + namespace
-// methods). The validator rejects non-computed method calls outside this set so
-// author-time validation matches runtime (the self-correction contract).
-const ALL_METHODS = new Set<string>([
+// Methods callable on a value receiver (array | string | number). Namespace
+// methods (Math.*, Object.*, …) are checked per-namespace, not via this set, so
+// `xs.entries()` (a namespace-only name) is rejected on a value receiver — keeping
+// author-time validation aligned with the interpreter's per-type dispatch.
+const VALUE_METHODS = new Set<string>([
   ...HOF_ARRAY_METHODS,
   ...PLAIN_ARRAY_METHODS,
   ...STRING_METHODS,
   ...NUMBER_METHODS,
-  ...Object.values(NAMESPACE_METHODS).flatMap((t) => Object.keys(t)),
 ])
 
 
@@ -159,7 +160,13 @@ function vMember(node: RawNode): Expr {
   const computed = Boolean(node.computed)
   const optional = Boolean(node.optional)
   if (computed) {
-    return { type: "MemberExpression", object, property: vExpr(node.property as RawNode, false), computed, optional }
+    const prop = node.property as RawNode
+    // a statically-known computed key like obj["constructor"] can be rejected now
+    // rather than at render (a dynamic key stays a runtime-only check)
+    if (prop.type === "Literal" && typeof prop.value === "string" && BLOCKED_KEYS.has(prop.value)) {
+      throw err(`forbidden property access: ${prop.value}`, prop)
+    }
+    return { type: "MemberExpression", object, property: vExpr(prop, false), computed, optional }
   }
   const prop = node.property as RawNode
   if (prop.type !== "Identifier") throw err("unsupported member access", prop)
@@ -176,13 +183,20 @@ function vCall(node: RawNode): Expr {
       throw err(`'${callee.name}' is not a callable function — only Number/String/Boolean, or a method call`, callee)
     }
   } else if (callee.type === "MemberExpression") {
-    // a non-computed `.method()` must be a whitelisted method (BLOCKED_KEYS is
-    // caught with its own message by vMember below)
+    // a non-computed `.method()` must match the interpreter's dispatch: a
+    // namespace method for a namespace receiver (Math.max), else a value method.
+    // (BLOCKED_KEYS names get their own message from vMember below.)
     if (!callee.computed) {
+      const obj = callee.object as RawNode
       const prop = callee.property as RawNode
       const name = prop.name as string
-      if (prop.type === "Identifier" && !ALL_METHODS.has(name) && !BLOCKED_KEYS.has(name)) {
-        throw err(`method '.${name}()' is not available in an applet`, prop)
+      if (prop.type === "Identifier" && !BLOCKED_KEYS.has(name)) {
+        if (obj.type === "Identifier" && NAMESPACE_NAMES.has(obj.name as string)) {
+          const table = NAMESPACE_METHODS[obj.name as string]
+          if (!table || !Object.hasOwn(table, name)) throw err(`${obj.name}.${name}() is not available in an applet`, prop)
+        } else if (!VALUE_METHODS.has(name)) {
+          throw err(`method '.${name}()' is not available in an applet`, prop)
+        }
       }
     }
   } else {

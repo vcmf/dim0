@@ -2,6 +2,7 @@
 // §9.2). A handler is an action, or `cond && action`, or `cond ? a : b`. Verbs are
 // the closed §9.1 set; paths must be static string literals (the footgun gate).
 
+import { BLOCKED_KEYS } from "../interpreter/safe-get"
 import type { Action } from "../interpreter/types"
 import { ACTION_VERBS } from "../registry"
 import { CompileError } from "./errors"
@@ -61,7 +62,14 @@ function staticPath(node: RawNode | undefined, at: RawNode): string {
       locOf(node ?? at),
     )
   }
-  return node.value
+  // Validate segments now (mirrors run-action's splitPath) so a bad path is an
+  // author-time error, not a render-time crash.
+  const path = node.value
+  for (const seg of path.split(".")) {
+    if (seg === "") throw new CompileError(`invalid action path "${path}" — empty segment`, locOf(node))
+    if (BLOCKED_KEYS.has(seg)) throw new CompileError(`forbidden path segment '${seg}' in "${path}"`, locOf(node))
+  }
+  return path
 }
 
 

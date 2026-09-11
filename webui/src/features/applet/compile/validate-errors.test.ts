@@ -62,6 +62,30 @@ describe("prototype-pollution parity (literal keys)", () => {
   it("rejects a constructor key in data", () => {
     failsWith(`<Widget data={{ constructor: 1 }}><div/></Widget>`, /forbidden key/)
   })
+
+  it("rejects a __proto__ key in derived", () => {
+    failsWith(`<Widget data={{ xs: [] }} derived={{ __proto__: xs }}><div/></Widget>`, /forbidden key/)
+  })
+})
+
+
+describe("author-time / runtime allowlist parity (review round 2)", () => {
+  it.each([
+    // a namespace-only method name on a value receiver
+    [`<Widget data={{ xs: [] }}><div>{xs.entries()}</div></Widget>`, /method '\.entries\(\)' is not available/],
+    // an unknown namespace method
+    [`<Widget><div>{Math.foo(1)}</div></Widget>`, /Math\.foo\(\) is not available/],
+    // a statically-known computed escape key
+    [`<Widget><div>{obj["constructor"]}</div></Widget>`, /forbidden property access: constructor/],
+  ])("%s", (source, re) => failsWith(source, re))
+
+  it("rejects a __proto__ segment in an action path", () => {
+    failsWith(`<Widget state={{ a: {} }}><Button onClick={set("a.__proto__", 1)}>x</Button></Widget>`, /forbidden path segment/)
+  })
+
+  it("rejects an empty action path segment", () => {
+    failsWith(`<Widget><Button onClick={set("", 1)}>x</Button></Widget>`, /empty segment/)
+  })
 })
 
 

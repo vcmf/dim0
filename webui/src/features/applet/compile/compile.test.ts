@@ -181,6 +181,26 @@ describe("edge cases (review round 1)", () => {
 })
 
 
+describe("edge cases (review round 2)", () => {
+  it("compiles valid namespace calls", () => {
+    expect(compileApplet(`<Widget data={{ a: 1, b: 2 }}><div>{Math.max(a, b)}</div></Widget>`).ok).toBe(true)
+    expect(compileApplet(`<Widget data={{ o: {} }}><div>{Object.keys(o).length}</div></Widget>`).ok).toBe(true)
+  })
+
+  it("a false else-branch renders nothing (no else)", () => {
+    const t = tree(`<Widget state={{ v: false }}><div>{v ? <span>x</span> : false}</div></Widget>`)
+    const cond = (t.root as { children: Array<{ k: string; else?: unknown }> }).children[0]
+    expect(cond.k).toBe("cond")
+    expect(cond.else).toBeUndefined()
+  })
+
+  it("drops a standalone {false} child", () => {
+    const t = tree(`<Widget state={{ v: false }}><div>{v && "x"}{false}</div></Widget>`)
+    expect((t.root as { children: unknown[] }).children.length).toBe(1)
+  })
+})
+
+
 describe("derived scope", () => {
   it("stores derived values as expressions", () => {
     const t = tree(`

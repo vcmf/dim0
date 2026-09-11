@@ -65,7 +65,9 @@ function derivedObject(node: RawNode): Record<string, Expr> {
   const out: Record<string, Expr> = {}
   for (const p of node.properties as RawNode[]) {
     if (p.type !== "Property" || p.computed) throw new CompileError("`derived` keys must be plain names", locOf(p))
-    out[keyName(p.key as RawNode)] = validateExpr(p.value as RawNode)
+    const key = keyName(p.key as RawNode)
+    if (BLOCKED_KEYS.has(key)) throw new CompileError(`forbidden key: ${key}`, locOf(p.key as RawNode))
+    out[key] = validateExpr(p.value as RawNode)
   }
   return out
 }
@@ -138,6 +140,8 @@ function compileChildren(children: RawNode[]): Node[] {
 // or a value → text. Returns null for a `{/* comment */}`.
 function compileChild(expr: RawNode): Node | null {
   if (expr.type === "JSXEmptyExpression") return null
+  // JSX renders null / false / true as nothing
+  if (expr.type === "Literal" && (expr.value === null || expr.value === false || expr.value === true)) return null
   if (expr.type === "JSXElement") return compileNode(expr)
   if (expr.type === "JSXFragment") throw new CompileError("fragments <>…</> are not supported — use a wrapper element", locOf(expr))
 
@@ -206,8 +210,8 @@ function compileBranch(node: RawNode): Node {
 
 
 function compileBranchOpt(node: RawNode): Node | null {
-  if (node.type === "Literal" && node.value === null) return null
-  return compileBranch(node)
+  // compileChild returns null for a JSX-empty else (null / false / true)
+  return compileChild(node)
 }
 
 
