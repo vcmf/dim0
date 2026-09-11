@@ -24,6 +24,7 @@ const EXPECTED_CUSTOM_TYPES = [
   "mini-app",
   "code-sandbox",
   "sheet",
+  "ink",
   // No text concept — dbl-click must not open the lib's inline editor.
   "icon",
   "image",

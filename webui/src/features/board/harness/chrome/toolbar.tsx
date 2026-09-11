@@ -6,6 +6,7 @@ import {
   ConnectorPathIcon,
   CursorSelectIcon,
   DiamondShapeIcon,
+  EraserIcon,
   GraphViewIcon,
   GridViewIcon,
   HandGrabIcon,
@@ -13,6 +14,7 @@ import {
   LayerStackIcon,
   ListViewIcon,
   NotepadIcon,
+  PencilEditIcon,
   PresentationIcon,
   ShapesMenuIcon,
   SquareShapeIcon,
@@ -28,6 +30,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Separator } from "@/components/ui/separator"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Slider } from "@/components/ui/slider"
 import {
   Tooltip,
   TooltipContent,
@@ -217,6 +221,10 @@ function FlaredTray({
 export function HarnessToolbar({ local = false }: { local?: boolean } = {}) {
   const tool = useBoardAppStore((s) => s.tool)
   const setTool = useBoardAppStore((s) => s.setTool)
+  const inkColor = useBoardAppStore((s) => s.inkColor)
+  const setInkColor = useBoardAppStore((s) => s.setInkColor)
+  const inkSize = useBoardAppStore((s) => s.inkSize)
+  const setInkSize = useBoardAppStore((s) => s.setInkSize)
   const chromeDialog = useBoardAppStore((s) => s.chromeDialog)
   const setChromeDialog = useBoardAppStore((s) => s.setChromeDialog)
   const slidesPanelOpen = useBoardAppStore((s) => s.slidesPanelOpen)
@@ -336,6 +344,79 @@ export function HarnessToolbar({ local = false }: { local?: boolean } = {}) {
           </button>
         </TooltipTrigger>
         <TooltipContent side="bottom" sideOffset={10}>Select</TooltipContent>
+      </Tooltip>
+
+      <div className="flex items-center">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => setTool("ink")}
+              aria-label="Pen"
+              aria-pressed={tool === "ink"}
+              className={tool === "ink" ? activeClass : inactiveClass}
+            >
+              <PencilEditIcon className="size-4 shrink-0" weight={tool === "ink" ? "fill" : undefined} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" sideOffset={10}>Pen</TooltipContent>
+        </Tooltip>
+        {tool === "ink" && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label="Pen settings"
+                className="ml-0.5 flex size-6 items-center justify-center rounded-md hover:bg-secondary/60"
+              >
+                <span
+                  className="size-3 rounded-full border border-foreground/20"
+                  style={{ backgroundColor: inkColor }}
+                />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent side="bottom" sideOffset={10} className="w-56 space-y-4">
+              <label className="flex items-center justify-between gap-3 text-sm">
+                <span>Color</span>
+                <input
+                  type="color"
+                  value={inkColor}
+                  onChange={(event) => setInkColor(event.target.value)}
+                  className="h-8 w-12 cursor-pointer rounded border border-border bg-transparent p-0.5"
+                />
+              </label>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span>Width</span>
+                  <span className="text-muted-foreground">{inkSize}px</span>
+                </div>
+                <Slider
+                  min={1}
+                  max={24}
+                  step={1}
+                  value={[inkSize]}
+                  onValueChange={([value]) => setInkSize(value)}
+                  aria-label="Pen width"
+                />
+              </div>
+            </PopoverContent>
+          </Popover>
+        )}
+      </div>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => setTool("eraser")}
+            aria-label="Eraser"
+            aria-pressed={tool === "eraser"}
+            className={tool === "eraser" ? activeClass : inactiveClass}
+          >
+            <EraserIcon className="size-4 shrink-0" weight={tool === "eraser" ? "fill" : undefined} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" sideOffset={10}>Eraser</TooltipContent>
       </Tooltip>
 
       <Separator orientation="vertical" className="hidden md:!h-6 md:block" />

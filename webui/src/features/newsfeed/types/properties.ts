@@ -19,6 +19,7 @@ export type PropertyType =
   | 'url'
   | 'reasoning'
   | 'multi_source'
+  | 'ink'
 
 export interface BaseProperty<TType extends PropertyType> {
   type: TType
@@ -93,6 +94,19 @@ export interface MultiSourceProperty extends BaseProperty<'multi_source'> {
   sources?: UrlAnnotation[]
 }
 
+
+/** Pressure-aware freehand stroke data persisted with an ink node. */
+export interface InkProperty extends BaseProperty<'ink'> {
+  version: 1
+  size: number
+  points: Array<[x: number, y: number, pressure: number]>
+  thinning?: number
+  smoothing?: number
+  streamline?: number
+  intrinsicWidth: number
+  intrinsicHeight: number
+}
+
 export type DataProperty =
   | NumberProperty
   | DateProperty
@@ -109,3 +123,4 @@ export type DataProperty =
   | PositionProperty
   | SizeProperty
   | ReasoningProperty
+  | InkProperty
