@@ -72,6 +72,8 @@ export function bindPattern(
 }
 
 
+// Resolve an object-pattern key to its name (a computed key is evaluated), and
+// reject escape keys so `({ __proto__ }) => …` can't reach the prototype chain.
 function propKey(key: Expr, computed: boolean, evalEnv: Env, ctx: Ctx, depth: number): string {
   let name: string
   if (computed) name = String(evalExpr(key, evalEnv, ctx, depth))

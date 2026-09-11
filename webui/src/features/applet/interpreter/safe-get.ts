@@ -11,6 +11,9 @@ import { AppletError } from "./errors"
 export const BLOCKED_KEYS = new Set(["__proto__", "prototype", "constructor"])
 
 
+// Read `obj[key]` as data only: string/array `length` and indices, own enumerable
+// object properties. Escape keys throw; anything else (incl. prototype methods)
+// returns undefined.
 export function safeGet(obj: unknown, key: string): unknown {
   if (BLOCKED_KEYS.has(key)) {
     throw new AppletError(`forbidden property access: ${key}`)
