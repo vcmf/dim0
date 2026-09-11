@@ -51,16 +51,22 @@ const BINARY_OPS = new Set([
 const LOGICAL_OPS = new Set(["&&", "||", "??"])
 
 
+// Validate a value expression and return the clean `Expr`. The entry point;
+// arrows are rejected at top level (only allowed as array-method arguments).
 export function validateExpr(node: RawNode): Expr {
   return vExpr(node, false)
 }
 
 
+// Build a CompileError anchored at `node`'s source position.
 function err(message: string, node: RawNode): CompileError {
   return new CompileError(message, locOf(node))
 }
 
 
+// Core recursive validator: dispatch on node type, rejecting anything outside the
+// §8 allowlist and stripping spans. `allowArrow` is true only in array-arg
+// position, so a bare arrow anywhere else is rejected.
 function vExpr(node: RawNode, allowArrow: boolean): Expr {
   switch (node.type) {
     case "Literal":
@@ -111,6 +117,8 @@ function vExpr(node: RawNode, allowArrow: boolean): Expr {
 }
 
 
+// Validate a literal — string/number/boolean/null only (regex and bigint are
+// rejected).
 function vLiteral(node: RawNode): Lit {
   if (node.regex) throw err("regular expressions are not allowed", node)
   if (typeof node.value === "bigint") throw err("bigint literals are not allowed", node)
@@ -118,6 +126,8 @@ function vLiteral(node: RawNode): Lit {
 }
 
 
+// Validate a template literal, keeping its cooked string parts and validating
+// each interpolated expression.
 function vTemplate(node: RawNode): Expr {
   const quasis = (node.quasis as RawNode[]).map((q) => ({
     value: { cooked: (q.value as { cooked: string | null }).cooked ?? "" },
@@ -127,6 +137,7 @@ function vTemplate(node: RawNode): Expr {
 }
 
 
+// Validate array-literal elements, preserving holes (null) and spreads.
 function vElements(list: (RawNode | null)[]): (Expr | Spread | null)[] {
   return list.map((el) => {
     if (el === null) return null
@@ -136,6 +147,8 @@ function vElements(list: (RawNode | null)[]): (Expr | Spread | null)[] {
 }
 
 
+// Validate object-literal properties: plain `init` key/value pairs and spreads;
+// getters/setters and shorthand methods are rejected.
 function vObjectProps(list: RawNode[]): (Prop | Spread)[] {
   return list.map((p) => {
     if (p.type === "SpreadElement") return { type: "SpreadElement", argument: vExpr(p.argument as RawNode, false) }
@@ -148,6 +161,8 @@ function vObjectProps(list: RawNode[]): (Prop | Spread)[] {
 }
 
 
+// Validate an object key. A computed key is validated as an expression; a static
+// identifier/literal key is kept as-is but rejected if it's an escape key.
 function vKey(key: RawNode, computed: boolean): Expr {
   if (computed) return vExpr(key, false)
   if (key.type === "Identifier") {
@@ -162,6 +177,8 @@ function vKey(key: RawNode, computed: boolean): Expr {
 }
 
 
+// Validate member access (`a.b`, `a[b]`, optional `a?.b`), rejecting statically-
+// known escape keys (`constructor`/`__proto__`/`prototype`).
 function vMember(node: RawNode): Expr {
   const object = vExpr(node.object as RawNode, false)
   const computed = Boolean(node.computed)
@@ -182,6 +199,9 @@ function vMember(node: RawNode): Expr {
 }
 
 
+// Validate a call, enforcing the interpreter's call surface: bare-identifier
+// calls must be coercions, and `.method()` calls must be a whitelisted namespace
+// or value method. Arrow arguments are permitted (validated in-place).
 function vCall(node: RawNode): Expr {
   const callee = node.callee as RawNode
   if (callee.type === "Identifier") {
@@ -220,6 +240,8 @@ function vCall(node: RawNode): Expr {
 }
 
 
+// Validate an arrow used as an array-method callback: params are patterns, the
+// body must be a single expression (no block, not async).
 function vArrow(node: RawNode): Arrow {
   if (node.async) throw err("async arrow functions are not allowed", node)
   const params = (node.params as RawNode[]).map(vPattern)
@@ -229,6 +251,8 @@ function vArrow(node: RawNode): Arrow {
 }
 
 
+// Validate an arrow-parameter pattern: plain identifiers plus object/array
+// destructuring with defaults and rest.
 function vPattern(node: RawNode): Pattern {
   switch (node.type) {
     case "Identifier":
@@ -247,6 +271,8 @@ function vPattern(node: RawNode): Pattern {
 }
 
 
+// Validate one property of an object-destructuring pattern (a key→sub-pattern
+// pair, or a `...rest` element).
 function vPatternProp(node: RawNode): PatternProp | RestEl {
   if (node.type === "RestElement") return { type: "RestElement", argument: vPattern(node.argument as RawNode) }
   if (node.type !== "Property") throw err(`${node.type} is not allowed in a destructuring pattern`, node)

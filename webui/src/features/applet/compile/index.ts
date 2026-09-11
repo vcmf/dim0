@@ -13,6 +13,9 @@ export type CompileResult =
   | { ok: false; message: string; line?: number; column?: number }
 
 
+// Compile JSX source to the applet tree, returning a structured result: the tree
+// on success, or a positioned message on any compile/parse/overflow failure
+// (never throws for malformed input).
 export function compileApplet(source: string): CompileResult {
   try {
     const program = parseSource(source)
@@ -31,6 +34,8 @@ export function compileApplet(source: string): CompileResult {
 export type Validation = { ok: true } | { ok: false; message: string; line?: number; column?: number }
 
 
+// Thin ok/error gate over compileApplet (discards the tree) — the shape the
+// write_note validation path consumes.
 export function validateApplet(source: string): Validation {
   const r = compileApplet(source)
   return r.ok ? { ok: true } : { ok: false, message: r.message, line: r.line, column: r.column }

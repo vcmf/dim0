@@ -19,6 +19,8 @@ export interface RawNode {
 }
 
 
+// Parse applet JSX source into an ESTree Program (with locations). Wraps acorn's
+// syntax errors as CompileError so callers get a uniform, positioned failure.
 export function parseSource(source: string): RawNode {
   try {
     return JsxParser.parse(source, {

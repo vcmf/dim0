@@ -44,6 +44,7 @@ export const ACTION_VERBS = new Set(["set", "toggle", "append", "toast", "batch"
 export const FORBIDDEN_ATTRS = new Set(["style", "dangerouslySetInnerHTML"])
 
 
+// True if `tag` is an allowed applet component or a whitelisted HTML intrinsic.
 export function isKnownTag(tag: string): boolean {
   return COMPONENTS.has(tag) || INTRINSICS.has(tag)
 }

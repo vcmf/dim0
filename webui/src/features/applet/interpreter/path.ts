@@ -8,6 +8,8 @@ import { BLOCKED_KEYS } from "./safe-get"
 export type PathCheck = { segments: string[] } | { error: string }
 
 
+// Split a dotted state path into segments, rejecting empty segments and escape
+// keys. Returns the segments, or an error message for the caller to raise.
 export function splitAndCheckPath(path: string): PathCheck {
   const segments = path.split(".")
   for (const seg of segments) {

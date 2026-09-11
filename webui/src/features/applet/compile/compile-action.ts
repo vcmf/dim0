@@ -10,6 +10,8 @@ import { locOf, type RawNode } from "./parse"
 import { validateExpr } from "./validate-expr"
 
 
+// Compile a handler expression to an action: a bare verb call, a guarded
+// `cond && action`, or a `cond ? then : else` branch.
 export function compileAction(node: RawNode): Action {
   if (node.type === "LogicalExpression" && node.operator === "&&") {
     return { guard: validateExpr(node.left as RawNode), then: compileAction(node.right as RawNode) }
@@ -29,6 +31,8 @@ export function compileAction(node: RawNode): Action {
 }
 
 
+// Compile a verb call (`set`/`toggle`/`append`/`toast`/`batch`) to its action,
+// validating each verb's argument shape.
 function compileVerb(node: RawNode): Action {
   const callee = node.callee as RawNode
   if (callee.type !== "Identifier") throw new CompileError("unknown action", locOf(node))
@@ -55,6 +59,8 @@ function compileVerb(node: RawNode): Action {
 }
 
 
+// Require an action-path argument to be a static string literal and validate its
+// segments (via the shared checker) — returns the path string.
 function staticPath(node: RawNode | undefined, at: RawNode): string {
   if (!node || node.type !== "Literal" || typeof node.value !== "string") {
     throw new CompileError(
@@ -70,6 +76,7 @@ function staticPath(node: RawNode | undefined, at: RawNode): string {
 }
 
 
+// Validate the optional `toast` level argument — a literal "info" or "error".
 function toastLevel(node: RawNode | undefined): "info" | "error" | undefined {
   if (!node) return undefined
   if (node.type === "Literal" && (node.value === "info" || node.value === "error")) return node.value
@@ -77,6 +84,8 @@ function toastLevel(node: RawNode | undefined): "info" | "error" | undefined {
 }
 
 
+// Assert a required verb argument is present and not a spread; `sig` names the
+// expected call shape for the error message.
 function requireArg(node: RawNode | undefined, at: RawNode, sig: string): RawNode {
   if (!node) throw new CompileError(`missing argument — expected ${sig}`, locOf(at))
   if (node.type === "SpreadElement") throw new CompileError("spread arguments are not allowed in actions", locOf(node))

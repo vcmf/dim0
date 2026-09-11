@@ -14,6 +14,8 @@ import { locOf, type RawNode } from "./parse"
 import { validateExpr } from "./validate-expr"
 
 
+// Transform a parsed `<Widget>` root into the serialized applet tree: read its
+// scope attributes and compile its single child element.
 export function transform(root: RawNode): AppletTree {
   if (root.type !== "JSXElement") {
     throw new CompileError("an applet must be a single <Widget> … </Widget> element", locOf(root))
@@ -34,6 +36,8 @@ export function transform(root: RawNode): AppletTree {
 
 // ---- <Widget> scopes ----
 
+// Read the `<Widget>` attributes into scopes: `state`/`data` as literal JSON
+// objects, `derived` as expressions, and the `persist` boolean flag.
 function readWidgetAttrs(attrs: RawNode[]): { scopes: AppletTree["scopes"]; persist: boolean } {
   const scopes: AppletTree["scopes"] = {}
   let persist = false
@@ -76,6 +80,8 @@ function checkScopeOverlap(scopes: AppletTree["scopes"]): void {
 }
 
 
+// Compile the `derived` scope: a name→expression map (each value validated),
+// with escape keys rejected.
 function derivedObject(node: RawNode): Record<string, Expr> {
   if (node.type !== "ObjectExpression") throw new CompileError("`derived` must be an object of expressions", locOf(node))
   const out: Record<string, Expr> = {}
@@ -91,6 +97,9 @@ function derivedObject(node: RawNode): Record<string, Expr> {
 
 // ---- structure nodes ----
 
+// Compile a JSX element to an `el` node: validate the tag, split its attributes
+// into literal props / expression binds / event handlers, and compile its
+// children.
 function compileNode(node: RawNode): Node {
   if (node.type !== "JSXElement") throw new CompileError("expected an element here", locOf(node))
   const opening = node.openingElement as RawNode
@@ -130,6 +139,8 @@ function compileNode(node: RawNode): Node {
 }
 
 
+// Compile an element's JSX children to nodes, dropping whitespace-only text and
+// empty `{}` expressions.
 function compileChildren(children: RawNode[]): Node[] {
   const out: Node[] = []
   for (const child of children) {
@@ -192,6 +203,8 @@ function compileChild(expr: RawNode): Node | null {
 }
 
 
+// True when a compiled child renders element(s) — an element, list, or nested
+// conditional — rather than a plain text value (or nothing).
 function yieldsElement(node: Node | null): boolean {
   return node !== null && node.k !== "txt"
 }
@@ -251,6 +264,9 @@ function cleanJsxText(value: string): string {
 
 type AttrValue = { kind: "literal"; value: JsonValue } | { kind: "expr"; expr: Expr }
 
+// Resolve a non-handler attribute to either a literal prop value or a bound
+// expression: bare boolean attrs and pure-literal values become literals;
+// anything else is validated as an expression.
 function attrValue(attr: RawNode): AttrValue {
   const value = (attr.value ?? null) as RawNode | null
   if (value === null) return { kind: "literal", value: true } // boolean attr, e.g. `disabled`
@@ -267,6 +283,9 @@ function attrValue(attr: RawNode): AttrValue {
 
 // ---- literal JSON extraction (state/data + literal props) ----
 
+// Convert a pure-literal expression (literals, negative numbers, arrays/objects of
+// literals) to a JSON value; returns null if the node isn't fully literal. Throws
+// on an escape key in a literal object.
 function asLiteralJson(node: RawNode): { value: JsonValue } | null {
   switch (node.type) {
     case "Literal":
@@ -311,12 +330,14 @@ function asLiteralJson(node: RawNode): { value: JsonValue } | null {
 
 // ---- JSX name helpers ----
 
+// The tag name of a JSX element; rejects namespaced/member names (`<a.b>`).
 function jsxName(name: RawNode, at: RawNode): string {
   if (name.type !== "JSXIdentifier") throw new CompileError("namespaced/member element names are not supported", locOf(at))
   return name.name as string
 }
 
 
+// The name of a JSX attribute; rejects namespaced attributes (`a:b`).
 function jsxAttrName(attr: RawNode): string {
   const name = attr.name as RawNode
   if (name.type !== "JSXIdentifier") throw new CompileError("namespaced attributes are not supported", locOf(attr))
@@ -324,6 +345,8 @@ function jsxAttrName(attr: RawNode): string {
 }
 
 
+// Unwrap the inner expression of an attribute written as `name={…}`; errors if
+// the attribute isn't an expression container.
 function attrExpr(attr: RawNode, name: string): RawNode {
   const value = (attr.value ?? null) as RawNode | null
   if (!value || value.type !== "JSXExpressionContainer") {
@@ -333,6 +356,7 @@ function attrExpr(attr: RawNode, name: string): RawNode {
 }
 
 
+// The string name of an object-literal key (identifier or literal).
 function keyName(key: RawNode): string {
   if (key.type === "Identifier") return key.name as string
   if (key.type === "Literal") return String(key.value)
@@ -340,6 +364,8 @@ function keyName(key: RawNode): string {
 }
 
 
+// Filter a node's JSX children down to the meaningful ones (drop whitespace text
+// and empty `{}` expressions) — used to enforce <Widget>'s single-child rule.
 function elementChildren(children: RawNode[]): RawNode[] {
   return children.filter((c) => {
     if (c.type === "JSXText") return (c.value as string).trim() !== ""
