@@ -35,6 +35,9 @@ export function runHandler(action: Action, env: Env, state: StateObject, ctx: Ct
 }
 
 
+// Apply one action to `state`, returning the next state (immutably) and pushing
+// any toasts. Handles guarded actions and batches recursively; `depth` bounds the
+// action tree so a deeply nested batch/guard can't overflow the stack.
 function apply(action: Action, env: Env, state: unknown, ctx: Ctx, toasts: Toast[], depth = 0): unknown {
   ctx.budget.tick()
   ctx.budget.checkDepth(depth) // a deeply nested batch/guard tree must throw AppletError, not overflow the stack
@@ -72,6 +75,8 @@ function apply(action: Action, env: Env, state: unknown, ctx: Ctx, toasts: Toast
 }
 
 
+// Split and validate a static action path (via the shared checker), throwing an
+// AppletError on an empty or escape-key segment.
 function splitPath(path: string): string[] {
   const r = splitAndCheckPath(path)
   if ("error" in r) throw new AppletError(r.error)
@@ -79,6 +84,8 @@ function splitPath(path: string): string[] {
 }
 
 
+// Read the value at a dotted path from `obj` (via safeGet), returning undefined if
+// any intermediate value is nullish.
 function getIn(obj: unknown, parts: string[]): unknown {
   let cur = obj
   for (const p of parts) {
