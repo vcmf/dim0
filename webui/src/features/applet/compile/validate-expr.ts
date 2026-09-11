@@ -7,10 +7,30 @@
 // list node by the transformer before it reaches here; this sees value
 // expressions only.
 
+import {
+  COERCIONS,
+  HOF_ARRAY_METHODS,
+  NAMESPACE_METHODS,
+  NUMBER_METHODS,
+  PLAIN_ARRAY_METHODS,
+  STRING_METHODS,
+} from "../interpreter/globals"
 import { BLOCKED_KEYS } from "../interpreter/safe-get"
 import type { Arrow, Expr, Lit, Pattern, PatternProp, Prop, RestEl, Spread } from "../interpreter/types"
 import { CompileError } from "./errors"
 import { locOf, type RawNode } from "./parse"
+
+
+// Every method name the interpreter can dispatch (value methods + namespace
+// methods). The validator rejects non-computed method calls outside this set so
+// author-time validation matches runtime (the self-correction contract).
+const ALL_METHODS = new Set<string>([
+  ...HOF_ARRAY_METHODS,
+  ...PLAIN_ARRAY_METHODS,
+  ...STRING_METHODS,
+  ...NUMBER_METHODS,
+  ...Object.values(NAMESPACE_METHODS).flatMap((t) => Object.keys(t)),
+])
 
 
 const UNARY_OPS = new Set(["!", "-", "+", "~", "typeof"])
@@ -150,7 +170,22 @@ function vMember(node: RawNode): Expr {
 
 function vCall(node: RawNode): Expr {
   const callee = node.callee as RawNode
-  if (callee.type !== "Identifier" && callee.type !== "MemberExpression") {
+  if (callee.type === "Identifier") {
+    // bare-identifier calls are the coercions only (Number/String/Boolean)
+    if (!Object.hasOwn(COERCIONS, callee.name as string)) {
+      throw err(`'${callee.name}' is not a callable function — only Number/String/Boolean, or a method call`, callee)
+    }
+  } else if (callee.type === "MemberExpression") {
+    // a non-computed `.method()` must be a whitelisted method (BLOCKED_KEYS is
+    // caught with its own message by vMember below)
+    if (!callee.computed) {
+      const prop = callee.property as RawNode
+      const name = prop.name as string
+      if (prop.type === "Identifier" && !ALL_METHODS.has(name) && !BLOCKED_KEYS.has(name)) {
+        throw err(`method '.${name}()' is not available in an applet`, prop)
+      }
+    }
+  } else {
     throw err("only method calls and whitelisted functions may be called", callee)
   }
   const args: (Expr | Spread)[] = (node.arguments as RawNode[]).map((a) => {

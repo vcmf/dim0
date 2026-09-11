@@ -157,6 +157,30 @@ describe("handlers", () => {
 })
 
 
+describe("edge cases (review round 1)", () => {
+  it("does not treat a plain 'on'-prefixed attribute as a handler", () => {
+    const t = tree(`<Widget><div once="x">y</div></Widget>`)
+    expect((t.root as { props: Record<string, unknown> }).props.once).toBe("x")
+  })
+
+  it("trims multi-line JSX text the way JSX does", () => {
+    const t = tree(`<Widget><p>\n    Hello world\n  </p></Widget>`)
+    expect((t.root as { children: Array<{ v: string }> }).children[0].v).toBe("Hello world")
+  })
+
+  it("lifts a .map list inside a ternary branch", () => {
+    const t = tree(`
+      <Widget data={{ items: [] }}>
+        <div>{items.length ? items.map(x => <li>{x}</li>) : <span>none</span>}</div>
+      </Widget>
+    `)
+    const cond = (t.root as { children: Array<{ k: string; then: { k: string } }> }).children[0]
+    expect(cond.k).toBe("cond")
+    expect(cond.then.k).toBe("list")
+  })
+})
+
+
 describe("derived scope", () => {
   it("stores derived values as expressions", () => {
     const t = tree(`

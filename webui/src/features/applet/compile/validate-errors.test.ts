@@ -43,8 +43,24 @@ describe("expression-grammar errors", () => {
     [`<Widget><div>{delete a.b}</div></Widget>`, /operator 'delete' is not allowed/],
     [`<Widget><div>{(x => x)}</div></Widget>`, /arrow functions are only allowed/],
     [`<Widget><div>{new Thing()}</div></Widget>`, /NewExpression is not allowed/],
+    // grammar parity with the interpreter: calls must match the runtime allowlist
+    [`<Widget><div>{parseInt(x)}</div></Widget>`, /is not a callable function/],
+    [`<Widget><div>{alert("hi")}</div></Widget>`, /is not a callable function/],
+    [`<Widget data={{ xs: [] }}><div>{xs.forEach(x => x)}</div></Widget>`, /method '\.forEach\(\)' is not available/],
+    [`<Widget data={{ xs: [] }}><div>{xs.push(1)}</div></Widget>`, /method '\.push\(\)' is not available/],
   ])("%s", (source, re) => {
     failsWith(source, re)
+  })
+})
+
+
+describe("prototype-pollution parity (literal keys)", () => {
+  it("rejects a __proto__ key in state", () => {
+    failsWith(`<Widget state={{ __proto__: { x: 1 } }}><div/></Widget>`, /forbidden key/)
+  })
+
+  it("rejects a constructor key in data", () => {
+    failsWith(`<Widget data={{ constructor: 1 }}><div/></Widget>`, /forbidden key/)
   })
 })
 

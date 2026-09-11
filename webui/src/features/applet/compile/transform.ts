@@ -4,6 +4,7 @@
 // text/`{expr}` to `txt`, attributes to literal props / expr binds / action
 // handlers. All expressions/actions go through the §8/§9 validators.
 
+import { BLOCKED_KEYS } from "../interpreter/safe-get"
 import type { Expr } from "../interpreter/types"
 import { EVENT_HANDLERS, FORBIDDEN_ATTRS, isKnownTag } from "../registry"
 import type { AppletTree, CondNode, ElNode, JsonValue, ListNode, Node, TxtNode } from "../tree"
@@ -90,7 +91,8 @@ function compileNode(node: RawNode): Node {
     const an = jsxAttrName(attr)
     if (FORBIDDEN_ATTRS.has(an)) throw new CompileError(`the '${an}' attribute is not allowed`, locOf(attr))
 
-    if (an.startsWith("on")) {
+    if (/^on[A-Z]/.test(an)) {
+      // the handler shape `on<Capital>` — not a plain prop like `once` / `online`
       if (!EVENT_HANDLERS.has(an)) throw new CompileError(`event handler '${an}' is not allowed`, locOf(attr))
       on![an.slice(2).toLowerCase()] = compileAction(attrExpr(attr, an))
       continue
@@ -114,8 +116,8 @@ function compileChildren(children: RawNode[]): Node[] {
   const out: Node[] = []
   for (const child of children) {
     if (child.type === "JSXText") {
-      const text = (child.value as string).replace(/\s+/g, " ")
-      if (text.trim() === "") continue
+      const text = cleanJsxText(child.value as string)
+      if (text === "") continue
       out.push({ k: "txt", v: text })
     } else if (child.type === "JSXElement") {
       out.push(compileNode(child))
@@ -194,15 +196,35 @@ function asMapList(expr: RawNode): ListNode | null {
 }
 
 
+// A ternary/`&&` branch can be an element, a `.map` list, a nested conditional,
+// or a value — the same cases as any child, so delegate to compileChild.
 function compileBranch(node: RawNode): Node {
-  if (node.type === "JSXElement") return compileNode(node)
-  return { k: "txt", x: validateExpr(node) }
+  const n = compileChild(node)
+  if (!n) throw new CompileError("empty conditional branch", locOf(node))
+  return n
 }
 
 
 function compileBranchOpt(node: RawNode): Node | null {
   if (node.type === "Literal" && node.value === null) return null
   return compileBranch(node)
+}
+
+
+// Normalize JSX text the way JSX does: trim whitespace on lines adjacent to a
+// newline, drop blank lines, join the rest with single spaces. Whitespace within
+// a single line (no newline) is preserved.
+function cleanJsxText(value: string): string {
+  const lines = value.split("\n")
+  let out = ""
+  lines.forEach((rawLine, i) => {
+    let line = rawLine
+    if (i !== 0) line = line.replace(/^[ \t\r]+/, "")
+    if (i !== lines.length - 1) line = line.replace(/[ \t\r]+$/, "")
+    if (line === "") return
+    out += (out === "" ? "" : " ") + line
+  })
+  return out
 }
 
 
@@ -252,9 +274,13 @@ function asLiteralJson(node: RawNode): { value: JsonValue } | null {
       const out: Record<string, JsonValue> = {}
       for (const p of node.properties as RawNode[]) {
         if (p.type !== "Property" || p.computed || p.kind !== "init") return null
+        const key = keyName(p.key as RawNode)
+        // Match the expression path (vKey): reject escape keys rather than let
+        // `out["__proto__"] = …` silently mutate the object's prototype.
+        if (BLOCKED_KEYS.has(key)) throw new CompileError(`forbidden key: ${key}`, locOf(p.key as RawNode))
         const v = asLiteralJson(p.value as RawNode)
         if (!v) return null
-        out[keyName(p.key as RawNode)] = v.value
+        out[key] = v.value
       }
       return { value: out }
     }
