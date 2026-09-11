@@ -64,9 +64,15 @@ describe("noteToPage", () => {
 describe("createBoardPageProvider (on-device store)", () => {
   // Wire a live board over the shared local engine, so the provider's local
   // read/write paths run end-to-end (no REST).
+  // Track the persistence built per test so afterEach can cancel its pending
+  // debounced flush; an un-closed timer would otherwise fire after the next
+  // resetIdb() and put() into a torn-down DB (InvalidStateError).
+  let activePersistence: BoardPersistence | null = null
+
   const setup = async (boardId = "b", currentLayer: string | null = null) => {
     const { engine } = await getLocalStores()
     const persistence = new BoardPersistence(boardId, { engine })
+    activePersistence = persistence
     const store = freshStore("live")
     persistence.attach(store)
     setBoardPersistenceRef(persistence)
@@ -86,6 +92,8 @@ describe("createBoardPageProvider (on-device store)", () => {
 
   beforeEach(() => resetIdb())
   afterEach(() => {
+    activePersistence?.close() // cancel any pending debounced flush
+    activePersistence = null
     setBoardPersistenceRef(null)
     setCanvasStoreRef(null)
     setBoardSyncRef(null)
