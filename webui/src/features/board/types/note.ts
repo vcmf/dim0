@@ -116,6 +116,10 @@ export const DEFAULT_WIDGET_HEIGHT = 500
 export const DEFAULT_MINI_APP_WIDTH = 720
 export const DEFAULT_MINI_APP_HEIGHT = 440
 
+// Applet: same default footprint as the mini-app it replaces.
+export const DEFAULT_APPLET_WIDTH = 720
+export const DEFAULT_APPLET_HEIGHT = 440
+
 
 /**
  * Function to create default properties for a note.
@@ -136,6 +140,8 @@ export const createDefaultNoteProperties = ({ type = 'rectangle' }: { type?: Nod
     ? { width: DEFAULT_WIDGET_WIDTH, height: DEFAULT_WIDGET_HEIGHT }
     : type === 'mini-app'
     ? { width: DEFAULT_MINI_APP_WIDTH, height: DEFAULT_MINI_APP_HEIGHT }
+    : type === 'applet'
+    ? { width: DEFAULT_APPLET_WIDTH, height: DEFAULT_APPLET_HEIGHT }
     : type === 'ellipse' || type === 'layered-circle'
     ? { width: DEFAULT_ELLIPSE_NOTE_WIDTH, height: DEFAULT_ELLIPSE_NOTE_HEIGHT }
     : type === 'diamond' || type === 'soft-diamond' || type === 'layered-diamond'
@@ -213,6 +219,8 @@ export const createDefaultNote = ({
       ? DEFAULT_WIDGET_WIDTH
       : nodeType === 'mini-app'
       ? DEFAULT_MINI_APP_WIDTH
+      : nodeType === 'applet'
+      ? DEFAULT_APPLET_WIDTH
       : nodeType === 'ellipse' || nodeType === 'layered-circle'
       ? DEFAULT_ELLIPSE_NOTE_WIDTH
       : nodeType === 'diamond' || nodeType === 'soft-diamond' || nodeType === 'layered-diamond'
@@ -232,6 +240,8 @@ export const createDefaultNote = ({
       ? DEFAULT_WIDGET_HEIGHT
       : nodeType === 'mini-app'
       ? DEFAULT_MINI_APP_HEIGHT
+      : nodeType === 'applet'
+      ? DEFAULT_APPLET_HEIGHT
       : nodeType === 'ellipse' || nodeType === 'layered-circle'
       ? DEFAULT_ELLIPSE_NOTE_HEIGHT
       : nodeType === 'diamond' || nodeType === 'soft-diamond' || nodeType === 'layered-diamond'

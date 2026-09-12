@@ -248,6 +248,7 @@ const DEFAULT_SIZE: Record<string, { w: number; h: number }> = {
   diamond: { w: 340, h: 340 },
   sheet: { w: 440, h: 440 },
   "mini-app": { w: 720, h: 440 },
+  applet: { w: 720, h: 440 },
   widget: { w: 480, h: 320 },
   "code-sandbox": { w: 560, h: 360 },
 }
@@ -291,6 +292,7 @@ const NODE_TYPE: Record<string, string> = {
   rect: "rect",
   sheet: "sheet",
   "mini-app": "mini-app",
+  applet: "applet",
   widget: "widget",
   "code-sandbox": "code-sandbox",
 }

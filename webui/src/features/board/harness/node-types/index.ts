@@ -1,3 +1,4 @@
+import { appletDef } from "./applet"
 import { codeSandboxDef } from "./code-sandbox"
 import { documentDef } from "./document"
 import { folderDef } from "./folder"
@@ -16,11 +17,13 @@ export const boardNodeTypes: ReadonlyArray<BoardNodeTypeDef> = [
   documentDef,
   widgetDef,
   miniAppDef,
+  appletDef,
   codeSandboxDef,
   sheetDef,
 ]
 
 
+export { appletDef, AppletNodeView } from "./applet"
 export { codeSandboxDef, CodeSandboxView } from "./code-sandbox"
 export { documentDef, DocumentView } from "./document"
 export { folderDef, FolderView } from "./folder"

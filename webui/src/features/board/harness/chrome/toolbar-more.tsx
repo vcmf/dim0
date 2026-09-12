@@ -1,4 +1,4 @@
-import { CursorClickIcon } from "@phosphor-icons/react"
+import { ChartBarIcon } from "@phosphor-icons/react"
 import { useCanvasStore } from "@canvas-harness/react"
 
 import {
@@ -72,7 +72,7 @@ const MoreMenuItems = ({
   const folderCount = useNodeTypeCount(store, "folder")
   const documentCount = useNodeTypeCount(store, "document")
   const codeSandboxCount = useNodeTypeCount(store, "code-sandbox")
-  const miniAppCount = useNodeTypeCount(store, "mini-app")
+  const appletCount = useNodeTypeCount(store, "applet")
 
   return (
     <>
@@ -109,10 +109,10 @@ const MoreMenuItems = ({
         <span>Code sandbox</span>
         <NodeLimitBadge count={codeSandboxCount} limit={nodeLimitFor("code-sandbox", userPlan)} />
       </DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => setTool("mini-app")} className="gap-2 text-sm">
-        <CursorClickIcon className="size-4 shrink-0" />
-        <span>Mini-app</span>
-        <NodeLimitBadge count={miniAppCount} limit={nodeLimitFor("mini-app", userPlan)} />
+      <DropdownMenuItem onSelect={() => setTool("applet")} className="gap-2 text-sm">
+        <ChartBarIcon className="size-4 shrink-0" />
+        <span>Applet</span>
+        <NodeLimitBadge count={appletCount} limit={nodeLimitFor("applet", userPlan)} />
       </DropdownMenuItem>
     </>
   )

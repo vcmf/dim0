@@ -1,0 +1,105 @@
+// On-canvas view for an applet note.
+//
+// Unlike the legacy mini-app (a ~5 MB sandboxed iframe with deferred mounting),
+// an applet renders INLINE as lightweight React via AppletRenderer — so this view
+// just wraps it in the standard canvas chrome (traffic lights + title caption) and
+// gates pointer events on selection so canvas pan/zoom passes cleanly through
+// unselected applets. State is hydrated from / persisted to the local store.
+
+import { useCallback, useEffect, useState } from "react"
+
+import { ChartBarIcon } from "@phosphor-icons/react"
+import { type NodeId } from "@canvas-harness/core"
+import { useCanvasStore, useNode, useSelection } from "@canvas-harness/react"
+
+import { AppletRenderer, fetchAppletState, saveAppletState } from "@/features/applet/render"
+import type { JsonValue } from "@/features/applet/tree"
+import { removeNodeSubtree } from "@/features/board/harness/graph/subtree"
+import { cn } from "@/lib/utils"
+
+import type { NoteNodeData } from "../../convert/note-to-node"
+import { NodeTitleCaption, NodeTrafficLights } from "../../shared-views"
+import { useBoardAppStore } from "../../store/board-app-store"
+
+
+export interface AppletViewProps {
+  id: NodeId
+}
+
+
+/**
+ * Canvas view for an applet note. Loads persisted state, then renders the applet
+ * inline; interaction is enabled only when the node is selected so board gestures
+ * aren't captured by an idle widget.
+ */
+export function AppletNodeView({ id }: AppletViewProps) {
+  const node = useNode(id)
+  const store = useCanvasStore()
+  const canEdit = useBoardAppStore((s) => s.canEdit)
+  const selection = useSelection()
+  const isSelected = selection.includes(id)
+  const noteId = id as unknown as string
+
+  // Hydrate persisted state before mounting the renderer, so the applet inits with
+  // saved state instead of flashing defaults then re-mounting.
+  const [initialState, setInitialState] = useState<Record<string, JsonValue> | undefined>(undefined)
+  const [stateLoaded, setStateLoaded] = useState(false)
+  useEffect(() => {
+    let active = true
+    fetchAppletState(noteId)
+      .then((s) => {
+        if (!active) return
+        if (s && typeof s === "object") setInitialState(s as Record<string, JsonValue>)
+        setStateLoaded(true)
+      })
+      .catch(() => {
+        if (active) setStateLoaded(true)
+      })
+    return () => {
+      active = false
+    }
+  }, [noteId])
+
+  const onPersist = useCallback((next: Record<string, unknown>) => void saveAppletState(noteId, next), [noteId])
+
+  if (!node) return null
+
+  const data = (node.data ?? {}) as Partial<NoteNodeData>
+  const label = data.label?.markdown
+  const source = node.content ?? ""
+
+  return (
+    <div className="pointer-events-none relative h-full w-full select-none">
+      <div className="absolute inset-0 flex flex-col overflow-hidden rounded-2xl border border-border bg-background px-2 pb-2 pt-10">
+        <div
+          className={cn(
+            "scrollbar-thin relative h-full w-full overflow-auto rounded-xl border border-border/50 bg-background",
+            isSelected ? "pointer-events-auto" : "pointer-events-none",
+          )}
+        >
+          {source && stateLoaded ? (
+            <AppletRenderer source={source} initialState={initialState} onPersist={onPersist} className="h-full w-full" />
+          ) : (
+            <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground">
+              <ChartBarIcon className="size-5 shrink-0" />
+              <span>{source ? "Loading…" : "Applet source will render here"}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Expand-to-surface (full-screen preview + code) is a follow-up — the
+          applet surface kind + routes are deferred past Phase 2b. */}
+      <NodeTrafficLights onDelete={canEdit ? () => removeNodeSubtree(store, id) : undefined} />
+
+      <div className="pointer-events-auto absolute left-1/2 top-full z-20 mt-2 w-full -translate-x-1/2">
+        <NodeTitleCaption
+          nodeId={id}
+          label={label}
+          placeholder="Untitled applet"
+          textClassName="text-center text-sm font-handwriting text-foreground"
+        />
+      </div>
+    </div>
+  )
+}
