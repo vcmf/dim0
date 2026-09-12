@@ -1,4 +1,4 @@
-import { ChartBarIcon } from "@phosphor-icons/react"
+import { ChartLineIcon } from "@phosphor-icons/react"
 import { useCanvasStore } from "@canvas-harness/react"
 
 import {
@@ -110,7 +110,7 @@ const MoreMenuItems = ({
         <NodeLimitBadge count={codeSandboxCount} limit={nodeLimitFor("code-sandbox", userPlan)} />
       </DropdownMenuItem>
       <DropdownMenuItem onSelect={() => setTool("applet")} className="gap-2 text-sm">
-        <ChartBarIcon className="size-4 shrink-0" />
+        <ChartLineIcon className="size-4 shrink-0" />
         <span>Applet</span>
         <NodeLimitBadge count={appletCount} limit={nodeLimitFor("applet", userPlan)} />
       </DropdownMenuItem>

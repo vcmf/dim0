@@ -37,30 +37,29 @@ export const drawAppletPlaceholder = (ctx: CanvasRenderingContext2D, node: Node,
   ctx.globalAlpha = 0.5
   ctx.stroke()
 
-  // Mini bar chart: a baseline + three bars of varying height, centered.
-  ctx.globalAlpha = 0.35
-  ctx.fillStyle = stroke
+  // Mini LINE chart: a polyline with small node dots — distinct from the widget
+  // placeholder's bar-chart glyph so the two read differently when zoomed out.
+  ctx.globalAlpha = 0.5
   ctx.strokeStyle = stroke
+  ctx.fillStyle = stroke
 
   const chartW = Math.min(w * 0.5, 140)
   const chartH = Math.min(h * 0.4, 80)
   const x0 = w / 2 - chartW / 2
-  const yBase = h / 2 + chartH / 2
-  const barW = chartW / 5
-  const heights = [0.5, 0.9, 0.65]
+  const yTop = h / 2 - chartH / 2
+  const points = [0.7, 0.35, 0.55, 0.1, 0.4] // fraction from the top (smaller = higher)
+  const px = (i: number): number => x0 + (chartW * i) / (points.length - 1)
+  const py = (frac: number): number => yTop + chartH * frac
 
-  heights.forEach((frac, i) => {
-    const barH = chartH * frac
-    const x = x0 + i * (barW * 1.5) + barW * 0.25
-    ctx.fillRect(x, yBase - barH, barW, barH)
-  })
-
-  // Baseline.
-  ctx.globalAlpha = 0.5
   ctx.beginPath()
-  ctx.moveTo(x0, yBase)
-  ctx.lineTo(x0 + chartW, yBase)
+  points.forEach((frac, i) => (i === 0 ? ctx.moveTo(px(i), py(frac)) : ctx.lineTo(px(i), py(frac))))
   ctx.stroke()
+
+  points.forEach((frac, i) => {
+    ctx.beginPath()
+    ctx.arc(px(i), py(frac), 2.5, 0, Math.PI * 2)
+    ctx.fill()
+  })
 
   ctx.restore()
 }

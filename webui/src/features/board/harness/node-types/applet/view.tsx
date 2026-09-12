@@ -6,13 +6,13 @@
 // gates pointer events on selection so canvas pan/zoom passes cleanly through
 // unselected applets. State is hydrated from / persisted to the local store.
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
-import { ChartBarIcon } from "@phosphor-icons/react"
+import { ChartLineIcon } from "@phosphor-icons/react"
 import { type NodeId } from "@canvas-harness/core"
 import { useCanvasStore, useNode, useSelection } from "@canvas-harness/react"
 
-import { AppletRenderer, fetchAppletState, saveAppletState } from "@/features/applet/render"
+import { AppletRenderer, deleteAppletState, fetchAppletState, saveAppletState } from "@/features/applet/render"
 import type { JsonValue } from "@/features/applet/tree"
 import { removeNodeSubtree } from "@/features/board/harness/graph/subtree"
 import { cn } from "@/lib/utils"
@@ -60,7 +60,30 @@ export function AppletNodeView({ id }: AppletViewProps) {
     }
   }, [noteId])
 
-  const onPersist = useCallback((next: Record<string, unknown>) => void saveAppletState(noteId, next), [noteId])
+  // Debounce persistence: a rapidly-updating applet (slider, text field) would
+  // otherwise issue an IndexedDB write per keystroke. Coalesce to one write ~300ms
+  // after the last change, and flush the pending state on unmount.
+  const pendingState = useRef<Record<string, unknown> | null>(null)
+  const persistTimer = useRef<number | null>(null)
+  const flushPersist = useCallback(() => {
+    if (persistTimer.current !== null) {
+      clearTimeout(persistTimer.current)
+      persistTimer.current = null
+    }
+    if (pendingState.current !== null) {
+      void saveAppletState(noteId, pendingState.current)
+      pendingState.current = null
+    }
+  }, [noteId])
+  const onPersist = useCallback(
+    (next: Record<string, unknown>) => {
+      pendingState.current = next
+      if (persistTimer.current !== null) clearTimeout(persistTimer.current)
+      persistTimer.current = window.setTimeout(flushPersist, 300)
+    },
+    [flushPersist],
+  )
+  useEffect(() => () => flushPersist(), [flushPersist])
 
   if (!node) return null
 
@@ -81,7 +104,7 @@ export function AppletNodeView({ id }: AppletViewProps) {
             <AppletRenderer source={source} initialState={initialState} onPersist={onPersist} className="h-full w-full" />
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground">
-              <ChartBarIcon className="size-5 shrink-0" />
+              <ChartLineIcon className="size-5 shrink-0" />
               <span>{source ? "Loading…" : "Applet source will render here"}</span>
             </div>
           )}
@@ -90,7 +113,16 @@ export function AppletNodeView({ id }: AppletViewProps) {
 
       {/* Expand-to-surface (full-screen preview + code) is a follow-up — the
           applet surface kind + routes are deferred past Phase 2b. */}
-      <NodeTrafficLights onDelete={canEdit ? () => removeNodeSubtree(store, id) : undefined} />
+      <NodeTrafficLights
+        onDelete={
+          canEdit
+            ? () => {
+                void deleteAppletState(noteId) // don't orphan the persisted state row
+                removeNodeSubtree(store, id)
+              }
+            : undefined
+        }
+      />
 
       <div className="pointer-events-auto absolute left-1/2 top-full z-20 mt-2 w-full -translate-x-1/2">
         <NodeTitleCaption

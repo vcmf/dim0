@@ -1,2 +1,2 @@
 export { AppletRenderer, type AppletRendererProps } from "./renderer"
-export { fetchAppletState, saveAppletState } from "./state-client"
+export { deleteAppletState, fetchAppletState, saveAppletState } from "./state-client"

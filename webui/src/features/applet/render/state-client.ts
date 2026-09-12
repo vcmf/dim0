@@ -16,3 +16,10 @@ export async function fetchAppletState(noteId: string): Promise<unknown> {
 export async function saveAppletState(noteId: string, state: unknown): Promise<void> {
   await (await getLocalStores()).miniApps.putState(noteId, state)
 }
+
+
+/** Delete an applet note's persisted state — called on node delete so the row
+ *  isn't orphaned in the local store. */
+export async function deleteAppletState(noteId: string): Promise<void> {
+  await (await getLocalStores()).miniApps.deleteState(noteId)
+}
