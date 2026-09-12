@@ -39,13 +39,16 @@ function compareCells(x: unknown, y: unknown): number {
 
 /** Render a data table; when `sortable`, clicking a header sorts by that column. */
 export function Table({ columns, rows, sortable, className }: TableProps) {
-  const cols = useMemo(() => (columns ?? []).map(normalize), [columns])
+  // Guard against non-array bindings (e.g. `rows` evaluating to an object) —
+  // degrade to an empty table rather than throwing.
+  const cols = useMemo(() => (Array.isArray(columns) ? columns : []).map(normalize), [columns])
   const [sort, setSort] = useState<{ key: string; asc: boolean } | null>(null)
 
   const sorted = useMemo(() => {
-    if (!sort) return rows ?? []
+    const base = Array.isArray(rows) ? rows : []
+    if (!sort) return base
     const dir = sort.asc ? 1 : -1
-    return [...(rows ?? [])].sort((a, b) => compareCells(a[sort.key], b[sort.key]) * dir)
+    return [...base].sort((a, b) => compareCells(a[sort.key], b[sort.key]) * dir)
   }, [rows, sort])
 
   const onHeader = (key: string): void => {

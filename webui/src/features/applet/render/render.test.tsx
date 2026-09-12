@@ -153,6 +153,28 @@ describe("review-round fixes", () => {
 })
 
 
+describe("review round 2 fixes", () => {
+  it("renders an object/array binding as nothing (not '[object Object]')", () => {
+    render(
+      <AppletRenderer source={`<Widget data={{ o: { a: 1 }, arr: [1, 2] }}><div data-testid="out">[{o}][{arr}]</div></Widget>`} />,
+    )
+    expect(screen.getByTestId("out").textContent).toBe("[][]")
+  })
+
+  it("degrades a non-array Table binding to an empty table (no throw)", () => {
+    render(<AppletRenderer source={`<Widget data={{ rows: { bad: true } }}><Table columns={["a"]} rows={rows} /></Widget>`} />)
+    expect(screen.getAllByRole("row").length).toBe(1) // header only
+  })
+
+  it("caps a huge list and shows a '… N more' note", () => {
+    const nums = Array.from({ length: 1001 }, (_, i) => i).join(", ")
+    render(<AppletRenderer source={`<Widget data={{ xs: [${nums}] }}><ul>{xs.map(x => <li>{x}</li>)}</ul></Widget>`} />)
+    expect(screen.getAllByRole("listitem").length).toBe(1000)
+    expect(screen.getByText("… 1 more")).toBeTruthy()
+  })
+})
+
+
 describe("failure handling", () => {
   it("shows an error card for a compile error", () => {
     render(<AppletRenderer source={`<Widget><Nope/></Widget>`} />)

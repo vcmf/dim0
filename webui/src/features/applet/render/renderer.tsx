@@ -21,6 +21,12 @@ import { COMPONENT_IMPLS } from "./components"
 import { AppletErrorBoundary } from "./error-boundary"
 
 
+// Cap on rendered list items: the interpreter bounds array *evaluation* but not
+// DOM output, so a huge bound array (`data={{ rows: [...100k...] }}`) could freeze
+// the tab. Render at most this many and show a "… N more" note.
+const MAX_LIST_ITEMS = 1000
+
+
 // Tree event name (lowercased by the transformer) → React handler prop.
 const EVENT_PROP: Record<string, string> = {
   click: "onClick",
@@ -175,12 +181,23 @@ function renderElement(node: ElNode, env: Env, runAction: RunAction, key?: strin
 function renderList(node: ListNode, env: Env, runAction: RunAction, key?: string): ReactNode {
   const src = tryEval(node.src, env)
   if (!Array.isArray(src)) return null
-  return src.map((item, i) => {
+  const shown = src.length > MAX_LIST_ITEMS ? src.slice(0, MAX_LIST_ITEMS) : src
+  const out: ReactNode[] = shown.map((item, i) => {
     const childEnv: Env = new Map(env)
     childEnv.set(node.item, item)
     if (node.index) childEnv.set(node.index, i)
     return renderNode(node.tpl, childEnv, runAction, `${key ?? "l"}:${keyForItem(item, i)}`)
   })
+  if (src.length > MAX_LIST_ITEMS) {
+    out.push(
+      createElement(
+        "div",
+        { key: `${key ?? "l"}:more`, className: "px-1 py-0.5 text-xs text-muted-foreground" },
+        `… ${src.length - MAX_LIST_ITEMS} more`,
+      ),
+    )
+  }
+  return out
 }
 
 
@@ -202,6 +219,9 @@ function tryEval(expr: Expr, env: Env): unknown {
  *  as nothing; everything else (incl. 0 and "") renders as its string. */
 function renderValue(value: unknown): ReactNode {
   if (value === null || value === undefined || typeof value === "boolean") return null
+  // Arrays/objects aren't renderable text — degrade to nothing rather than showing
+  // "[object Object]". (A list is authored as `.map`, not a bare object binding.)
+  if (typeof value === "object") return null
   return String(value)
 }
 
