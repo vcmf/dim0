@@ -135,11 +135,11 @@ so it's uniform online + offline. Either way the parser is **never** in the sand
 
 ## 5. Render target — drop the iframe, render inline
 
-**DECIDED (lean, pending prototype):** render mini-apps **inline in the host React
-tree**, not in a per-widget iframe. The iframe existed for exactly one reason —
-sandboxing `eval`'d agent code. With no code (only data + a bounded interpreter),
-that reason is gone, and inline rendering is the single biggest performance lever
-in this revamp.
+**DECIDED — built in Phases 2a/2b (see §5.4 for the as-built form).** Render applets
+**inline in the host React tree**, not in a per-widget iframe. The iframe existed
+for exactly one reason — sandboxing `eval`'d agent code. With no code (only data +
+a bounded interpreter), that reason is gone, and inline rendering is the single
+biggest performance lever in this revamp.
 
 ```jsx
 <MiniAppRenderer tree={serializedTree} />   // just a host component
@@ -253,6 +253,61 @@ audited interpreter + containment + error boundaries"* — smaller and testable 
 while the performance ceiling rises sharply. It also *strengthens* the 2.5.2 story:
 no sandboxed-eval-of-downloaded-code anywhere, just a React component interpreting
 data.
+
+### 5.4 As built — the `applet` node type (Phases 2a/2b)
+
+The form the node type actually took once implemented. Two layers:
+
+**a) The renderer** (`webui/src/features/applet/render/`) — pure, board-agnostic:
+- `renderer.tsx` — `<AppletRenderer source initialState? onPersist? />`. Compiles
+  `source` → §6 tree (memoized on `source`), then interprets it to React. **State
+  lives in a ref + a re-render bump**, not `useState` — so several events in one
+  React tick fold onto the *latest committed* state instead of a stale render
+  snapshot, and actions evaluate against the latest state. Bindings are evaluated
+  per render with a fresh budget; `derived` recomputes from state+data. Wrapped in
+  a **recoverable** error boundary (clears on `source` change + a Retry button) and
+  a **layout-containment** wrapper (`contain: layout paint; isolation: isolate`).
+  State re-hydrates on `source` change (TreeView keyed by source). Lists cap at
+  **1000 rendered items** (+ "… N more") — the DOM-size bound the eval budgets
+  don't cover.
+- `components.ts` — the name→React registry: `Card*`, `Button`, `Chart`/`Graph`/
+  `Map` (shared `src/components/charts`), and a **new `Table`** (`table.tsx`,
+  themed + optionally sortable). Intrinsics fall through to the HTML tag.
+- `error-boundary.tsx`, `state-client.ts` — per-note state persistence.
+
+**b) The board node type** (`webui/src/features/board/harness/node-types/applet/`):
+- `def.ts` — `defineNode({ type: "applet", view, drawPlaceholder, lod })`. Inline
+  React (no deferred-mount pool — it's lightweight, unlike the ~5 MB mini-app
+  iframe); below the LOD zoom threshold a canvas **line-chart placeholder** draws
+  (distinct from the widget's bar-chart glyph).
+- `view.tsx` — standard canvas chrome (traffic lights + title caption) wrapping
+  `<AppletRenderer>`; pointer events gated on selection so board pan/zoom passes
+  through unselected applets. Loads persisted state before mounting; **persistence
+  is debounced (~300 ms, flushed on unmount)**; **delete clears the state row**.
+- Registered in `node-types/index.ts` + `render-view.tsx`; wired through the
+  `NodeType` union, default style/size, the Dim0→canvas maps, autofit/custom-node/
+  style-memory sets, agent board-snapshot kinds, and node limits (§12).
+
+**Persistence** reuses the existing local per-note store (keyed by node id — no
+collision with mini-app state); a dedicated `applets` store is a possible follow-up.
+
+**Create-gate** — the toolbar offers **Applet**, not Mini-app; a toolbar create
+seeds a working **starter counter** (`STARTER_APPLET_SOURCE`) as `note.content`, so
+a fresh applet renders live rather than an empty, uneditable card. The agent
+`board-mutator` maps `note_type: "applet"`.
+
+**Deferred past Phase 2b** (follow-ups): the full-screen **expand surface**
+(preview + code panel + routes — a large stack); **auto-grow height** (the node is
+fixed-size with internal scroll for now); and the **agent authoring** — the
+`applet.md` skill, `learn_generate_applet`, `write_note` validation via
+`validateApplet`, and removing the agent's mini-app creation — which is **Phase 3**
+(the agent's mini-app skill must be swapped atomically with its create path).
+
+**Accepted trade-offs** (documented in code): applet and the frozen mini-app have
+**separate node caps** (a shared cap would need the create check to sum both, and
+mini-app only shrinks); **index keys** for id-less list items (inherent without
+ids — the skill encourages `id`); and per-render handler-arrow allocation (`runAction`
+is already stable, so a handler cache isn't worth the complexity).
 
 ## 6. Serialized tree format
 
