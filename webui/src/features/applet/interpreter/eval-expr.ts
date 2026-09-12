@@ -30,6 +30,7 @@ export interface Ctx {
 }
 
 
+// Create a fresh evaluation context with a new per-evaluation budget.
 export function makeCtx(): Ctx {
   return { budget: new Budget() }
 }
@@ -134,6 +135,7 @@ export function evalExpr(node: Expr, env: Env, ctx: Ctx, depth = 0): unknown {
 }
 
 
+// JS truthiness test, used by `&&`/`||`/`?:` and the predicate array methods.
 export function truthy(x: unknown): boolean {
   return Boolean(x)
 }
@@ -153,11 +155,14 @@ function native<T>(fn: () => T): T {
 }
 
 
+// True if `name` resolves to anything (a scope var, a namespace, or a coercion) —
+// lets `typeof <unbound>` return "undefined" instead of throwing.
 function isBound(name: string, env: Env): boolean {
   return env.has(name) || NAMESPACE_NAMES.has(name) || Object.hasOwn(COERCIONS, name)
 }
 
 
+// Extract a static object-literal key name from an Identifier or Literal key.
 function keyName(key: Expr): string {
   if (key.type === "Identifier") return key.name
   if (key.type === "Literal") return String(key.value)
@@ -165,6 +170,8 @@ function keyName(key: Expr): string {
 }
 
 
+// Resolve a bare identifier to its scope value, or to a namespace sentinel for a
+// global (Math/Number/…). An unknown name throws — the undefined-reference guard.
 function resolveIdent(name: string, env: Env): unknown {
   if (env.has(name)) return env.get(name)
   // `Object.hasOwn`, never `in`: COERCIONS is a plain object literal, so `in`
@@ -175,6 +182,8 @@ function resolveIdent(name: string, env: Env): unknown {
 }
 
 
+// Apply a whitelisted binary operator to two evaluated operands (`in`/`instanceof`
+// are rejected). `+` concatenates when either side is a string, else adds numbers.
 function evalBinary(op: string, l: unknown, r: unknown): unknown {
   switch (op) {
     case "+":
@@ -224,6 +233,8 @@ function evalBinary(op: string, l: unknown, r: unknown): unknown {
 }
 
 
+// Evaluate member access (`a.b` / `a[b]`, optional `a?.b`) to a data value via
+// safeGet — never a prototype method.
 function evalMember(node: Member, env: Env, ctx: Ctx, d: number): unknown {
   const obj = evalExpr(node.object, env, ctx, d)
   if (node.optional && (obj === null || obj === undefined)) return undefined
@@ -232,6 +243,9 @@ function evalMember(node: Member, env: Env, ctx: Ctx, d: number): unknown {
 }
 
 
+// Evaluate a call: a coercion for an identifier callee (Number/String/Boolean), or
+// a namespace/value method for a member callee. Native throws are wrapped as
+// AppletError.
 function evalCall(node: Call, env: Env, ctx: Ctx, d: number): unknown {
   const callee = node.callee
 
@@ -270,6 +284,7 @@ function evalCall(node: Call, env: Env, ctx: Ctx, d: number): unknown {
 }
 
 
+// Evaluate call arguments, flattening any spread elements into the argument list.
 function evalArgs(args: (Expr | Spread)[], env: Env, ctx: Ctx, d: number): unknown[] {
   const out: unknown[] = []
   for (const a of args) {
@@ -280,6 +295,8 @@ function evalArgs(args: (Expr | Spread)[], env: Env, ctx: Ctx, d: number): unkno
 }
 
 
+// Evaluate a spread argument to its array value, requiring an array and bounding
+// its length so a huge spread (`Math.max(...huge)`, big literal spreads) can't DoS.
 function spread(node: Spread, env: Env, ctx: Ctx, d: number): unknown[] {
   const v = evalExpr(node.argument, env, ctx, d)
   if (!Array.isArray(v)) throw new AppletError("spread of a non-array value")
@@ -310,6 +327,8 @@ function makeClosure(node: Expr | Spread | undefined, env: Env, ctx: Ctx, d: num
 }
 
 
+// Dispatch a method call on a value receiver to the array/string/number handler,
+// rejecting any method not on that type's whitelist.
 function callValueMethod(
   recv: unknown,
   method: string,
@@ -336,6 +355,9 @@ function callValueMethod(
 }
 
 
+// Evaluate a whitelisted array method. Higher-order methods (map/filter/reduce/…)
+// run an interpreted arrow callback; input length and growable-output sizes are
+// budget-bounded.
 function callArrayMethod(
   recv: unknown[],
   method: string,
@@ -441,6 +463,7 @@ function flatMapBounded(recv: unknown[], cb: (...a: unknown[]) => unknown, ctx: 
 }
 
 
+// Default sort comparator: orders by string comparison (mirrors Array#sort).
 function defaultCompare(a: unknown, b: unknown): number {
   const sa = String(a)
   const sb = String(b)
@@ -448,6 +471,8 @@ function defaultCompare(a: unknown, b: unknown): number {
 }
 
 
+// Evaluate a whitelisted string method; length-growing methods (repeat/padStart/
+// padEnd) are budget-bounded and `replace` rejects RegExp arguments.
 function callStringMethod(recv: string, method: string, a: unknown[], ctx: Ctx): unknown {
   switch (method) {
     case "toUpperCase":
@@ -501,6 +526,7 @@ function callStringMethod(recv: string, method: string, a: unknown[], ctx: Ctx):
 }
 
 
+// Evaluate a whitelisted number method (toFixed / toString).
 function callNumberMethod(recv: number, method: string, a: unknown[]): unknown {
   switch (method) {
     case "toFixed":

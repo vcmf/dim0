@@ -13,11 +13,14 @@ interface NamespaceRef {
 }
 
 
+// Make an opaque sentinel standing for a global namespace (e.g. `Math`), usable
+// only as a call target — never a live object.
 export function makeNamespace(name: string): NamespaceRef {
   return { [NS]: name }
 }
 
 
+// Return the namespace name a sentinel represents, or undefined for a plain value.
 export function namespaceName(v: unknown): string | undefined {
   return typeof v === "object" && v !== null && NS in v ? (v as NamespaceRef)[NS] : undefined
 }
@@ -35,11 +38,13 @@ export const COERCIONS: Record<string, Fn> = {
 }
 
 
+// Coerce a value to a number (identity for numbers), used by the Math methods.
 export function num(x: unknown): number {
   return typeof x === "number" ? x : Number(x)
 }
 
 
+// Narrow a value to a plain object for the Object.* methods, else an empty object.
 function plainObj(o: unknown): Record<string, unknown> {
   return typeof o === "object" && o !== null ? (o as Record<string, unknown>) : {}
 }

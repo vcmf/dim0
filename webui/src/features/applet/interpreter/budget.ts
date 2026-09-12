@@ -13,6 +13,8 @@ export const LIMITS = {
 } as const
 
 
+// Mutable per-evaluation budget: counts ops and checks size/depth caps, throwing
+// AppletError the moment any limit is crossed.
 export class Budget {
   private ops = 0
 
@@ -23,18 +25,21 @@ export class Budget {
     }
   }
 
+  // Throw if the current expression/recursion depth exceeds the cap.
   checkDepth(depth: number): void {
     if (depth > LIMITS.depth) {
       throw new AppletError("budget exceeded: expression nested too deep")
     }
   }
 
+  // Throw if an array (method input or growable output) exceeds the length cap.
   checkArray(len: number): void {
     if (len > LIMITS.arrayLen) {
       throw new AppletError(`budget exceeded: array length ${len} > ${LIMITS.arrayLen}`)
     }
   }
 
+  // Throw if a constructed string (repeat/padStart/padEnd) exceeds the length cap.
   checkString(len: number): void {
     if (len > LIMITS.stringLen) {
       throw new AppletError(`budget exceeded: string length ${len} > ${LIMITS.stringLen}`)
