@@ -1,0 +1,137 @@
+import { fireEvent, render, screen } from "@testing-library/react"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import { AppletRenderer } from "./renderer"
+
+
+// sonner needs no <Toaster> mounted for toast() to be a harmless no-op, but stub
+// it so tests don't depend on its runtime.
+vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { error: vi.fn() }) }))
+
+
+afterEach(() => {
+  document.body.innerHTML = ""
+})
+
+
+describe("static rendering", () => {
+  it("renders text, bindings, and template literals", () => {
+    render(
+      <AppletRenderer
+        source={`<Widget data={{ name: "Ada", n: 3 }}><div data-testid="out">{name}: {n * 2}</div></Widget>`}
+      />,
+    )
+    expect(screen.getByTestId("out").textContent).toBe("Ada: 6")
+  })
+
+  it("renders a component (Table) from data", () => {
+    render(
+      <AppletRenderer
+        source={`<Widget data={{ rows: [{ a: 1 }, { a: 2 }] }}><Table columns={["a"]} rows={rows} /></Widget>`}
+      />,
+    )
+    expect(screen.getAllByRole("row").length).toBe(3) // header + 2 rows
+  })
+})
+
+
+describe("interactivity", () => {
+  it("counter: set updates state and re-renders", () => {
+    render(
+      <AppletRenderer
+        source={`
+          <Widget state={{ count: 0 }}>
+            <div>
+              <span data-testid="count">{count}</span>
+              <button onClick={set("count", count + 1)}>inc</button>
+              <button onClick={set("count", count - 1)}>dec</button>
+            </div>
+          </Widget>
+        `}
+      />,
+    )
+    expect(screen.getByTestId("count").textContent).toBe("0")
+    fireEvent.click(screen.getByText("inc"))
+    fireEvent.click(screen.getByText("inc"))
+    expect(screen.getByTestId("count").textContent).toBe("2")
+    fireEvent.click(screen.getByText("dec"))
+    expect(screen.getByTestId("count").textContent).toBe("1")
+  })
+
+  it("todo: $event, append/batch, and .map list", () => {
+    render(
+      <AppletRenderer
+        source={`
+          <Widget state={{ items: [], draft: "" }}>
+            <div>
+              <input data-testid="draft" value={draft} onChange={set("draft", $event.value)} />
+              <button onClick={batch(append("items", draft), set("draft", ""))}>add</button>
+              <ul>{items.map((it, i) => <li>{it}</li>)}</ul>
+            </div>
+          </Widget>
+        `}
+      />,
+    )
+    const input = screen.getByTestId("draft") as HTMLInputElement
+    fireEvent.change(input, { target: { value: "milk" } })
+    expect(input.value).toBe("milk")
+    fireEvent.click(screen.getByText("add"))
+    expect(screen.getByText("milk")).toBeTruthy()
+    expect(input.value).toBe("") // draft cleared by the batch
+  })
+
+  it("toggle flips a boolean shown via a conditional", () => {
+    render(
+      <AppletRenderer
+        source={`
+          <Widget state={{ open: false }}>
+            <div>
+              <button onClick={toggle("open")}>t</button>
+              <span data-testid="s">{open ? "on" : "off"}</span>
+            </div>
+          </Widget>
+        `}
+      />,
+    )
+    expect(screen.getByTestId("s").textContent).toBe("off")
+    fireEvent.click(screen.getByText("t"))
+    expect(screen.getByTestId("s").textContent).toBe("on")
+  })
+})
+
+
+describe("conditionals & lists", () => {
+  it("renders an element conditional and its empty branch", () => {
+    render(
+      <AppletRenderer
+        source={`<Widget state={{ v: true }}><div>{v ? <span data-testid="y">yes</span> : null}</div></Widget>`}
+      />,
+    )
+    expect(screen.getByTestId("y").textContent).toBe("yes")
+  })
+
+  it("renders a filtered .map list", () => {
+    render(
+      <AppletRenderer
+        source={`<Widget data={{ xs: [1, 2, 3, 4] }}><ul>{xs.filter(x => x % 2 === 0).map(x => <li>{x}</li>)}</ul></Widget>`}
+      />,
+    )
+    const items = screen.getAllByRole("listitem").map((li) => li.textContent)
+    expect(items).toEqual(["2", "4"])
+  })
+})
+
+
+describe("failure handling", () => {
+  it("shows an error card for a compile error", () => {
+    render(<AppletRenderer source={`<Widget><Nope/></Widget>`} />)
+    expect(screen.getByText("Applet error")).toBeTruthy()
+    expect(screen.getByText(/unknown component/)).toBeTruthy()
+  })
+
+  it("degrades a binding that throws at render to nothing (no crash)", () => {
+    // `x.toFixed` validates (a value method) but throws at runtime on a string
+    render(<AppletRenderer source={`<Widget data={{ x: "hi" }}><div data-testid="out">{x.toFixed(2)}</div></Widget>`} />)
+    expect(screen.getByTestId("out").textContent).toBe("")
+  })
+})
