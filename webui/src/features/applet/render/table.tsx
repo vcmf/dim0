@@ -24,6 +24,19 @@ function normalize(col: Column): { key: string; label: string } {
 }
 
 
+/** A total order over cell values: nullish sorts first, numbers numerically,
+ *  everything else by string — so mixed/missing cells sort consistently. */
+function compareCells(x: unknown, y: unknown): number {
+  if (x === y) return 0
+  if (x === null || x === undefined) return y === null || y === undefined ? 0 : -1
+  if (y === null || y === undefined) return 1
+  if (typeof x === "number" && typeof y === "number") return x - y
+  const sx = String(x)
+  const sy = String(y)
+  return sx < sy ? -1 : sx > sy ? 1 : 0
+}
+
+
 /** Render a data table; when `sortable`, clicking a header sorts by that column. */
 export function Table({ columns, rows, sortable, className }: TableProps) {
   const cols = useMemo(() => (columns ?? []).map(normalize), [columns])
@@ -32,12 +45,7 @@ export function Table({ columns, rows, sortable, className }: TableProps) {
   const sorted = useMemo(() => {
     if (!sort) return rows ?? []
     const dir = sort.asc ? 1 : -1
-    return [...(rows ?? [])].sort((a, b) => {
-      const x = a[sort.key]
-      const y = b[sort.key]
-      if (x === y) return 0
-      return ((x as number | string) > (y as number | string) ? 1 : -1) * dir
-    })
+    return [...(rows ?? [])].sort((a, b) => compareCells(a[sort.key], b[sort.key]) * dir)
   }, [rows, sort])
 
   const onHeader = (key: string): void => {

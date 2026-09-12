@@ -1,11 +1,13 @@
 // The inline applet renderer (applet-design.md §5). Compiles JSX source to the §6
 // tree (memoized), then interprets it into a live React tree — no iframe, no eval.
-// State lives in React; events run the bounded action interpreter and setState;
-// expression bindings are evaluated per render with a fresh budget. Failures
-// degrade gracefully: a bad binding renders nothing, a thrown render is caught by
-// the error boundary (§5.3), and the whole widget is layout-contained (§5.2).
+// State is held in a ref (so batched events fold onto the latest committed state,
+// not a stale render snapshot) and mirrored to React via a re-render bump; events
+// run the bounded action interpreter, bindings are evaluated per render with a
+// fresh budget. Failures degrade gracefully: a bad binding renders nothing, a
+// thrown render is caught by the error boundary (§5.3, recoverable), and the whole
+// widget is layout-contained (§5.2).
 
-import { createElement, useCallback, useMemo, useState, type ReactNode } from "react"
+import { createElement, useCallback, useMemo, useReducer, useRef, type ReactNode } from "react"
 
 import { toast } from "sonner"
 
@@ -50,8 +52,10 @@ export function AppletRenderer({ source, initialState, onPersist, className }: A
   return (
     <div className={cn("applet-root", className)} style={{ contain: "layout paint", isolation: "isolate" }}>
       {compiled.ok ? (
-        <AppletErrorBoundary fallback={(e) => <ErrorCard message={e.message} />}>
-          <TreeView tree={compiled.tree} initialState={initialState} onPersist={onPersist} />
+        // Reset on source change so an edited applet re-hydrates fresh state and
+        // clears any prior error; `key={source}` remounts TreeView's state ref.
+        <AppletErrorBoundary resetKey={source} fallback={(e, reset) => <ErrorCard message={e.message} onRetry={reset} />}>
+          <TreeView key={source} tree={compiled.tree} initialState={initialState} onPersist={onPersist} />
         </AppletErrorBoundary>
       ) : (
         <ErrorCard message={compiled.message} line={compiled.line} />
@@ -62,7 +66,7 @@ export function AppletRenderer({ source, initialState, onPersist, className }: A
 
 
 /** The failure UI for a compile error or a caught render throw. */
-function ErrorCard({ message, line }: { message: string; line?: number }) {
+function ErrorCard({ message, line, onRetry }: { message: string; line?: number; onRetry?: () => void }) {
   return (
     <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
       <div className="font-medium">Applet error</div>
@@ -70,12 +74,17 @@ function ErrorCard({ message, line }: { message: string; line?: number }) {
         {message}
         {line ? ` (line ${line})` : ""}
       </div>
+      {onRetry ? (
+        <button type="button" onClick={onRetry} className="mt-2 rounded-md border px-2 py-0.5 text-xs hover:bg-destructive/10">
+          Retry
+        </button>
+      ) : null}
     </div>
   )
 }
 
 
-/** Owns applet state and renders the tree; recomputes derived/env on each change. */
+/** Owns applet state (in a ref, for correct batching) and renders the tree. */
 function TreeView({
   tree,
   initialState,
@@ -86,37 +95,43 @@ function TreeView({
   onPersist?: (state: Record<string, unknown>) => void
 }) {
   const data = useMemo(() => tree.scopes.data ?? {}, [tree.scopes.data])
-  const [state, setState] = useState<Record<string, unknown>>(() => ({
-    ...(tree.scopes.state ?? {}),
-    ...(initialState ?? {}),
-  }))
+  // State lives in a ref so a second event in the same React tick reads the first
+  // event's result (a render snapshot would drop it); `bump` re-renders.
+  const stateRef = useRef<Record<string, unknown>>({ ...(tree.scopes.state ?? {}), ...(initialState ?? {}) })
+  const [, bump] = useReducer((n: number) => n + 1, 0)
+  const state = stateRef.current
 
   const derived = useMemo(() => computeDerived(tree.scopes.derived, state, data), [tree.scopes.derived, state, data])
   const env = useMemo(() => buildEnv(state, data, derived), [state, data, derived])
 
-  // Run a handler: evaluate its guard/args against the current env + sanitized
-  // event, commit the next state, and fire any toasts.
+  // Run a handler against the LATEST committed state (from the ref), commit the
+  // next state, fire any toasts, and persist when the applet is `persist`.
   const runAction = useCallback(
     (action: Action, event: unknown) => {
-      const actionEnv: Env = new Map(env)
+      const cur = stateRef.current
+      const actionEnv: Env = buildEnv(cur, data, computeDerived(tree.scopes.derived, cur, data))
       actionEnv.set("$event", sanitizeEvent(event))
       try {
-        const { state: next, toasts } = runHandler(action, actionEnv, state, makeCtx())
-        setState(next)
+        const { state: next, toasts } = runHandler(action, actionEnv, cur, makeCtx())
+        stateRef.current = next
+        bump()
         for (const t of toasts) (t.level === "error" ? toast.error : toast)(t.message)
         if (tree.persist) onPersist?.(next)
       } catch (e) {
         if (import.meta.env.DEV) console.error("[applet] action error", e)
       }
     },
-    [env, state, tree.persist, onPersist],
+    [data, tree.persist, tree.scopes.derived, onPersist],
   )
 
   return <>{renderNode(tree.root, env, runAction)}</>
 }
 
 
-/** Render one tree node to React. */
+type RunAction = (action: Action, event: unknown) => void
+
+
+/** Render one tree node to React. `key` positions it among its siblings. */
 function renderNode(node: Node, env: Env, runAction: RunAction, key?: string): ReactNode {
   switch (node.k) {
     case "txt":
@@ -124,7 +139,7 @@ function renderNode(node: Node, env: Env, runAction: RunAction, key?: string): R
     case "el":
       return renderElement(node, env, runAction, key)
     case "list":
-      return renderList(node, env, runAction)
+      return renderList(node, env, runAction, key)
     case "cond": {
       const branch = tryEval(node.test, env) ? node.then : node.else
       return branch ? renderNode(branch, env, runAction, key) : null
@@ -155,20 +170,18 @@ function renderElement(node: ElNode, env: Env, runAction: RunAction, key?: strin
 }
 
 
-/** Render a `.map` list: evaluate the source array, bind item/index per element. */
-function renderList(node: ListNode, env: Env, runAction: RunAction): ReactNode {
+/** Render a `.map` list: item keys are prefixed with the list's own sibling key
+ *  so two sibling lists (each index-keyed) can't collide. */
+function renderList(node: ListNode, env: Env, runAction: RunAction, key?: string): ReactNode {
   const src = tryEval(node.src, env)
   if (!Array.isArray(src)) return null
   return src.map((item, i) => {
     const childEnv: Env = new Map(env)
     childEnv.set(node.item, item)
     if (node.index) childEnv.set(node.index, i)
-    return renderNode(node.tpl, childEnv, runAction, keyForItem(item, i))
+    return renderNode(node.tpl, childEnv, runAction, `${key ?? "l"}:${keyForItem(item, i)}`)
   })
 }
-
-
-type RunAction = (action: Action, event: unknown) => void
 
 
 // ---- evaluation helpers ----
@@ -200,7 +213,7 @@ function buildEnv(state: Record<string, unknown>, data: Record<string, unknown>,
 }
 
 
-/** Evaluate the `derived` expressions against state + data (memoized upstream). */
+/** Evaluate the `derived` expressions against state + data. */
 function computeDerived(
   spec: Record<string, Expr> | undefined,
   state: Record<string, unknown>,
