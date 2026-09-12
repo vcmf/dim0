@@ -122,6 +122,37 @@ describe("conditionals & lists", () => {
 })
 
 
+describe("review-round fixes", () => {
+  it("resets state when the source changes (keyed remount)", () => {
+    const s1 = `<Widget state={{ count: 0 }}><div><span data-testid="c">{count}</span><button onClick={set("count", count + 1)}>inc</button></div></Widget>`
+    const { rerender } = render(<AppletRenderer source={s1} />)
+    fireEvent.click(screen.getByText("inc"))
+    expect(screen.getByTestId("c").textContent).toBe("1")
+    rerender(<AppletRenderer source={`<Widget state={{ count: 99 }}><div><span data-testid="c">{count}</span></div></Widget>`} />)
+    expect(screen.getByTestId("c").textContent).toBe("99") // fresh defaults, not stale 1
+  })
+
+  it("renders two sibling .map lists without dropping items", () => {
+    render(
+      <AppletRenderer
+        source={`<Widget data={{ a: [1, 2], b: [3, 4] }}><ul>{a.map(x => <li>{x}</li>)}{b.map(x => <li>{x}</li>)}</ul></Widget>`}
+      />,
+    )
+    expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["1", "2", "3", "4"])
+  })
+
+  it("sorts a table with missing/mixed cells without crashing", () => {
+    render(
+      <AppletRenderer
+        source={`<Widget data={{ rows: [{ a: 2 }, { a: null }, { a: 1 }] }}><Table columns={["a"]} rows={rows} sortable /></Widget>`}
+      />,
+    )
+    fireEvent.click(screen.getByRole("columnheader"))
+    expect(screen.getAllByRole("row").length).toBe(4) // header + 3 rows, no throw
+  })
+})
+
+
 describe("failure handling", () => {
   it("shows an error card for a compile error", () => {
     render(<AppletRenderer source={`<Widget><Nope/></Widget>`} />)
