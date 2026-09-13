@@ -110,6 +110,7 @@ Actions appear **only** in event handlers (`onClick`, `onChange`, `onKeyDown`, `
   ```
 - **Guarded handlers**: `cond && action`, `cond ? actionA : actionB`, and chains (`a && b && action`).
 - **`$event`** is the sanitized event, with `.value` (input value), `.checked` (checkbox), `.key` (keydown): `onChange={set("draft", $event.value)}`, `onKeyDown={$event.key === "Enter" && append("items", draft)}`.
+- **`$event.value` is always a string** — even for `<input type="number">`. Wrap it with the `Number(...)` coercion when you need a number: `onChange={set("bill", Number($event.value))}`.
 
 ---
 
