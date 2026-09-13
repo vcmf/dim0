@@ -227,11 +227,13 @@ much of the "spiral" may simply disappear.
    results whole, plus all small results and all `keepFull` (skill) results; replace
    older bulky results *whole* with `[old <tool> result cleared — re-call …]`,
    preserving the `tool_use ↔ tool_result` pairing and the `toolName`.
-3. **Per-result ceiling on everything kept whole** (`RESULT_CEILING_CHARS`, 200k):
-   a single runaway result — a huge `fetch` page *or* a skill — is head-truncated
-   with a re-call hint, so it can't blow the provider's max-input limit. (Only the
-   old universal 8000 cap did this before; dropping it for recent results was a
-   regression this closes.)
+3. **Two-tier per-result ceiling on everything kept whole:** **20k** for non-skill
+   results (`RESULT_CEILING_CHARS` — 2.5× the old cap, ≈5k tokens, plenty for a fresh
+   fetch/search) and **200k** for `keepFull` skills (`SKILL_CEILING_CHARS` — they need
+   the full guide). A larger result is head-cropped with a *neutral* marker (no
+   "re-call for the rest" — a deterministic tool would reproduce the same head). The
+   20k non-skill tier is what keeps a single-turn fan-out and the recency window
+   comfortably within context (see aggregate section).
 4. **Seen-at-least-once guarantee** (`shownBulky` set): a bulky result is kept until
    it has appeared in one sent view, *then* becomes elidable. This ensures the model
    sees every result at least once even when one turn fans out **more than 5** bulky
@@ -267,17 +269,31 @@ and, because assembly runs at the top of a turn, marked everything on first sigh
 nothing elided. `shownBulky` marks a result "seen → now *elidable*", so it only ever
 *defers* eliding by one turn (to honor the seen-once guarantee), never prevents it.
 
+### Aggregate input — bounded in practice by three composing limits
+
+We do **not** add an eviction "valve". Three mechanisms already compose to bound
+total input for realistic workloads:
+
+1. **`maxTurns`** (default 30) caps the number of tool calls in a run → bounds the
+   accumulation of small results + sentinels + skills across turns.
+2. **Recency eliding** (K = 5) caps the *full* bulky content: only the 5 most recent
+   bulky results are kept whole, older ones become ~80-char sentinels — regardless
+   of how many turns run.
+3. **The two-tier per-result cap** (20k non-skill / 200k skill) caps each result, so
+   a single-turn fan-out stays small (10 parallel fetches ≈ 200k chars ≈ 50k tokens).
+
+Worst realistic case (30 turns, one skill, K=5): ≈ 155k chars ≈ 39k tokens — well
+under a 200k-token window. You'd need one turn firing **~30+ simultaneous large
+tool calls** to approach the limit, which the model does not do. **The only residual
+is that extreme single-turn fan-out**, which fundamentally needs summarization
+(can't both "show every result once" and stay under budget) — a future add if it
+ever appears in practice.
+
 ### What we are explicitly NOT doing (v1)
 
-- **Aggregate/total bounding — deferred (known gap).** The per-result ceiling +
-  recency window bound the *common* case, but a single turn that fans out many large
-  tool calls, or a long run accumulating many kept results (incl. skills + small
-  results, which never elide), can still *sum* past the model's context window. A
-  true bound needs a budget-gated pass (like CC's autocompact: trigger at ~180k
-  tokens, evict toward a recent target), which needs the token accounting deferred
-  above. The current design is a large improvement over the old universal 8000 cap
-  and prevents *single-result* blowup; the aggregate valve is the clear next step.
-- A full-conversation summariser — separate from tool-result eliding.
+- **Aggregate eviction valve** — unnecessary given the three limits above.
+- A full-conversation summariser — separate from tool-result eliding (and the only
+  thing that would handle the extreme single-turn fan-out).
 - Disk/IndexedDB spill + re-read handle in v1 — valuable, but its own feature.
 
 ## 6. Open questions (several now answered by the research)

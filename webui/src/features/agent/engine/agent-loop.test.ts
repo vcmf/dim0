@@ -667,14 +667,15 @@ describe("runAgent tool-result view (fresh results kept full)", () => {
   }
 
 
-  it("keeps a large FRESH tool result in full — the model still needs it (no eager truncation)", async () => {
-    const big = "y".repeat(20000)
+  it("keeps a FRESH bulky result (under the non-skill tier) in full — the model still needs it", async () => {
+    const big = "y".repeat(15000) // > bulky threshold (8k) but < the 20k non-skill tier
     const bigTool: Tool = { name: "fetch", description: "d", parameters: z.object({}), run: async () => big }
     const cap = captureAfterTool("fetch")
     await drain(runAgent({ userMessage: "fetch it", tools: [bigTool], llm: cap.llm, ctx: {} as ToolContext }))
     const content = cap.toolMessage()?.content ?? ""
     expect(content).toBe(JSON.stringify(big)) // full, byte-for-byte
     expect(content).not.toContain("cleared")
+    expect(content).not.toContain("omitted")
   })
 
 

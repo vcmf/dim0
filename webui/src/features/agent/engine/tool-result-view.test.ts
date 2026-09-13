@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   BULKY_RESULT_CHARS,
   RESULT_CEILING_CHARS,
+  SKILL_CEILING_CHARS,
   KEEP_RECENT_TOOL_RESULTS,
   buildModelMessages,
   clearedResultText,
@@ -55,15 +56,23 @@ describe("buildModelMessages", () => {
     expect(out[0].content).toBe(clearedResultText("fetch")) // aged out + shown → elided
   })
 
-  it("caps a single runaway recent result at the hard ceiling (protects fetch, not just skills)", () => {
+  it("caps a non-skill result at the 20k tier (protects fetch, not just skills)", () => {
     const huge = bulky("h", "fetch", RESULT_CEILING_CHARS + 50000)
     const [out] = tools(buildModelMessages([huge], meta, new Set()))
-    expect(out.content.length).toBeLessThan(huge.content.length)
+    expect(out.content.length).toBeLessThanOrEqual(RESULT_CEILING_CHARS + 200) // head + short marker
     expect(out.content).toContain("omitted")
     // The ceiling marker must NOT invite a re-call: a deterministic tool would
     // reproduce the same head → a futile loop (the anti-pattern this PR removed).
     expect(out.content).not.toContain("re-call")
     expect(out.toolName).toBe("fetch")
+  })
+
+  it("uses the higher skill tier for keepFull results (not cropped at the non-skill cap)", () => {
+    const keepMeta = (m: Extract<LlmMessage, { role: "tool" }>): ToolMsgMeta => ({ toolName: m.toolName ?? "tool", keepFull: true })
+    // A skill well above the non-skill 20k tier but under the skill tier → kept whole.
+    const skill = bulky("k", "learn_generate_applet", RESULT_CEILING_CHARS + 30000)
+    const [out] = tools(buildModelMessages([skill], keepMeta, new Set()))
+    expect(out).toEqual(skill) // not cropped — skill tier is 200k
   })
 
   it("preserves toolName on an elided message", () => {
@@ -94,7 +103,7 @@ describe("buildModelMessages", () => {
     const out = tools(buildModelMessages(msgs, keepMeta, shown))
     expect(out[0]).toEqual(skill) // under the ceiling → whole, never elided
 
-    const runaway = bulky("r", "learn_generate_applet", RESULT_CEILING_CHARS + 5000)
+    const runaway = bulky("r", "learn_generate_applet", SKILL_CEILING_CHARS + 5000)
     const [outRunaway] = tools(buildModelMessages([runaway], keepMeta, new Set()))
     expect(outRunaway.content.length).toBeLessThan(runaway.content.length)
     expect(outRunaway.content).toContain("omitted")

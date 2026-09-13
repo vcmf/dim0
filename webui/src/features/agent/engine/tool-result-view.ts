@@ -24,14 +24,19 @@ export const KEEP_RECENT_TOOL_RESULTS = 5
 export const BULKY_RESULT_CHARS = 8000
 
 
-/** Hard ceiling on a SINGLE result kept whole (a recent bulky result, or a
- *  `keepFull` skill), so one pathologically large result can't dominate the input.
- *  Generous — well above a normal fetch/skill — and only bites a runaway. ~50k
- *  tokens at ~4 chars/token. NOTE: this bounds each result, NOT the aggregate — a
- *  single turn that fans out many large tool calls, or a long run accumulating many
- *  kept results, can still sum past the model's context window. Aggregate bounding
- *  (a budget-gated compaction pass) is deferred; see docs/plans/tool-result-lifecycle.md. */
-export const RESULT_CEILING_CHARS = 200_000
+/** Ceiling on a single NON-SKILL result kept whole (a recent bulky fetch/search/read
+ *  result). ~20k chars ≈ 5k tokens — 2.5× the old universal cap, generous enough
+ *  that a fresh result is almost always complete, but small enough that the recent
+ *  window (K × this) and a single-turn fan-out stay comfortably within context.
+ *  A larger result is head-cropped with a neutral marker. Together with `maxTurns`
+ *  (caps run length) and recency eliding (caps *full* bulky content to K), this is
+ *  what bounds aggregate input in practice; see docs/plans/tool-result-lifecycle.md. */
+export const RESULT_CEILING_CHARS = 20_000
+
+
+/** Ceiling for a `keepFull` (skill) result — much higher, since a skill's whole
+ *  point is the full guidance (~18–21k today). Only a runaway is cropped. */
+export const SKILL_CEILING_CHARS = 200_000
 
 
 type ToolMessage = Extract<LlmMessage, { role: "tool" }>
@@ -57,19 +62,19 @@ export const clearedResultText = (toolName: string): string =>
 export const emptyResultText = (toolName: string): string => `(${toolName} completed with no output)`
 
 
-/** Keep a message whole, but head-truncate it if it exceeds the hard per-result
- *  ceiling (protects against a single runaway result — fetch page or skill). The
- *  marker is deliberately neutral: it does NOT say "re-call for the rest", because a
- *  deterministic tool re-called would reproduce the same result truncated to the
- *  same head — a futile loop. The tail is simply unavailable. */
-function capped(m: ToolMessage): ToolMessage {
-  if (m.content.length <= RESULT_CEILING_CHARS) return m
-  const head = m.content.slice(0, RESULT_CEILING_CHARS)
+/** Keep a message whole, but head-crop it if it exceeds `ceiling` (the skill tier
+ *  for `keepFull` results, else the non-skill tier). The marker is deliberately
+ *  neutral: it does NOT say "re-call for the rest", because a deterministic tool
+ *  re-called reproduces the same result cropped to the same head — a futile loop.
+ *  The tail is simply unavailable. */
+function capped(m: ToolMessage, ceiling: number): ToolMessage {
+  if (m.content.length <= ceiling) return m
+  const head = m.content.slice(0, ceiling)
   return {
     role: "tool",
     toolCallId: m.toolCallId,
     toolName: m.toolName,
-    content: `${head}\n…[${m.content.length - RESULT_CEILING_CHARS} more chars omitted — result too large to include in full]`,
+    content: `${head}\n…[${m.content.length - ceiling} more chars omitted — result too large to include in full]`,
   }
 }
 
@@ -118,11 +123,12 @@ export function buildModelMessages(
   return messages.map((m) => {
     if (m.role !== "tool") return m
     const { meta, bulky } = cache.get(m.toolCallId)!
-    if (!bulky) return capped(m) // small or keepFull → kept (capped)
+    const ceiling = meta.keepFull ? SKILL_CEILING_CHARS : RESULT_CEILING_CHARS
+    if (!bulky) return capped(m, ceiling) // small (never hits it) or keepFull skill
     // Bulky: keep while recent OR not-yet-shown (so it's seen ≥ once), then elide.
     if (recentBulky.has(m.toolCallId) || !shownBulky.has(m.toolCallId)) {
       shownBulky.add(m.toolCallId)
-      return capped(m)
+      return capped(m, ceiling)
     }
     return { role: "tool", toolCallId: m.toolCallId, toolName: m.toolName, content: clearedResultText(meta.toolName) }
   })
