@@ -187,11 +187,14 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
     toolName: m.toolName ?? "tool",
     keepFull: keepFullNames.has(m.toolName ?? ""),
   })
+  // Run-scoped "seen at least once" set for the derived view: a bulky result is
+  // kept until it has been shown once, then becomes elidable (see buildModelMessages).
+  const shownBulky = new Set<string>()
 
   for (let turn = 0; turn < maxTurns; turn += 1) {
     // The full log is `messages`; the model sees a recency-shrunk view derived
     // fresh each turn (old bulky results elided, recent + small + skills kept).
-    const modelMessages = buildModelMessages(messages, metaOf)
+    const modelMessages = buildModelMessages(messages, metaOf, shownBulky)
     // Prefer streaming: emit cumulative `assistant_text` per delta so the UI
     // renders token-by-token; fall back to a single atomic turn otherwise.
     let result: LlmTurn

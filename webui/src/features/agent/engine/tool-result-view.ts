@@ -7,14 +7,14 @@
 // eager "truncate every result to 8000 chars at insertion", which shrank even the
 // just-produced result the model still needs. See docs/plans/tool-result-lifecycle.md
 // (and its study of Claude Code's microcompaction, which this mirrors: keep-last-K,
-// replace-whole with a sentinel, freeze-what-was-seen for prompt-cache stability).
+// replace-whole with a sentinel).
 
 import type { LlmMessage } from "./types"
 
 
 /** Keep this many of the most recent BULKY tool results in full; older bulky ones
- *  are elided. Claude Code keeps 5. The just-produced result is always inside this
- *  window, so the model never loses output it is still acting on. */
+ *  are elided (once they've been shown at least once — see `shownBulky`). Claude
+ *  Code keeps 5. */
 export const KEEP_RECENT_TOOL_RESULTS = 5
 
 
@@ -24,10 +24,11 @@ export const KEEP_RECENT_TOOL_RESULTS = 5
 export const BULKY_RESULT_CHARS = 8000
 
 
-/** Hard ceiling even for `keepFull` (skill) results, so a pathologically large one
- *  can't blow the provider's max-input limit. Generous — well above any skill
- *  (~21k) — and only ever bites a runaway. ~50k tokens at ~4 chars/token. */
-export const KEEP_FULL_CEILING_CHARS = 200_000
+/** Hard per-result ceiling for any result KEPT whole (a recent bulky result, or a
+ *  `keepFull` skill), so a single pathologically large result can't exceed the
+ *  provider's max-input limit. Generous — well above a normal fetch/skill — and
+ *  only bites a runaway. ~50k tokens at ~4 chars/token. */
+export const RESULT_CEILING_CHARS = 200_000
 
 
 type ToolMessage = Extract<LlmMessage, { role: "tool" }>
@@ -53,49 +54,64 @@ export const clearedResultText = (toolName: string): string =>
 export const emptyResultText = (toolName: string): string => `(${toolName} completed with no output)`
 
 
+/** Keep a message whole, but head-truncate it if it exceeds the hard per-result
+ *  ceiling (protects against a single runaway result — fetch page or skill). */
+function capped(m: ToolMessage): ToolMessage {
+  if (m.content.length <= RESULT_CEILING_CHARS) return m
+  const head = m.content.slice(0, RESULT_CEILING_CHARS)
+  return {
+    role: "tool",
+    toolCallId: m.toolCallId,
+    toolName: m.toolName,
+    content: `${head}\n…[truncated ${m.content.length - RESULT_CEILING_CHARS} chars — re-call the tool for the rest]`,
+  }
+}
+
+
 /**
  * Derive the model-facing messages from the full log, eliding old bulky tool
- * results by pure recency. Kept whole: all small results, all `keepFull` (skill)
- * results, and the most recent {@link KEEP_RECENT_TOOL_RESULTS} bulky results.
- * Older bulky results are replaced WHOLE with {@link clearedResultText}, keeping the
- * `tool_use ↔ tool_result` pairing. Non-tool messages pass through untouched.
+ * results by recency. Kept whole (up to {@link RESULT_CEILING_CHARS}): all small
+ * results, all `keepFull` (skill) results, the most recent
+ * {@link KEEP_RECENT_TOOL_RESULTS} bulky results, and any bulky result not yet
+ * shown. Older, already-shown bulky results are replaced WHOLE with
+ * {@link clearedResultText}, keeping the `tool_use ↔ tool_result` pairing.
  *
- * Pure and deterministic: the same log yields the same view. There is deliberately
- * NO "freeze what was already sent" — that would keep every result frozen the first
- * (and only) turn it appears as the most-recent bulky one, so nothing produced in a
- * run would ever elide and context would grow unbounded. We accept that an aging
- * result is rewritten once (full → sentinel) as it crosses the window, trading some
- * prompt-cache reuse for a hard bound on context. `keepFull` results (skills) stay
- * whole because the model may need the guidance across a whole multi-call task.
+ * `shownBulky` is the run-scoped "seen at least once" set: a bulky result is kept
+ * until it has appeared in one sent view, then becomes elidable. This GUARANTEES
+ * the model sees every result at least once — even when a single turn produces more
+ * than K bulky results (parallel tool calls) — while still bounding context (a
+ * result stays past the window for at most one extra turn). It is the inverse of a
+ * "freeze what was seen" set (which would keep results forever and defeat eliding);
+ * pass the same set across a run's turns. Mutated in place; non-tool messages pass
+ * through untouched.
  */
-export function buildModelMessages(messages: LlmMessage[], metaOf: (m: ToolMessage) => ToolMsgMeta): LlmMessage[] {
-  // The bulky, elidable results in order — the last K of these are "recent".
+export function buildModelMessages(
+  messages: LlmMessage[],
+  metaOf: (m: ToolMessage) => ToolMsgMeta,
+  shownBulky: Set<string>,
+): LlmMessage[] {
+  // One pass: resolve meta once per tool message (a message is addressed once) and
+  // record bulkiness, so `metaOf` isn't called twice per message per turn.
+  const cache = new Map<string, { meta: ToolMsgMeta; bulky: boolean }>()
   const bulkyIds: string[] = []
   for (const m of messages) {
     if (m.role !== "tool") continue
-    if (metaOf(m).keepFull) continue
-    if (m.content.length > BULKY_RESULT_CHARS) bulkyIds.push(m.toolCallId)
+    const meta = metaOf(m)
+    const bulky = !meta.keepFull && m.content.length > BULKY_RESULT_CHARS
+    cache.set(m.toolCallId, { meta, bulky })
+    if (bulky) bulkyIds.push(m.toolCallId)
   }
   const recentBulky = new Set(bulkyIds.slice(-KEEP_RECENT_TOOL_RESULTS))
 
   return messages.map((m) => {
     if (m.role !== "tool") return m
-    const meta = metaOf(m)
-    // `keepFull` (skills) is never elided, but is still bounded by a hard ceiling so
-    // a runaway can't exceed the provider's input limit.
-    if (meta.keepFull) {
-      if (m.content.length <= KEEP_FULL_CEILING_CHARS) return m
-      const head = m.content.slice(0, KEEP_FULL_CEILING_CHARS)
-      return {
-        role: "tool",
-        toolCallId: m.toolCallId,
-        toolName: m.toolName,
-        content: `${head}\n…[truncated ${m.content.length - KEEP_FULL_CEILING_CHARS} chars]`,
-      }
+    const { meta, bulky } = cache.get(m.toolCallId)!
+    if (!bulky) return capped(m) // small or keepFull → kept (capped)
+    // Bulky: keep while recent OR not-yet-shown (so it's seen ≥ once), then elide.
+    if (recentBulky.has(m.toolCallId) || !shownBulky.has(m.toolCallId)) {
+      shownBulky.add(m.toolCallId)
+      return capped(m)
     }
-    // Keep whole if small or among the most recent bulky results; else elide.
-    const elidable = m.content.length > BULKY_RESULT_CHARS
-    if (!elidable || recentBulky.has(m.toolCallId)) return m
     return { role: "tool", toolCallId: m.toolCallId, toolName: m.toolName, content: clearedResultText(meta.toolName) }
   })
 }

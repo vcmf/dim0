@@ -226,11 +226,18 @@ much of the "spiral" may simply disappear.
 2. **Derive the view each turn** (`buildModelMessages`): keep the **last 5** bulky
    results whole, plus all small results and all `keepFull` (skill) results; replace
    older bulky results *whole* with `[old <tool> result cleared — re-call …]`,
-   preserving the `tool_use ↔ tool_result` pairing and the `toolName`. `keepFull`
-   results are bounded by a generous hard ceiling so a runaway can't exceed the
-   provider limit.
-3. **Pure recency, no freeze** (see §5.3). Deterministic: the same log yields the
-   same view.
+   preserving the `tool_use ↔ tool_result` pairing and the `toolName`.
+3. **Per-result ceiling on everything kept whole** (`RESULT_CEILING_CHARS`, 200k):
+   a single runaway result — a huge `fetch` page *or* a skill — is head-truncated
+   with a re-call hint, so it can't blow the provider's max-input limit. (Only the
+   old universal 8000 cap did this before; dropping it for recent results was a
+   regression this closes.)
+4. **Seen-at-least-once guarantee** (`shownBulky` set): a bulky result is kept until
+   it has appeared in one sent view, *then* becomes elidable. This ensures the model
+   sees every result at least once even when one turn fans out **more than 5** bulky
+   tool calls, while still bounding context (a result lingers at most one extra
+   turn). It is the **inverse** of a freeze — it defers eliding by one turn rather
+   than preventing it forever (see §5.3).
 4. Carry an **ADR** for the durable decision (full retention; derive-at-assembly;
    pure recency; size-based eligibility; skills kept whole).
 
@@ -248,11 +255,17 @@ the incremental loop never produces.)
 
 CC's freeze is safe only because its aging elision is a **separate cold-cache path**
 (fires on a 60-min gap, when the cache is already dead) and it has **auto-compact**
-as the real context bound. We have neither. So we use **pure recency**: an aging
-result is rewritten **once** as it crosses the window (a bounded prompt-cache cost),
-which guarantees the context bound. Cache stability for the current run's *recent*
-results, all small results, and skills is preserved because their content is stable
-turn to turn — only the single aging boundary shifts.
+as the real context bound. We have neither. So we use **recency** as the bound: an
+aging result is rewritten **once** as it crosses the window (a bounded prompt-cache
+cost), which guarantees the context bound. Cache stability for the current run's
+*recent* results, all small results, and skills is preserved because their content
+is stable turn to turn — only the single aging boundary shifts.
+
+The one bit of run state we *do* keep — `shownBulky` — is the inverse of the freeze
+and does not have its failure mode. The freeze marked a result "seen → keep forever"
+and, because assembly runs at the top of a turn, marked everything on first sight →
+nothing elided. `shownBulky` marks a result "seen → now *elidable*", so it only ever
+*defers* eliding by one turn (to honor the seen-once guarantee), never prevents it.
 
 ### What we are explicitly NOT doing
 
