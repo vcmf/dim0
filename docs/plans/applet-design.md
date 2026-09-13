@@ -288,8 +288,33 @@ The form the node type actually took once implemented. Two layers:
   `NodeType` union, default style/size, the Dim0→canvas maps, autofit/custom-node/
   style-memory sets, agent board-snapshot kinds, and node limits (§12).
 
-**Persistence** reuses the existing local per-note store (keyed by node id — no
-collision with mini-app state); a dedicated `applets` store is a possible follow-up.
+**Persistence — two independent stores.** The applet's *source* and its *live
+state* persist by completely different paths:
+
+- **Source** (`note.content.markdown`, the JSX) is **board content** — it rides the
+  normal collab/oplog sync spine to the server, so the applet *definition* is
+  server-persisted, cross-device, and shared by all viewers, exactly like any other
+  node's content.
+- **Live state** (the counter value, todo items) persists **local-first only** and
+  is **opt-in** via the `<Widget persist>` flag. `saveAppletState` writes through
+  the `StorageEngine` port — IndexedDB on web, rusqlite on desktop — keyed by node
+  id (reusing the `mini_app_state` local store; no collision, since node ids are
+  unique). **It does NOT call the backend today.** The backend `/mini-app-state`
+  endpoints + table exist but are unused by the local-first frontend (the repo is
+  "the local analog of the backend's endpoints"). Writes are debounced (~300 ms,
+  flushed on unmount); the row is deleted on node delete.
+
+Consequences (intended, aligned with the local-first / offline / standalone
+north-star): live state **survives reload on the same device**, works with **no
+server**, but is **per-device and per-user** — it doesn't follow the user across
+devices, and collaborators each keep their own state (it's not collab-broadcast).
+Ephemeral widgets (no `persist`) save nothing and reset on remount.
+
+Cross-device / cross-user state continuity is a clean **future add** if it ever
+matters: push/pull the `mini_app_state` engine rows through the existing backend
+`/mini-app-state` endpoints for synced boards. Not needed for the standalone story,
+so it stays local for now. A dedicated `applets` store (vs. reusing `mini_app_state`)
+is a smaller possible follow-up.
 
 **Create-gate** — the toolbar offers **Applet**, not Mini-app; a toolbar create
 seeds a working **starter counter** (`STARTER_APPLET_SOURCE`) as `note.content`, so
