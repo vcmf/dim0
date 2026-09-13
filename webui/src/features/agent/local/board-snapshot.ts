@@ -19,7 +19,7 @@ import type { StorageEngine } from "@/features/board/persist/local/engine"
 
 
 /** How a node is categorized in the snapshot's type breakdown. */
-export type NodeKind = "note" | "folder" | "sheet" | "mini-app" | "code-sandbox" | "widget" | "document"
+export type NodeKind = "note" | "folder" | "sheet" | "mini-app" | "applet" | "code-sandbox" | "widget" | "document"
 
 
 /** One folder layer (or root) in the board's structure. */
@@ -64,7 +64,7 @@ const MAX_SELECTION_TITLES = 8
 const TITLE_MAX_CHARS = 40
 
 
-const STRUCTURAL_KINDS: ReadonlySet<string> = new Set(["folder", "sheet", "mini-app", "code-sandbox", "widget"])
+const STRUCTURAL_KINDS: ReadonlySet<string> = new Set(["folder", "sheet", "mini-app", "applet", "code-sandbox", "widget"])
 
 
 const KIND_PLURAL: Record<NodeKind, [string, string]> = {
@@ -72,6 +72,7 @@ const KIND_PLURAL: Record<NodeKind, [string, string]> = {
   folder: ["folder", "folders"],
   sheet: ["sheet", "sheets"],
   "mini-app": ["mini-app", "mini-apps"],
+  applet: ["applet", "applets"],
   "code-sandbox": ["code sandbox", "code sandboxes"],
   widget: ["widget", "widgets"],
   document: ["document", "documents"],
