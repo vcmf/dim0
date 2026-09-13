@@ -59,7 +59,10 @@ describe("buildModelMessages", () => {
     const huge = bulky("h", "fetch", RESULT_CEILING_CHARS + 50000)
     const [out] = tools(buildModelMessages([huge], meta, new Set()))
     expect(out.content.length).toBeLessThan(huge.content.length)
-    expect(out.content).toContain("truncated")
+    expect(out.content).toContain("omitted")
+    // The ceiling marker must NOT invite a re-call: a deterministic tool would
+    // reproduce the same head → a futile loop (the anti-pattern this PR removed).
+    expect(out.content).not.toContain("re-call")
     expect(out.toolName).toBe("fetch")
   })
 
@@ -94,7 +97,7 @@ describe("buildModelMessages", () => {
     const runaway = bulky("r", "learn_generate_applet", RESULT_CEILING_CHARS + 5000)
     const [outRunaway] = tools(buildModelMessages([runaway], keepMeta, new Set()))
     expect(outRunaway.content.length).toBeLessThan(runaway.content.length)
-    expect(outRunaway.content).toContain("truncated")
+    expect(outRunaway.content).toContain("omitted")
   })
 
   it("is deterministic given the same log and set state", () => {

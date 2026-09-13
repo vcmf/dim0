@@ -24,10 +24,13 @@ export const KEEP_RECENT_TOOL_RESULTS = 5
 export const BULKY_RESULT_CHARS = 8000
 
 
-/** Hard per-result ceiling for any result KEPT whole (a recent bulky result, or a
- *  `keepFull` skill), so a single pathologically large result can't exceed the
- *  provider's max-input limit. Generous — well above a normal fetch/skill — and
- *  only bites a runaway. ~50k tokens at ~4 chars/token. */
+/** Hard ceiling on a SINGLE result kept whole (a recent bulky result, or a
+ *  `keepFull` skill), so one pathologically large result can't dominate the input.
+ *  Generous — well above a normal fetch/skill — and only bites a runaway. ~50k
+ *  tokens at ~4 chars/token. NOTE: this bounds each result, NOT the aggregate — a
+ *  single turn that fans out many large tool calls, or a long run accumulating many
+ *  kept results, can still sum past the model's context window. Aggregate bounding
+ *  (a budget-gated compaction pass) is deferred; see docs/plans/tool-result-lifecycle.md. */
 export const RESULT_CEILING_CHARS = 200_000
 
 
@@ -55,7 +58,10 @@ export const emptyResultText = (toolName: string): string => `(${toolName} compl
 
 
 /** Keep a message whole, but head-truncate it if it exceeds the hard per-result
- *  ceiling (protects against a single runaway result — fetch page or skill). */
+ *  ceiling (protects against a single runaway result — fetch page or skill). The
+ *  marker is deliberately neutral: it does NOT say "re-call for the rest", because a
+ *  deterministic tool re-called would reproduce the same result truncated to the
+ *  same head — a futile loop. The tail is simply unavailable. */
 function capped(m: ToolMessage): ToolMessage {
   if (m.content.length <= RESULT_CEILING_CHARS) return m
   const head = m.content.slice(0, RESULT_CEILING_CHARS)
@@ -63,7 +69,7 @@ function capped(m: ToolMessage): ToolMessage {
     role: "tool",
     toolCallId: m.toolCallId,
     toolName: m.toolName,
-    content: `${head}\n…[truncated ${m.content.length - RESULT_CEILING_CHARS} chars — re-call the tool for the rest]`,
+    content: `${head}\n…[${m.content.length - RESULT_CEILING_CHARS} more chars omitted — result too large to include in full]`,
   }
 }
 
@@ -76,14 +82,20 @@ function capped(m: ToolMessage): ToolMessage {
  * shown. Older, already-shown bulky results are replaced WHOLE with
  * {@link clearedResultText}, keeping the `tool_use ↔ tool_result` pairing.
  *
- * `shownBulky` is the run-scoped "seen at least once" set: a bulky result is kept
- * until it has appeared in one sent view, then becomes elidable. This GUARANTEES
- * the model sees every result at least once — even when a single turn produces more
- * than K bulky results (parallel tool calls) — while still bounding context (a
- * result stays past the window for at most one extra turn). It is the inverse of a
+ * `shownBulky` is the run-scoped "included in a view once" set: a bulky result is
+ * kept until it has appeared in one built view, then becomes elidable. So every
+ * result is included in a sent view at least once — even when a single turn produces
+ * more than K bulky results (parallel tool calls) — while context stays bounded (a
+ * result lingers past the window for at most one extra turn). It is the inverse of a
  * "freeze what was seen" set (which would keep results forever and defeat eliding);
- * pass the same set across a run's turns. Mutated in place; non-tool messages pass
- * through untouched.
+ * pass the same set across a run's turns. (A result is marked at build time, so a
+ * turn whose model call then throws still counts it seen — harmless: the throw ends
+ * the run and the set is per-run.)
+ *
+ * The returned array reuses the log's message objects for anything kept whole
+ * (only elided/capped messages are new) — treat the view as READ-ONLY; callers must
+ * not mutate it in place or they'd corrupt the authoritative log. Non-tool messages
+ * pass through untouched.
  */
 export function buildModelMessages(
   messages: LlmMessage[],

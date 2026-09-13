@@ -267,9 +267,16 @@ and, because assembly runs at the top of a turn, marked everything on first sigh
 nothing elided. `shownBulky` marks a result "seen → now *elidable*", so it only ever
 *defers* eliding by one turn (to honor the seen-once guarantee), never prevents it.
 
-### What we are explicitly NOT doing
+### What we are explicitly NOT doing (v1)
 
-- Removing the cap — bulky data tools still need bounding as they age.
+- **Aggregate/total bounding — deferred (known gap).** The per-result ceiling +
+  recency window bound the *common* case, but a single turn that fans out many large
+  tool calls, or a long run accumulating many kept results (incl. skills + small
+  results, which never elide), can still *sum* past the model's context window. A
+  true bound needs a budget-gated pass (like CC's autocompact: trigger at ~180k
+  tokens, evict toward a recent target), which needs the token accounting deferred
+  above. The current design is a large improvement over the old universal 8000 cap
+  and prevents *single-result* blowup; the aggregate valve is the clear next step.
 - A full-conversation summariser — separate from tool-result eliding.
 - Disk/IndexedDB spill + re-read handle in v1 — valuable, but its own feature.
 
