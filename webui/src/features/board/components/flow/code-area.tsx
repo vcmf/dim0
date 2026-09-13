@@ -14,6 +14,12 @@ type CodeAreaProps = {
   onChange: (value: string) => void
   language?: CodeAreaLanguage
   placeholder?: string
+  /**
+   * When true the textarea is non-editable: keystroke handlers no-op and
+   * `onChange` never fires. The Shiki backdrop still paints, so the code stays
+   * highlighted and scrollable — an inspect-only source view.
+   */
+  readOnly?: boolean
 }
 
 
@@ -38,6 +44,7 @@ export function CodeArea({
   onChange,
   language = "python",
   placeholder = "Write code here",
+  readOnly = false,
 }: CodeAreaProps) {
   const { shikiThemes } = useTheme()
   const highlightedLayerRef = useRef<HTMLDivElement | null>(null)
@@ -70,6 +77,7 @@ export function CodeArea({
    * Insert indentation and preserve current line indentation for new lines.
    */
   const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (readOnly) return
     const textarea = event.currentTarget
     const start = textarea.selectionStart ?? 0
     const end = textarea.selectionEnd ?? start
@@ -101,7 +109,7 @@ export function CodeArea({
     textarea.setRangeText(`\n${indentation}${extraIndent}`, start, end, "end")
     const nativeEvent = new Event("input", { bubbles: true })
     textarea.dispatchEvent(nativeEvent)
-  }, [language])
+  }, [language, readOnly])
 
   /**
    * Keep the highlighted backdrop aligned with the textarea viewport.
@@ -132,11 +140,15 @@ export function CodeArea({
       />
       <textarea
         value={value}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={readOnly ? undefined : (event) => onChange(event.target.value)}
         onKeyDown={handleKeyDown}
         onScroll={handleScroll}
+        readOnly={readOnly}
         spellCheck={false}
-        className="absolute inset-0 w-full h-full resize-none border-0 bg-transparent p-4 outline-none scrollbar-thin font-mono text-sm leading-6 text-transparent caret-foreground selection:bg-primary/20"
+        className={cn(
+          "absolute inset-0 w-full h-full resize-none border-0 bg-transparent p-4 outline-none scrollbar-thin font-mono text-sm leading-6 text-transparent caret-foreground selection:bg-primary/20",
+          readOnly && "cursor-default",
+        )}
         placeholder={placeholder}
       />
     </div>
