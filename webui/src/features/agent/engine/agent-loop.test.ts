@@ -693,4 +693,27 @@ describe("runAgent intra-run tool-result cap", () => {
     await drain(runAgent({ userMessage: "read", tools: [smallTool], llm: cap.llm, ctx: {} as ToolContext }))
     expect(cap.toolMessage()?.content).toBe(JSON.stringify({ id: "n1", ok: true }))
   })
+
+  it("never truncates a keepFullResult tool (e.g. a skill), even past the cap", async () => {
+    const big = "y".repeat(20000)
+    const skill: Tool = {
+      name: "learn_generate_applet",
+      description: "d",
+      parameters: z.object({}),
+      run: async () => big,
+      keepFullResult: true,
+    }
+    const cap = captureAfterTool("learn_generate_applet")
+    await drain(runAgent({ userMessage: "learn", tools: [skill], llm: cap.llm, ctx: {} as ToolContext }))
+    const content = cap.toolMessage()?.content ?? ""
+    expect(content).toBe(JSON.stringify(big)) // full, byte-for-byte
+    expect(content).not.toContain("truncated")
+  })
+
+  it("drops the misleading 'narrower query' nudge from the truncation marker", async () => {
+    const bigTool: Tool = { name: "fetch", description: "d", parameters: z.object({}), run: async () => "y".repeat(20000) }
+    const cap = captureAfterTool("fetch")
+    await drain(runAgent({ userMessage: "x", tools: [bigTool], llm: cap.llm, ctx: {} as ToolContext }))
+    expect(cap.toolMessage()?.content ?? "").not.toContain("narrower query")
+  })
 })

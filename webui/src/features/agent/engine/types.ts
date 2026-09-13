@@ -148,6 +148,13 @@ export type Tool = {
   /** Zod schema for the arguments; the agent loop converts it to JSON Schema for the LLM. */
   parameters: z.ZodType
   run: (args: unknown, ctx: ToolContext) => Promise<unknown>
+  /**
+   * When true, this tool's result is fed to the model in full, never truncated by
+   * the agent loop's size cap. For bounded, authored, must-be-read-in-full outputs
+   * — chiefly the `learn_generate_*` skills, whose whole point is the guidance they
+   * return. See docs/plans/tool-result-lifecycle.md.
+   */
+  keepFullResult?: boolean
 }
 
 
@@ -164,10 +171,13 @@ export const defineTool = <S extends z.ZodType>(def: {
   description: string
   parameters: S
   run: (args: z.infer<S>, ctx: ToolContext) => Promise<unknown>
+  /** See `Tool.keepFullResult` — opt this tool's result out of the size cap. */
+  keepFullResult?: boolean
 }): Tool => ({
   name: def.name,
   description: def.description,
   parameters: def.parameters,
+  keepFullResult: def.keepFullResult,
   run: async (args, ctx) => {
     const parsed = def.parameters.safeParse(args)
     if (!parsed.success) {
