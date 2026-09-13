@@ -3,6 +3,7 @@
 // gate the write_note tool calls so the agent self-corrects in the same turn.
 
 import type { AppletTree } from "../tree"
+import { smokeTestApplet } from "./dry-eval"
 import { CompileError } from "./errors"
 import { parseSource, type RawNode } from "./parse"
 import { transform } from "./transform"
@@ -34,11 +35,16 @@ export function compileApplet(source: string): CompileResult {
 export type Validation = { ok: true } | { ok: false; message: string; line?: number; column?: number }
 
 
-// Thin ok/error gate over compileApplet (discards the tree) — the shape the
-// write_note validation path consumes.
+// The ok/error gate the write_note validation path consumes. Beyond compiling, it
+// runs a DOM-free render smoke-test (`smokeTestApplet`) over the tree's initial
+// state so runtime-only failures the compiler can't see — a `<Chart>` bound to a
+// non-array, an expression that throws at render — become same-turn author errors
+// the agent self-corrects on, instead of reaching the user's error boundary.
 export function validateApplet(source: string): Validation {
   const r = compileApplet(source)
-  return r.ok ? { ok: true } : { ok: false, message: r.message, line: r.line, column: r.column }
+  if (!r.ok) return { ok: false, message: r.message, line: r.line, column: r.column }
+  const smoke = smokeTestApplet(r.tree)
+  return smoke.ok ? { ok: true } : { ok: false, message: smoke.message }
 }
 
 
