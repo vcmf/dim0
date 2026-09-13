@@ -16,6 +16,7 @@
 
 import {
   COERCIONS,
+  HELPERS,
   HOF_ARRAY_METHODS,
   NAMESPACE_METHODS,
   NAMESPACE_NAMES,
@@ -205,9 +206,10 @@ function vMember(node: RawNode): Expr {
 function vCall(node: RawNode): Expr {
   const callee = node.callee as RawNode
   if (callee.type === "Identifier") {
-    // bare-identifier calls are the coercions only (Number/String/Boolean)
-    if (!Object.hasOwn(COERCIONS, callee.name as string)) {
-      throw err(`'${callee.name}' is not a callable function — only Number/String/Boolean, or a method call`, callee)
+    // bare-identifier calls are the coercions (Number/String/Boolean) + helpers (cn)
+    const name = callee.name as string
+    if (!Object.hasOwn(COERCIONS, name) && !Object.hasOwn(HELPERS, name)) {
+      throw err(`'${name}' is not a callable function — only Number/String/Boolean, cn, or a method call`, callee)
     }
   } else if (callee.type === "MemberExpression") {
     // computed method calls (`obj[fn]()`) can't be checked statically → reject so

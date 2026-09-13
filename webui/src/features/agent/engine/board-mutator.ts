@@ -291,7 +291,9 @@ const NODE_TYPE: Record<string, string> = {
   rectangle: "rect",
   rect: "rect",
   sheet: "sheet",
-  "mini-app": "mini-app",
+  // "mini-app" intentionally omitted: the agent can no longer CREATE mini-apps
+  // (frozen — use "applet"); existing mini-app nodes still rewrite because
+  // rewriteNote preserves an existing node's type when note_type is omitted.
   applet: "applet",
   widget: "widget",
   "code-sandbox": "code-sandbox",

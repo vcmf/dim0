@@ -122,7 +122,7 @@ const MoreMenuItems = ({
 /**
  * Overflow menu mounted at the right edge of the harness toolbar.
  * Mirrors prod's `⋯` More dropdown: Icons / Images / Sub-board /
- * Document / Code sandbox / Mini-app. Sub-board / code-sandbox / mini-app
+ * Document / Code sandbox / Applet. Sub-board / code-sandbox / applet
  * set `tool` so the next canvas click materializes the node; each create-able
  * type shows its per-board `{count}/{limit}` counter.
  */

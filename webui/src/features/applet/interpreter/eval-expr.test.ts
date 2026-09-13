@@ -123,6 +123,11 @@ describe("globals", () => {
     expect(run(call(id("Number"), lit("3")))).toBe(3)
     expect(run(call(id("String"), lit(4)))).toBe("4")
   })
+
+  it("cn helper merges class names (incl. a falsy conditional)", () => {
+    expect(run(call(id("cn"), lit("a"), lit("b")))).toBe("a b")
+    expect(run(call(id("cn"), lit("a"), logic("&&", lit(false), lit("hidden"))))).toBe("a")
+  })
 })
 
 

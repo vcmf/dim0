@@ -1,6 +1,6 @@
 import planSystem from "./plan-system.md?raw"
 import diagramSkill from "./skills/diagram.md?raw"
-import miniAppSkill from "./skills/mini-app.md?raw"
+import appletSkill from "./skills/applet.md?raw"
 import htmlWidgetSkill from "./skills/html-widget.md?raw"
 import { renderPrompt } from "./render"
 
@@ -20,7 +20,7 @@ export const planSystemPrompt = (now: string): string => renderPrompt(planSystem
  */
 export const SKILLS = {
   learn_generate_diagram: diagramSkill,
-  learn_generate_mini_app: miniAppSkill,
+  learn_generate_applet: appletSkill,
   learn_generate_html_widget: htmlWidgetSkill,
 } as const
 

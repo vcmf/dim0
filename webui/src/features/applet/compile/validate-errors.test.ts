@@ -63,6 +63,11 @@ describe("prototype-pollution parity (literal keys)", () => {
     failsWith(`<Widget data={{ constructor: 1 }}><div/></Widget>`, /forbidden key/)
   })
 
+  it("rejects a scope key that shadows a reserved name (cn / Math)", () => {
+    failsWith(`<Widget state={{ cn: 1 }}><div/></Widget>`, /reserved name/)
+    failsWith(`<Widget data={{ Math: 1 }}><div/></Widget>`, /reserved name/)
+  })
+
   it("rejects a __proto__ key in derived", () => {
     failsWith(`<Widget data={{ xs: [] }} derived={{ __proto__: xs }}><div/></Widget>`, /forbidden key/)
   })
