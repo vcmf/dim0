@@ -196,10 +196,10 @@ are the log/view separation and the recency + freeze policy. Mapped to our loop:
 |---|---|---|
 | Full-fidelity log + derived view | **Adopt** | Store the full `output` in the message record; compute the model-facing string in an assembly pass, not at `push` |
 | Compress lazily at assembly, gated on budget | **Adopt** | Move sizing out of `serializeToolResult`-at-insertion into a `buildModelMessages(messages)` step before `llm.complete` |
-| Keep last-K results full (recency) | **Adopt** | K≈5 by count (our runs are short); the just-produced result is *always* in-window, fixing the current-run truncation |
-| Freeze already-seen results (cache stability) | **Adopt** | Our session runs a 1h prompt-cache TTL — once a result was sent uncompressed, don't rewrite it; only compress results that are both old *and* not-yet-seen, or accept a rewrite only across a long gap |
-| Replace-whole with a sentinel, keep pairing | **Adopt** | `[old <tool> result cleared]`, not `slice(0, 8000)` |
-| Per-tool eligibility allowlist | **Adopt** | Only compact bulky read-style tools (search/read_note/doc); **skills never**, tiny note results never |
+| Keep last-K results full (recency) | **Adopt** | K = 5 by count; the just-produced result is *always* in-window, fixing the current-run truncation |
+| Freeze already-seen results (cache stability) | **Tried, DROPPED** | See §5.3 — in our loop the freeze fires on first sight (the result is always the most-recent bulky one then), so nothing produced in a run ever elides and context grows unbounded. CC's freeze only works alongside a separate cold-cache elision path + auto-compact, which we don't have. We use pure recency instead and accept one rewrite per aging result |
+| Replace-whole with a sentinel, keep pairing | **Adopt** | `[old <tool> result cleared — re-call …]`, not `slice(0, 8000)` |
+| Eligibility policy | **Adapt** | **Size-based**, not a tool-name allowlist: bulky = full content > 8000 chars. Simpler, drift-proof; small/structural results always kept, skills (`keepFull`) always kept |
 | Empty-result sentinel | **Adopt** | `"(<tool> completed with no output)"` |
 | Spill-to-disk + re-readable pointer | **Adapt, later** | We have a `StorageEngine` port (IndexedDB/rusqlite) and could persist + hand back a `read_tool_result(id)` handle — but that's a bigger feature; skip for v1 |
 | Token budget from API usage numbers | **Adapt, later** | Our byok/managed clients don't surface usage uniformly; start with a char/rough-token count, refine later |
@@ -218,19 +218,41 @@ Small, safe, no lifecycle change. Unblocks applet authoring and lets us
 **re-measure the real applet error rate** once the model receives the full skill —
 much of the "spiral" may simply disappear.
 
-### 5.2 The real fix (PR 2) — log/view split
+### 5.2 The real fix (PR 2) — log/view split (as built, #293)
 
-1. **Retain the full `output`** in the message record; stop truncating at `push`.
-2. **Add an assembly pass** (`buildModelMessages`) that derives the sent view:
-   keep the **last K** tool results whole; for older results from **compactable
-   tools**, replace the whole content with `[old <tool> result cleared]`; **skills
-   and small results never touched**.
-3. **Freeze already-seen results** so an active (cache-warm) session isn't
-   retroactively rewritten — only compress results that have aged past the window
-   *and* weren't already sent uncompressed, or gate the rewrite on a long gap the
-   way CC gates on the 60-min cache TTL.
+1. **Retain the full `output`** in the message record (+ its `toolName`); stop
+   truncating at `push`. Only a genuinely absent (`undefined`) result becomes the
+   no-output sentinel — `null`/`""`/`0` are meaningful and pass through.
+2. **Derive the view each turn** (`buildModelMessages`): keep the **last 5** bulky
+   results whole, plus all small results and all `keepFull` (skill) results; replace
+   older bulky results *whole* with `[old <tool> result cleared — re-call …]`,
+   preserving the `tool_use ↔ tool_result` pairing and the `toolName`. `keepFull`
+   results are bounded by a generous hard ceiling so a runaway can't exceed the
+   provider limit.
+3. **Pure recency, no freeze** (see §5.3). Deterministic: the same log yields the
+   same view.
 4. Carry an **ADR** for the durable decision (full retention; derive-at-assembly;
-   recency + freeze; per-tool allowlist).
+   pure recency; size-based eligibility; skills kept whole).
+
+### 5.3 Why we dropped the freeze
+
+The plan (following CC) called for freezing already-seen results so a cache-warm
+run isn't retroactively rewritten. Building it exposed why it can't work in our
+loop: `buildModelMessages` runs at the **top** of a turn, but a tool result is
+appended at the **end**. So the first time any bulky result is assembled it is the
+**most-recent** bulky one → inside the keep-window → kept whole → frozen. From then
+on it can never elide. Nothing produced *within a run* would ever be compacted;
+context would grow unbounded — the exact failure the PR exists to prevent. (A unit
+test hid this by pre-populating a multi-result log with an empty freeze set, which
+the incremental loop never produces.)
+
+CC's freeze is safe only because its aging elision is a **separate cold-cache path**
+(fires on a 60-min gap, when the cache is already dead) and it has **auto-compact**
+as the real context bound. We have neither. So we use **pure recency**: an aging
+result is rewritten **once** as it crosses the window (a bounded prompt-cache cost),
+which guarantees the context bound. Cache stability for the current run's *recent*
+results, all small results, and skills is preserved because their content is stable
+turn to turn — only the single aging boundary shifts.
 
 ### What we are explicitly NOT doing
 
@@ -247,9 +269,11 @@ much of the "spiral" may simply disappear.
 - **Retain originals?** — CC's budget path retains out-of-band; its time-based MC
   path does *not* (accepts loss when the cache is already cold). For v1 we can keep
   full outputs in-memory for the run and simply not persist the compressed form.
-- **Cache stability** — **newly important:** our 1h prompt-cache TTL means naive
-  keep-last-K would retroactively rewrite aging results and bust the cache mid-run.
-  Adopt CC's freeze (`seenIds`) or only compact across a gap.
+- **Cache stability** — **resolved (§5.3):** the freeze that would preserve it
+  can't work in our top-of-turn assembly (it freezes everything on first sight), and
+  we lack CC's cold-cache elision path + auto-compact that make its freeze safe. We
+  accept one rewrite per aging result. A future budget-gated compaction (only elide
+  under real token pressure) could recover most of the cache benefit — deferred.
 - **Should the skill be a tool result at all,** or a system-role injection exempt
   by construction? Still worth deciding — a cleaner home than an 18KB tool result,
   and it sidesteps the whole question for skills.
@@ -260,9 +284,10 @@ much of the "spiral" may simply disappear.
   loaded — test asserts the assembled prompt contains the skill's *last* section.
 - A large **fresh** data-tool result reaches the model in full on the immediately
   following step.
-- An **old** compactable result is replaced whole with a sentinel once past the
-  window, keeping context bounded and the `tool_use ↔ result` pairing intact.
-- A result already sent uncompressed is **not** retroactively rewritten within a
-  cache-warm run.
-- No "narrower query" marker on a tool that has no query; empty results render as
-  `"(<tool> completed with no output)"`.
+- An **old** bulky result is replaced whole with a sentinel once past the recent
+  window — including one produced earlier in the same run — keeping context bounded
+  and the `tool_use ↔ result` pairing (and `toolName`) intact.
+- The view is **deterministic**: the same log yields byte-identical output.
+- No "narrower query" marker on a tool that has no query; only an absent
+  (`undefined`) result renders as `"(<tool> completed with no output)"` — `null` and
+  other real values pass through.
