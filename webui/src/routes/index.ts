@@ -213,6 +213,15 @@ const miniAppRoute = createRoute({
   component: () => null,
 })
 
+// /boards/:id/applets/:noteId — child of boardRoute. Same shape as
+// miniAppRoute: BoardScreen owns rendering via useActiveSurfaceFromUrl.
+export const AppletUrl = "/boards/$id/applets/$noteId"
+const appletRoute = createRoute({
+  getParentRoute: () => boardRoute,
+  path: "/applets/$noteId",
+  component: () => null,
+})
+
 // /subscriptions (protected)
 export const SubscriptionsUrl = "/subscriptions"
 const subscriptionsRoute = createRoute({
@@ -328,6 +337,13 @@ const localMiniAppRoute = createRoute({
   component: () => null,
 })
 
+export const LocalAppletUrl = "/local/$boardId/applets/$noteId"
+const localAppletRoute = createRoute({
+  getParentRoute: () => localBoardRoute,
+  path: "/applets/$noteId",
+  component: () => null,
+})
+
 const routeTree = rootRoute.addChildren([
   localDashboardRoute,
   localBoardRoute.addChildren([
@@ -335,6 +351,7 @@ const routeTree = rootRoute.addChildren([
     localCodeSandboxRoute,
     localWidgetRoute,
     localMiniAppRoute,
+    localAppletRoute,
   ]),
   signinRoute,
   signupRoute,
@@ -347,7 +364,7 @@ const routeTree = rootRoute.addChildren([
   chatsIndexRoute,
   chatRoute,
   dashboardRoute,
-  boardRoute.addChildren([sheetRoute, codeSandboxRoute, widgetRoute, miniAppRoute]),
+  boardRoute.addChildren([sheetRoute, codeSandboxRoute, widgetRoute, miniAppRoute, appletRoute]),
   subscriptionsRoute,
   newsfeedsRoute,
   newsfeedDetailRoute,
