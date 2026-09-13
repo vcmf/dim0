@@ -27,12 +27,21 @@ export const DEFAULT_MAX_TURNS = 30
 export const MAX_TOOL_RESULT_CHARS = 8000
 
 
-/** Serialize a tool result for the model, truncating the tail past the cap with a
- *  marker that tells the model how to get more. Deterministic → byte-stable re-send. */
-const serializeToolResult = (output: unknown): string => {
+/**
+ * Serialize a tool result for the model. Past the size cap the tail is dropped with
+ * a neutral marker; `keepFull` (tools that declare `keepFullResult`, e.g. skills)
+ * bypasses the cap entirely. Deterministic → byte-stable re-send.
+ *
+ * NOTE: this is an eager, at-insertion truncation with no recency awareness — it
+ * shrinks even the just-produced result the model still needs. That's a known flaw;
+ * the recency-aware, retain-full-derive-the-view rework is docs/plans/tool-result-
+ * lifecycle.md PR 2. This PR only stops skills from being truncated and removes the
+ * misleading "narrower query" nudge that drove futile re-calls.
+ */
+const serializeToolResult = (output: unknown, keepFull = false): string => {
   const s = JSON.stringify(output) ?? "null"
-  if (s.length <= MAX_TOOL_RESULT_CHARS) return s
-  return `${s.slice(0, MAX_TOOL_RESULT_CHARS)}\n…[truncated ${s.length - MAX_TOOL_RESULT_CHARS} chars — call the tool again with a narrower query for more]`
+  if (keepFull || s.length <= MAX_TOOL_RESULT_CHARS) return s
+  return `${s.slice(0, MAX_TOOL_RESULT_CHARS)}\n…[truncated ${s.length - MAX_TOOL_RESULT_CHARS} chars]`
 }
 
 
@@ -228,7 +237,8 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
       const output = await executeToolCall(call.name, args, opts.tools, opts.ctx, gate)
       agentLog.tool(call.name, args, output)
       yield { type: "tool_result", toolName: call.name, result: output }
-      messages.push({ role: "tool", toolCallId: call.id, content: serializeToolResult(output) })
+      const keepFull = opts.tools.find((t) => t.name === call.name)?.keepFullResult ?? false
+      messages.push({ role: "tool", toolCallId: call.id, content: serializeToolResult(output, keepFull) })
     }
   }
 
