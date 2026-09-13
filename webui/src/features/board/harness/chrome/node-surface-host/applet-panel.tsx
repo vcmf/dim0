@@ -6,10 +6,13 @@
 // on-canvas error came from. It never mutates `note.content` — editing the source
 // with live re-validation is a tracked follow-up (see the applet ADR / plan).
 //
-// The Preview is ephemeral: it hydrates from the persisted state so it reflects
-// the current applet, but interactions here are NOT saved back (the on-canvas node
-// remains the source of truth for live state), which sidesteps a two-writer race
-// between this panel and the node view mounted behind the backdrop.
+// The Preview is ephemeral: interactions here are NOT saved back (the on-canvas
+// node remains the source of truth for live state), which sidesteps a two-writer
+// race between this panel and the node view mounted behind the backdrop. It
+// hydrates from persisted state, so for a `persist` applet it reflects the saved
+// state (modulo the node's ~300ms debounce); for a non-`persist` applet nothing is
+// saved, so the Preview shows the applet's declared defaults, not the live
+// on-canvas state.
 
 import { memo, useCallback, useEffect, useState } from "react"
 
@@ -21,21 +24,18 @@ import { CancelPlainIcon, DownloadIcon } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CodeArea } from "@/features/board/components/flow/code-area"
-import { AppletRenderer, fetchAppletState } from "@/features/applet/render"
-import type { JsonValue } from "@/features/applet/tree"
+import { AppletRenderer, useAppletInitialState } from "@/features/applet/render"
+import { downloadTextFile } from "@/lib/download-file"
 
 import type { NoteNodeData } from "../../convert/note-to-node"
 import { useBoardAppStore } from "../../store/board-app-store"
+import { SURFACE_PANEL_CLASS } from "./panel-chrome"
 
 
 export interface AppletPanelProps {
   nodeId: string
   onClose: () => void
 }
-
-
-const PANEL_CLASS =
-  "absolute left-1/2 -translate-x-1/2 top-4 bottom-4 md:top-20 md:bottom-[96px] w-[min(960px,calc(100vw-2rem))] z-[55] flex flex-col rounded-lg border bg-background shadow-xl overflow-hidden"
 
 
 /**
@@ -61,52 +61,20 @@ export const AppletPanel = memo(function AppletPanel({
 
   const [activeTab, setActiveTab] = useState("preview")
 
-  // Hydrate the preview from persisted state so it mirrors the on-canvas applet;
-  // `stateLoaded` gates the render so we don't flash defaults then re-mount.
-  const [initialState, setInitialState] = useState<Record<string, JsonValue> | undefined>(undefined)
-  const [stateLoaded, setStateLoaded] = useState(false)
-  useEffect(() => {
-    let active = true
-    fetchAppletState(nodeId)
-      .then((s) => {
-        if (!active) return
-        if (s && typeof s === "object") setInitialState(s as Record<string, JsonValue>)
-        setStateLoaded(true)
-      })
-      .catch(() => {
-        if (active) setStateLoaded(true)
-      })
-    return () => {
-      active = false
-    }
-  }, [nodeId])
+  // Hydrate the preview from persisted state; `stateLoaded` gates the render so we
+  // don't flash defaults then re-mount (shared with the on-canvas node view).
+  const { initialState, stateLoaded } = useAppletInitialState(nodeId)
 
   const source = (node?.content ?? "").trim()
   const displayTitle = label?.trim() || "Untitled applet"
 
   const handleDownloadSource = useCallback(() => {
-    if (!source) return
-    const safeBaseName =
-      (label || "applet")
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "") || "applet"
-
-    const blob = new Blob([source], { type: "text/plain;charset=utf-8" })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement("a")
-    link.href = url
-    link.download = `${safeBaseName}.jsx`
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    URL.revokeObjectURL(url)
+    downloadTextFile(label || "applet", source, { ext: "jsx", mime: "text/plain;charset=utf-8", fallback: "applet" })
   }, [source, label])
 
   if (!node) {
     return (
-      <div className={`${PANEL_CLASS} items-center justify-center gap-3 text-sm text-muted-foreground`}>
+      <div className={`${SURFACE_PANEL_CLASS} items-center justify-center gap-3 text-sm text-muted-foreground`}>
         <p>This applet no longer exists.</p>
         <Button variant="outline" size="sm" onClick={onClose}>
           Close
@@ -116,7 +84,7 @@ export const AppletPanel = memo(function AppletPanel({
   }
 
   return (
-    <div className={PANEL_CLASS} onClick={(e) => e.stopPropagation()}>
+    <div className={SURFACE_PANEL_CLASS} onClick={(e) => e.stopPropagation()}>
       <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
         <div className="flex min-w-0 flex-1 items-center gap-2 pr-2">
           <ChartLineIcon className="size-4 shrink-0" />

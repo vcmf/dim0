@@ -6,14 +6,13 @@
 // gates pointer events on selection so canvas pan/zoom passes cleanly through
 // unselected applets. State is hydrated from / persisted to the local store.
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef } from "react"
 
 import { ChartLineIcon } from "@phosphor-icons/react"
 import { type NodeId } from "@canvas-harness/core"
 import { useCanvasStore, useNode, useSelection } from "@canvas-harness/react"
 
-import { AppletRenderer, deleteAppletState, fetchAppletState, saveAppletState } from "@/features/applet/render"
-import type { JsonValue } from "@/features/applet/tree"
+import { AppletRenderer, deleteAppletState, saveAppletState, useAppletInitialState } from "@/features/applet/render"
 import { removeNodeSubtree } from "@/features/board/harness/graph/subtree"
 import { cn } from "@/lib/utils"
 
@@ -42,24 +41,9 @@ export function AppletNodeView({ id }: AppletViewProps) {
   const noteId = id as unknown as string
 
   // Hydrate persisted state before mounting the renderer, so the applet inits with
-  // saved state instead of flashing defaults then re-mounting.
-  const [initialState, setInitialState] = useState<Record<string, JsonValue> | undefined>(undefined)
-  const [stateLoaded, setStateLoaded] = useState(false)
-  useEffect(() => {
-    let active = true
-    fetchAppletState(noteId)
-      .then((s) => {
-        if (!active) return
-        if (s && typeof s === "object") setInitialState(s as Record<string, JsonValue>)
-        setStateLoaded(true)
-      })
-      .catch(() => {
-        if (active) setStateLoaded(true)
-      })
-    return () => {
-      active = false
-    }
-  }, [noteId])
+  // saved state instead of flashing defaults then re-mounting (shared with the
+  // inspect surface).
+  const { initialState, stateLoaded } = useAppletInitialState(noteId)
 
   // Debounce persistence: a rapidly-updating applet (slider, text field) would
   // otherwise issue an IndexedDB write per keystroke. Coalesce to one write ~300ms
@@ -124,7 +108,7 @@ export function AppletNodeView({ id }: AppletViewProps) {
               }
             : undefined
         }
-        onExpand={() => openNodeSurface(noteId, "applet")}
+        onExpand={canEdit ? () => openNodeSurface(noteId, "applet") : undefined}
       />
 
       <div className="pointer-events-auto absolute left-1/2 top-full z-20 mt-2 w-full -translate-x-1/2">
