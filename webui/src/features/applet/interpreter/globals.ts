@@ -3,6 +3,9 @@
 // (`Math`, `Object`, …) resolve to opaque sentinels so they can be used ONLY as
 // call targets — never dereferenced into a live function.
 
+import { cn } from "@/lib/utils"
+
+
 type Fn = (...args: unknown[]) => unknown
 
 const NS = Symbol("applet.namespace")
@@ -35,6 +38,14 @@ export const COERCIONS: Record<string, Fn> = {
   Number: (x) => Number(x),
   String: (x) => String(x),
   Boolean: (x) => Boolean(x),
+}
+
+
+// Pure helper functions callable by bare name (beyond coercions). `cn` merges
+// Tailwind class names (clsx + tailwind-merge) — the common way to compose
+// conditional `className`s; pure string work, no escape surface.
+export const HELPERS: Record<string, Fn> = {
+  cn: (...args) => cn(...(args as Parameters<typeof cn>)),
 }
 
 

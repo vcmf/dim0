@@ -10,6 +10,7 @@ import { Budget } from "./budget"
 import { AppletError } from "./errors"
 import {
   COERCIONS,
+  HELPERS,
   HOF_ARRAY_METHODS,
   makeNamespace,
   NAMESPACE_METHODS,
@@ -254,8 +255,9 @@ function evalCall(node: Call, env: Env, ctx: Ctx, d: number): unknown {
   // `valueOf()` would resolve to inherited Object.prototype functions.
   if (callee.type === "Identifier") {
     const name = callee.name
-    if (!env.has(name) && Object.hasOwn(COERCIONS, name)) {
-      return COERCIONS[name](...evalArgs(node.arguments, env, ctx, d))
+    if (!env.has(name)) {
+      if (Object.hasOwn(COERCIONS, name)) return COERCIONS[name](...evalArgs(node.arguments, env, ctx, d))
+      if (Object.hasOwn(HELPERS, name)) return HELPERS[name](...evalArgs(node.arguments, env, ctx, d))
     }
     throw new AppletError(`call to non-whitelisted function: ${name}`)
   }
