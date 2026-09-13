@@ -10,7 +10,7 @@ import {
 } from "@/features/board/utils/board-background"
 
 
-export type NodeSurfaceKind = "sheet" | "code-sandbox" | "widget" | "mini-app"
+export type NodeSurfaceKind = "sheet" | "code-sandbox" | "widget" | "mini-app" | "applet"
 
 
 /**

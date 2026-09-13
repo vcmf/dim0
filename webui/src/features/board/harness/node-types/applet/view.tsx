@@ -36,6 +36,7 @@ export function AppletNodeView({ id }: AppletViewProps) {
   const node = useNode(id)
   const store = useCanvasStore()
   const canEdit = useBoardAppStore((s) => s.canEdit)
+  const openNodeSurface = useBoardAppStore((s) => s.openNodeSurface)
   const selection = useSelection()
   const isSelected = selection.includes(id)
   const noteId = id as unknown as string
@@ -111,8 +112,9 @@ export function AppletNodeView({ id }: AppletViewProps) {
         </div>
       </div>
 
-      {/* Expand-to-surface (full-screen preview + code) is a follow-up — the
-          applet surface kind + routes are deferred past Phase 2b. */}
+      {/* Green traffic-light opens the read-only inspect surface (larger Preview
+          + the canonical JSX Source). Editing the source in-place with live
+          re-validation is a tracked follow-up (see the applet ADR / plan). */}
       <NodeTrafficLights
         onDelete={
           canEdit
@@ -122,6 +124,7 @@ export function AppletNodeView({ id }: AppletViewProps) {
               }
             : undefined
         }
+        onExpand={() => openNodeSurface(noteId, "applet")}
       />
 
       <div className="pointer-events-auto absolute left-1/2 top-full z-20 mt-2 w-full -translate-x-1/2">
