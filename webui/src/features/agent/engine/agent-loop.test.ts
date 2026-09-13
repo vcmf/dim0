@@ -648,9 +648,10 @@ describe("runAgent — declined off-board tool is not re-prompted across turns",
 })
 
 
-describe("runAgent intra-run tool-result cap", () => {
+describe("runAgent tool-result view (fresh results kept full)", () => {
   // A client that requests one tool call, then captures the messages it's given
-  // on the follow-up round (where the tool result rides as a `tool` message).
+  // on the follow-up round — i.e. the derived model view, where the tool result
+  // rides as a `tool` message.
   const captureAfterTool = (toolName: string) => {
     let captured: LlmMessage[] | null = null
     const llm: LlmClient = {
@@ -666,24 +667,14 @@ describe("runAgent intra-run tool-result cap", () => {
   }
 
 
-  it("truncates a large tool result (head kept, marker added)", async () => {
-    const bigTool: Tool = { name: "fetch", description: "d", parameters: z.object({}), run: async () => "y".repeat(20000) }
+  it("keeps a large FRESH tool result in full — the model still needs it (no eager truncation)", async () => {
+    const big = "y".repeat(20000)
+    const bigTool: Tool = { name: "fetch", description: "d", parameters: z.object({}), run: async () => big }
     const cap = captureAfterTool("fetch")
     await drain(runAgent({ userMessage: "fetch it", tools: [bigTool], llm: cap.llm, ctx: {} as ToolContext }))
     const content = cap.toolMessage()?.content ?? ""
-    expect(content.length).toBeLessThan(20000)
-    expect(content).toContain("truncated")
-    expect(content.startsWith('"yyy')).toBe(true) // head preserved
-  })
-
-
-  it("is byte-stable — the same large result truncates identically across runs", async () => {
-    const bigTool: Tool = { name: "fetch", description: "d", parameters: z.object({}), run: async () => "z".repeat(20000) }
-    const a = captureAfterTool("fetch")
-    const b = captureAfterTool("fetch")
-    await drain(runAgent({ userMessage: "x", tools: [bigTool], llm: a.llm, ctx: {} as ToolContext }))
-    await drain(runAgent({ userMessage: "x", tools: [bigTool], llm: b.llm, ctx: {} as ToolContext }))
-    expect(a.toolMessage()?.content).toBe(b.toolMessage()?.content)
+    expect(content).toBe(JSON.stringify(big)) // full, byte-for-byte
+    expect(content).not.toContain("cleared")
   })
 
 
@@ -694,26 +685,29 @@ describe("runAgent intra-run tool-result cap", () => {
     expect(cap.toolMessage()?.content).toBe(JSON.stringify({ id: "n1", ok: true }))
   })
 
-  it("never truncates a keepFullResult tool (e.g. a skill), even past the cap", async () => {
+
+  it("never elides a keepFullResult tool (e.g. a skill), even past the bulky threshold", async () => {
     const big = "y".repeat(20000)
-    const skill: Tool = {
-      name: "learn_generate_applet",
-      description: "d",
-      parameters: z.object({}),
-      run: async () => big,
-      keepFullResult: true,
-    }
+    const skill: Tool = { name: "learn_generate_applet", description: "d", parameters: z.object({}), run: async () => big, keepFullResult: true }
     const cap = captureAfterTool("learn_generate_applet")
     await drain(runAgent({ userMessage: "learn", tools: [skill], llm: cap.llm, ctx: {} as ToolContext }))
-    const content = cap.toolMessage()?.content ?? ""
-    expect(content).toBe(JSON.stringify(big)) // full, byte-for-byte
-    expect(content).not.toContain("truncated")
+    expect(cap.toolMessage()?.content).toBe(JSON.stringify(big))
   })
 
-  it("drops the misleading 'narrower query' nudge from the truncation marker", async () => {
-    const bigTool: Tool = { name: "fetch", description: "d", parameters: z.object({}), run: async () => "y".repeat(20000) }
+
+  it("substitutes a sentinel for an empty tool result", async () => {
+    const emptyTool: Tool = { name: "noop", description: "d", parameters: z.object({}), run: async () => "" }
+    const cap = captureAfterTool("noop")
+    await drain(runAgent({ userMessage: "x", tools: [emptyTool], llm: cap.llm, ctx: {} as ToolContext }))
+    expect(cap.toolMessage()?.content).toBe("(noop completed with no output)")
+  })
+
+
+  it("stores the tool name on the tool message (for per-tool view policy)", async () => {
+    const t: Tool = { name: "fetch", description: "d", parameters: z.object({}), run: async () => "ok" }
     const cap = captureAfterTool("fetch")
-    await drain(runAgent({ userMessage: "x", tools: [bigTool], llm: cap.llm, ctx: {} as ToolContext }))
-    expect(cap.toolMessage()?.content ?? "").not.toContain("narrower query")
+    await drain(runAgent({ userMessage: "x", tools: [t], llm: cap.llm, ctx: {} as ToolContext }))
+    const m = cap.toolMessage()
+    expect(m && "toolName" in m ? m.toolName : undefined).toBe("fetch")
   })
 })
