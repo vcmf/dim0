@@ -328,33 +328,33 @@ describe("writeNote", () => {
     expect(res.error).toMatch(/another folder/)
   })
 
-  it("rejects an invalid mini-app without creating a node", async () => {
+  it("rejects an invalid applet without creating a node", async () => {
     const before = store.getAllNodes().length
-    const res = (await writeNote.run({ content: "const x = 1", note_type: "mini-app" }, ctx)) as { error?: string }
-    expect(res.error).toMatch(/mini-app invalid/)
+    const res = (await writeNote.run({ content: "const x = 1", note_type: "applet" }, ctx)) as { error?: string }
+    expect(res.error).toMatch(/applet invalid/)
     expect(store.getAllNodes().length).toBe(before)
   })
 
-  it("accepts a valid mini-app", async () => {
+  it("accepts a valid applet", async () => {
     const res = (await writeNote.run(
-      { content: "function Widget() { return <div>hi</div> }", note_type: "mini-app" },
+      { content: "<Widget><div>hi</div></Widget>", note_type: "applet" },
       ctx,
     )) as { id?: string; error?: string }
     expect(res.error).toBeUndefined()
-    expect(store.getNode(asNodeId(res.id!))?.type).toBe("mini-app")
+    expect(store.getNode(asNodeId(res.id!))?.type).toBe("applet")
   })
 
-  it("validates a bare rewrite of an existing mini-app (note_type omitted)", async () => {
+  it("validates a bare rewrite of an existing applet (note_type omitted)", async () => {
     const made = (await writeNote.run(
-      { content: "function Widget() { return <div>hi</div> }", note_type: "mini-app" },
+      { content: "<Widget><div>hi</div></Widget>", note_type: "applet" },
       ctx,
     )) as { id: string }
-    // No note_type → rewriteNote preserves the mini-app type, so the invalid
+    // No note_type → rewriteNote preserves the applet type, so the invalid
     // source must still be caught (regression guard for the type-preserve fix).
-    const res = (await writeNote.run({ content: "const x =", note_id: made.id }, ctx)) as { error?: string }
-    expect(res.error).toMatch(/mini-app invalid/)
+    const res = (await writeNote.run({ content: "<Widget><Nope/></Widget>", note_id: made.id }, ctx)) as { error?: string }
+    expect(res.error).toMatch(/applet invalid/)
     // Original source left intact (rejected before the write).
-    expect(store.getNode(asNodeId(made.id))?.content).toBe("function Widget() { return <div>hi</div> }")
+    expect(store.getNode(asNodeId(made.id))?.content).toBe("<Widget><div>hi</div></Widget>")
   })
 })
 

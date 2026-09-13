@@ -14,6 +14,7 @@ import type { CanvasStore, Node } from "@canvas-harness/core"
 import type { DimNodeData } from "@/features/board/model"
 import { labelText } from "@/features/board/model"
 import { MAX_BOARD_DEPTH, canCreateSubBoard, nodeLimitFor } from "@/features/board/lib/board-limit"
+import { validateApplet } from "@/features/applet/compile"
 import { validateMiniAppSource } from "@/features/mini-app/validate"
 import { defineTool } from "./types"
 import type { Tool, ToolContext } from "./types"
@@ -191,11 +192,11 @@ export const linkNotes = defineTool({
 
 export const writeNote = defineTool({
   name: "write_note",
-  description: "Create a new note, or fully rewrite an existing one when note_id is given. note_type: rectangle | sheet | mini-app | widget.",
+  description: "Create a new note, or fully rewrite an existing one when note_id is given. note_type: rectangle | sheet | applet | widget.",
   parameters: z.object({
-    content: z.string().describe("The complete note body after this write — prose, markdown, code, or widget source."),
+    content: z.string().describe("The complete note body after this write — prose, markdown, code, or applet source."),
     label: z.string().optional().describe("Optional short title, stored separately from the body."),
-    note_type: z.string().optional().describe("Visual note type: rectangle | sheet | mini-app | widget."),
+    note_type: z.string().optional().describe("Visual note type: rectangle | sheet | applet | widget."),
     note_id: z.string().optional().describe("Existing note id to fully rewrite; omit to create a new note."),
     background_color: z.string().optional().describe(BG_COLOR_DESC),
     border_color: z.string().optional().describe(BORDER_COLOR_DESC),
@@ -217,6 +218,15 @@ export const writeNote = defineTool({
       const v = validateMiniAppSource(content)
       if (!v.ok) {
         return { error: `mini-app invalid: ${v.message}${v.line ? ` (line ${v.line}:${v.column})` : ""}` }
+      }
+    }
+    // Same for applets — validate the declarative source (acorn + §8/§9 grammar)
+    // so a malformed one is rejected with line/col for a same-turn fix.
+    const willBeApplet = note_type === "applet" || (!note_type && existing?.type === "applet")
+    if (willBeApplet) {
+      const v = validateApplet(content)
+      if (!v.ok) {
+        return { error: `applet invalid: ${v.message}${v.line ? ` (line ${v.line}:${v.column})` : ""}` }
       }
     }
 

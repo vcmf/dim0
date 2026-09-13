@@ -14,7 +14,7 @@ describe("prompts", () => {
     expect(p).toContain("Mon 1pm")
     expect(p).not.toContain("{{")
     expect(p).toContain("write_note")
-    expect(p).toContain("learn_generate_mini_app")
+    expect(p).toContain("learn_generate_applet")
   })
 
 
@@ -27,7 +27,7 @@ describe("prompts", () => {
 
 
   it("ships the three skill prompts as non-trivial text", () => {
-    for (const key of ["learn_generate_diagram", "learn_generate_mini_app", "learn_generate_html_widget"] as const) {
+    for (const key of ["learn_generate_diagram", "learn_generate_applet", "learn_generate_html_widget"] as const) {
       expect(SKILLS[key].length).toBeGreaterThan(200)
     }
   })
