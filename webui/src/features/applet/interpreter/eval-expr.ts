@@ -179,7 +179,22 @@ function resolveIdent(name: string, env: Env): unknown {
   // would match inherited names (`constructor`, `toString`, `valueOf`, …) and let
   // them resolve as globals — a whitelist bypass.
   if (NAMESPACE_NAMES.has(name) || Object.hasOwn(COERCIONS, name)) return makeNamespace(name)
-  throw new AppletError(`undefined reference: ${name}`)
+  throw new AppletError(undefinedRefMessage(name))
+}
+
+
+// Scope names are the single most common source of a false undefined-reference:
+// the model reflexively namespaces (`data.steps`, `state.count`), but the scopes
+// are spread into scope, not exposed as objects. When the unresolved name is one
+// of them, say so — this is the actionable message the write-time smoke-test and
+// the runtime both surface (applet-design.md §8.9).
+const SCOPE_NAMES = new Set(["data", "state", "derived"])
+
+function undefinedRefMessage(name: string): string {
+  if (SCOPE_NAMES.has(name)) {
+    return `undefined reference: ${name} — scope values are referenced by their bare name, so write \`foo\` not \`${name}.foo\`; \`${name}\` is not a namespace object`
+  }
+  return `undefined reference: ${name}`
 }
 
 
