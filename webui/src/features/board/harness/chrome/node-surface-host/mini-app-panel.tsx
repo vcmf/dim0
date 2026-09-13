@@ -15,19 +15,17 @@ import type { NodeId } from "@canvas-harness/core"
 
 import { CodeArea } from "@/features/board/components/flow/code-area"
 import { MiniAppMount } from "@/features/mini-app"
+import { downloadTextFile } from "@/lib/download-file"
 
 import type { NoteNodeData } from "../../convert/note-to-node"
 import { useBoardAppStore } from "../../store/board-app-store"
+import { SURFACE_PANEL_CLASS } from "./panel-chrome"
 
 
 export interface MiniAppPanelProps {
   nodeId: string
   onClose: () => void
 }
-
-
-const PANEL_CLASS =
-  "absolute left-1/2 -translate-x-1/2 top-4 bottom-4 md:top-20 md:bottom-[96px] w-[min(960px,calc(100vw-2rem))] z-[55] flex flex-col rounded-lg border bg-background shadow-xl overflow-hidden"
 
 
 export const MiniAppPanel = memo(function MiniAppPanel({
@@ -106,30 +104,16 @@ export const MiniAppPanel = memo(function MiniAppPanel({
   )
 
   const handleDownloadSource = useCallback(() => {
-    const source = sourceDraft
-    if (!source.trim()) return
-
-    const safeBaseName =
-      (data.label?.markdown || "mini-app")
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "") || "mini-app"
-
-    const blob = new Blob([source], { type: "text/typescript;charset=utf-8" })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement("a")
-    link.href = url
-    link.download = `${safeBaseName}.tsx`
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    URL.revokeObjectURL(url)
+    downloadTextFile(data.label?.markdown || "mini-app", sourceDraft, {
+      ext: "tsx",
+      mime: "text/typescript;charset=utf-8",
+      fallback: "mini-app",
+    })
   }, [sourceDraft, data.label?.markdown])
 
   if (!node) {
     return (
-      <div className={`${PANEL_CLASS} items-center justify-center gap-3 text-sm text-muted-foreground`}>
+      <div className={`${SURFACE_PANEL_CLASS} items-center justify-center gap-3 text-sm text-muted-foreground`}>
         <p>This mini-app no longer exists.</p>
         <Button variant="outline" size="sm" onClick={onClose}>
           Close
@@ -142,7 +126,7 @@ export const MiniAppPanel = memo(function MiniAppPanel({
   const displayTitle = data.label?.markdown?.trim() || "Untitled mini-app"
 
   return (
-    <div className={PANEL_CLASS} onClick={(e) => e.stopPropagation()}>
+    <div className={SURFACE_PANEL_CLASS} onClick={(e) => e.stopPropagation()}>
       <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
         <div className="flex min-w-0 flex-1 items-center gap-2 pr-2">
           <LayoutIcon className="size-4 shrink-0" />

@@ -82,9 +82,21 @@ mini-app's authoring path. Five load-bearing MUSTs:
 - **Cross-device / cross-user state sync** is a future add via the existing
   backend `/mini-app-state` endpoints, if per-device local state proves
   insufficient.
+- **The expand surface is read-only (Phase 5).** The node's green traffic-light
+  opens an inspect surface (larger Preview + the canonical JSX Source, non-editable
+  + downloadable) so an author can see what an on-canvas error came from. **Editing
+  the source in-place with live re-validation is a follow-up** — it needs an edit
+  buffer, `validateApplet`-on-save with inline `line:col` errors, and a resolution
+  of the two-writer race between the panel and the on-canvas node's live state.
+- **The agent's feedback loop is compile-only.** `write_note` validates applets via
+  `validateApplet` (parse + grammar allowlist) but does NOT run the tree, so runtime
+  interpreter errors (e.g. iterating a non-array) reach the user's error boundary
+  without ever reaching the agent. A **render smoke-test** — a headless interpret
+  pass over the tree with the declared initial state, its message folded into the
+  existing `write_note` result (no new tool) — is the planned close of this loop.
 - **Smaller open calls:** per-component prop-validation strictness; `persist`
-  granularity (whole-state vs per-key); the full-screen "expand" surface; and
-  auto-grow height (fixed-size + internal scroll for now).
+  granularity (whole-state vs per-key); and auto-grow height (fixed-size + internal
+  scroll for now).
 
 ## Rejected alternatives
 
