@@ -41,7 +41,10 @@ export type LlmMessage =
   | { role: "system"; content: string }
   | { role: "user"; content: string }
   | { role: "assistant"; content: string; toolCalls?: LlmToolCall[] }
-  | { role: "tool"; toolCallId: string; content: string }
+  // `toolName` lets the loop resolve per-tool policy (elide old bulky results, keep
+  // skills whole) when deriving the model-facing view; optional so prior-history
+  // tool messages without it still type-check. Clients ignore it.
+  | { role: "tool"; toolCallId: string; content: string; toolName?: string }
 
 
 /** One model turn: either a final answer or a set of tool calls. */
