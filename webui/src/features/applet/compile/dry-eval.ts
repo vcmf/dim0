@@ -1,0 +1,175 @@
+// Author-time render smoke-test (applet-implementation.md Phase 6).
+//
+// `validateApplet` compiles the source to a tree, but a tree that *compiles* can
+// still *throw at render* — the class the agent never learned about, because the
+// live renderer degrades expression failures to blank and lets a bad component
+// prop escape to the on-canvas error boundary (e.g. a `<Chart>` whose `data`
+// evaluates to a non-array → recharts throws "e is not iterable").
+//
+// This does a headless, DOM-free dry-run over the tree with the applet's DECLARED
+// initial state: it runs every rendered expression through the real interpreter
+// (un-degraded, so a throw surfaces instead of being swallowed) and asserts that
+// array-iterating components receive arrays. It mirrors the renderer's walk — only
+// the taken `cond` branch, the first `list` item — so a correctly-guarded branch
+// (`user ? <div>{user.name}</div> : null`) is never falsely flagged. Runtime-only
+// failures (state reached only after an interaction, a bad datum *shape* inside an
+// array) are out of scope and documented as such.
+
+import { evalExpr, makeCtx, type Env, type Expr } from "../interpreter"
+import type { AppletTree, ElNode, JsonValue, Node } from "../tree"
+
+
+export type SmokeResult = { ok: true } | { ok: false; message: string }
+
+
+// Props that a component iterates internally and that throw ("e is not iterable")
+// when handed a non-array. Taken from the real component impls: recharts maps over
+// Chart `data`/`datasets`; GraphElement maps `nodes`/`edges` unguarded; MapElement
+// maps `data`/`markers` (defaulting only *undefined* to []). Kept small + explicit;
+// a general per-component prop schema on the registry would subsume this (§14.4).
+//
+// The check is deliberately conservative — see `walkElement`: it flags only a prop
+// that is present AND evaluates to a non-array, non-nullish value. A nullish value
+// is left to the component's own handling (Map defaults it; Chart's translateChart
+// is internal), so we never false-positive on an intentionally-empty binding. The
+// cost is missing the "required prop left undefined" crash (e.g. Graph without
+// edges) — a separate, documented gap.
+const ARRAY_PROPS: Record<string, readonly string[]> = {
+  Chart: ["data", "datasets"],
+  Graph: ["nodes", "edges"],
+  Map: ["data", "markers"],
+}
+
+
+/** Signals a smoke-test failure with an author-facing message (distinct from an
+ *  interpreter throw, which we wrap with its own context). */
+class SmokeFail extends Error {}
+
+
+/**
+ * Dry-run the compiled tree against its declared initial state. Returns `ok` when
+ * nothing throws and every array-iterating component gets an array; otherwise a
+ * message describing the first failure, for the agent to self-correct on.
+ */
+export function smokeTestApplet(tree: AppletTree): SmokeResult {
+  const state = { ...(tree.scopes.state ?? {}) }
+  const data = tree.scopes.data ?? {}
+
+  // Compute `derived` first (un-degraded): a throwing derived is a real bug the
+  // renderer would otherwise hide.
+  const derived: Record<string, unknown> = {}
+  const derivedEnv = buildEnv(state, data, {})
+  for (const [name, expr] of Object.entries(tree.scopes.derived ?? {})) {
+    try {
+      derived[name] = evalExpr(expr, derivedEnv, makeCtx())
+    } catch (e) {
+      return { ok: false, message: `the \`derived\` value \`${name}\` fails to evaluate: ${errText(e)}` }
+    }
+  }
+
+  const env = buildEnv(state, data, derived)
+  try {
+    walk(tree.root, env)
+  } catch (e) {
+    if (e instanceof SmokeFail) return { ok: false, message: e.message }
+    return { ok: false, message: `the applet throws while rendering: ${errText(e)}` }
+  }
+  return { ok: true }
+}
+
+
+/** Recursively evaluate a node's expressions, mirroring the renderer's walk. Throws
+ *  a `SmokeFail` (array-prop violation) or an interpreter error (bad expression). */
+function walk(node: Node, env: Env): void {
+  switch (node.k) {
+    case "txt":
+      if (node.x) evalExpr(node.x, env, makeCtx())
+      return
+    case "el":
+      walkElement(node, env)
+      return
+    case "cond": {
+      // Only the taken branch renders, so only it is walked — an untaken,
+      // correctly-guarded branch must not be evaluated (it may legitimately throw
+      // on the initial state the guard is protecting against).
+      const branch = evalExpr(node.test, env, makeCtx()) ? node.then : node.else
+      if (branch) walk(branch, env)
+      return
+    }
+    case "list": {
+      const src = evalExpr(node.src, env, makeCtx())
+      // A non-array `src` renders nothing (the renderer guards it) — not a throw,
+      // so not a failure here. Walk the template once (first item) to surface
+      // template-level expression errors.
+      if (Array.isArray(src) && src.length > 0) {
+        const childEnv: Env = new Map(env)
+        childEnv.set(node.item, src[0])
+        if (node.index) childEnv.set(node.index, 0)
+        walk(node.tpl, childEnv)
+      }
+      return
+    }
+  }
+}
+
+
+/** Evaluate an element's bound props, enforce the array-prop contract for
+ *  iterating components, then walk its children. Handlers are skipped (they need a
+ *  `$event` that only exists at interaction time). */
+function walkElement(node: ElNode, env: Env): void {
+  const bound: Record<string, unknown> = {}
+  if (node.bind) {
+    for (const [name, expr] of Object.entries(node.bind)) {
+      bound[name] = evalExpr(expr as Expr, env, makeCtx())
+    }
+  }
+
+  const arrayProps = ARRAY_PROPS[node.tag]
+  if (arrayProps) {
+    for (const prop of arrayProps) {
+      // Only check a prop the author actually set (bound or literal); an absent
+      // prop is the component's own default, not this applet's bug.
+      const isBound = node.bind ? prop in node.bind : false
+      const isLiteral = node.props ? prop in node.props : false
+      if (!isBound && !isLiteral) continue
+      const value: unknown = isBound ? bound[prop] : (node.props as Record<string, JsonValue>)[prop]
+      // Nullish is left to the component (see ARRAY_PROPS note); only a concrete
+      // non-array value is a definite crash.
+      if (value != null && !Array.isArray(value)) {
+        throw new SmokeFail(
+          `<${node.tag}> prop \`${prop}\` must be an array, but it evaluates to ${typeName(value)} on the ` +
+            `initial state. Initialize it as an array (e.g. a \`data\`/\`state\` array literal) so the ` +
+            `applet renders instead of throwing.`,
+        )
+      }
+    }
+  }
+
+  if (node.children) for (const child of node.children) walk(child, env)
+}
+
+
+/** Identifier scope: data < state < derived (later wins), matching the renderer. */
+function buildEnv(
+  state: Record<string, unknown>,
+  data: Record<string, unknown>,
+  derived: Record<string, unknown>,
+): Env {
+  return new Map<string, unknown>([...Object.entries(data), ...Object.entries(state), ...Object.entries(derived)])
+}
+
+
+/** A short, human type label (with article) for the array-prop failure message. */
+function typeName(value: unknown): string {
+  if (value === null) return "null"
+  if (value === undefined) return "undefined"
+  if (Array.isArray(value)) return "an array"
+  const t = typeof value
+  return `${t === "object" ? "an" : "a"} ${t}`
+}
+
+
+/** The message of a thrown value, defensively (interpreter errors are `Error`s). */
+function errText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
