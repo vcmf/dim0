@@ -23,6 +23,7 @@ import {
 } from "./globals"
 import { copyOwnEnumerable } from "./object-spread"
 import { BLOCKED_KEYS, safeGet } from "./safe-get"
+import { isScopeName } from "./scopes"
 import type { Arrow, Call, Env, Expr, Ident, Member, Spread } from "./types"
 
 
@@ -179,7 +180,22 @@ function resolveIdent(name: string, env: Env): unknown {
   // would match inherited names (`constructor`, `toString`, `valueOf`, …) and let
   // them resolve as globals — a whitelist bypass.
   if (NAMESPACE_NAMES.has(name) || Object.hasOwn(COERCIONS, name)) return makeNamespace(name)
-  throw new AppletError(`undefined reference: ${name}`)
+  throw new AppletError(undefinedRefMessage(name))
+}
+
+
+/**
+ * Build the undefined-reference message. When the unresolved name is a scope name
+ * (`data`/`state`/`derived`) it adds a bare-name hint: the model reflexively
+ * namespaces (`data.steps`), but the scopes are spread into scope, not exposed as
+ * objects. This is the actionable message the write-time smoke-test and the
+ * runtime both surface (applet-design.md §8.9).
+ */
+function undefinedRefMessage(name: string): string {
+  if (isScopeName(name)) {
+    return `undefined reference: ${name} — reference scope values by their bare name (e.g. \`foo\`, not \`${name}.foo\`); \`${name}\` is not a namespace object`
+  }
+  return `undefined reference: ${name}`
 }
 
 

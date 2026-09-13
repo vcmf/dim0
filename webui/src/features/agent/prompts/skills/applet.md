@@ -35,6 +35,7 @@ The three scopes on `<Widget>` are all optional; their keys are in scope as bare
 - No `import`, no `require`, no `function`/`const`/`useState`/`useEffect` — there is no component body, just the `<Widget>` tree.
 - No globals: `window`, `document`, `fetch`, `localStorage`, `setTimeout`, `console`, `eval`, `Function`, `Math.random`, `Date.now`. (Randomness/time are banned — expressions must be deterministic.)
 - Keys defined in more than one scope (state/data/derived) are rejected — pick one.
+- **Reference scope values by their BARE name — never `data.x` / `state.x` / `derived.x`.** The scopes are spread into scope; `data`/`state`/`derived` are not objects you dot into. With `data={{ steps: [...] }}` you write `steps` and `steps.length`, NOT `data.steps`. (`data.steps` throws `undefined reference: data` at render.)
 
 ---
 

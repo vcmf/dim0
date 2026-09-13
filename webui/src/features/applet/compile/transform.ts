@@ -6,6 +6,7 @@
 
 import { COERCIONS, HELPERS, NAMESPACE_NAMES } from "../interpreter/globals"
 import { BLOCKED_KEYS } from "../interpreter/safe-get"
+import { SCOPE_NAMES } from "../interpreter/scopes"
 import type { Expr } from "../interpreter/types"
 import { EVENT_HANDLERS, FORBIDDEN_ATTRS, isKnownTag } from "../registry"
 import type { AppletTree, CondNode, ElNode, JsonValue, ListNode, Node, TxtNode } from "../tree"
@@ -80,7 +81,7 @@ function readWidgetAttrs(attrs: RawNode[]): { scopes: AppletTree["scopes"]; pers
 // A key defined in more than one scope silently shadows at runtime — reject it.
 function checkScopeOverlap(scopes: AppletTree["scopes"]): void {
   const seen = new Map<string, string>()
-  for (const which of ["state", "data", "derived"] as const) {
+  for (const which of SCOPE_NAMES) {
     const obj = scopes[which]
     if (!obj) continue
     for (const key of Object.keys(obj)) {

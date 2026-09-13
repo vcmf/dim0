@@ -80,6 +80,15 @@ describe("identifiers & scope", () => {
   it("throws on an undefined reference", () => {
     expect(() => run(id("missing"))).toThrow(/undefined reference/)
   })
+
+  it("hints at bare-name access when a scope name is dotted into", () => {
+    // `data.steps` → `data` resolves first and is unbound; the message must steer
+    // the author to the bare name (the most common authoring mistake).
+    for (const scope of ["data", "state", "derived"]) {
+      expect(() => run(id(scope))).toThrow(/is not a namespace object/)
+      expect(() => run(id(scope))).toThrow(new RegExp(`not \`${scope}\\.foo\``))
+    }
+  })
 })
 
 
