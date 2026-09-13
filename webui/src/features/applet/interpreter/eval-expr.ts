@@ -23,6 +23,7 @@ import {
 } from "./globals"
 import { copyOwnEnumerable } from "./object-spread"
 import { BLOCKED_KEYS, safeGet } from "./safe-get"
+import { isScopeName } from "./scopes"
 import type { Arrow, Call, Env, Expr, Ident, Member, Spread } from "./types"
 
 
@@ -183,16 +184,16 @@ function resolveIdent(name: string, env: Env): unknown {
 }
 
 
-// Scope names are the single most common source of a false undefined-reference:
-// the model reflexively namespaces (`data.steps`, `state.count`), but the scopes
-// are spread into scope, not exposed as objects. When the unresolved name is one
-// of them, say so — this is the actionable message the write-time smoke-test and
-// the runtime both surface (applet-design.md §8.9).
-const SCOPE_NAMES = new Set(["data", "state", "derived"])
-
+/**
+ * Build the undefined-reference message. When the unresolved name is a scope name
+ * (`data`/`state`/`derived`) it adds a bare-name hint: the model reflexively
+ * namespaces (`data.steps`), but the scopes are spread into scope, not exposed as
+ * objects. This is the actionable message the write-time smoke-test and the
+ * runtime both surface (applet-design.md §8.9).
+ */
 function undefinedRefMessage(name: string): string {
-  if (SCOPE_NAMES.has(name)) {
-    return `undefined reference: ${name} — scope values are referenced by their bare name, so write \`foo\` not \`${name}.foo\`; \`${name}\` is not a namespace object`
+  if (isScopeName(name)) {
+    return `undefined reference: ${name} — reference scope values by their bare name (e.g. \`foo\`, not \`${name}.foo\`); \`${name}\` is not a namespace object`
   }
   return `undefined reference: ${name}`
 }
