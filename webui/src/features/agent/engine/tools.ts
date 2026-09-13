@@ -213,6 +213,13 @@ export const writeNote = defineTool({
     // line/col for the agent to fix this turn (not a silently-broken note). Key off
     // the RESULTING type: an explicit mini-app, OR a bare rewrite of an existing
     // mini-app (rewriteNote preserves the type when note_type is omitted).
+    // mini-app creation is frozen: reject an explicit note_type="mini-app" rather
+    // than validate it and silently build a plain rectangle (board-mutator no
+    // longer maps the type). Editing an EXISTING mini-app still works via a bare
+    // rewrite (note_type omitted → rewriteNote preserves the type).
+    if (note_type === "mini-app") {
+      return { error: 'note_type "mini-app" is frozen — author interactive widgets as note_type="applet" (call learn_generate_applet first).' }
+    }
     const willBeMiniApp = note_type === "mini-app" || (!note_type && existing?.type === "mini-app")
     if (willBeMiniApp) {
       const v = validateMiniAppSource(content)

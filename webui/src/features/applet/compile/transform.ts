@@ -4,6 +4,7 @@
 // text/`{expr}` to `txt`, attributes to literal props / expr binds / action
 // handlers. All expressions/actions go through the §8/§9 validators.
 
+import { COERCIONS, HELPERS, NAMESPACE_NAMES } from "../interpreter/globals"
 import { BLOCKED_KEYS } from "../interpreter/safe-get"
 import type { Expr } from "../interpreter/types"
 import { EVENT_HANDLERS, FORBIDDEN_ATTRS, isKnownTag } from "../registry"
@@ -12,6 +13,17 @@ import { compileAction } from "./compile-action"
 import { CompileError } from "./errors"
 import { locOf, type RawNode } from "./parse"
 import { validateExpr } from "./validate-expr"
+
+
+// Names a scope key must not shadow: the global namespaces, coercions, helpers
+// (cn), and the handler event object. A scope key named e.g. `cn` would pass
+// author-time but throw at render (env shadows the helper) — reject it here.
+const RESERVED_KEYS = new Set<string>([
+  ...NAMESPACE_NAMES,
+  ...Object.keys(COERCIONS),
+  ...Object.keys(HELPERS),
+  "$event",
+])
 
 
 // Transform a parsed `<Widget>` root into the serialized applet tree: read its
@@ -72,6 +84,7 @@ function checkScopeOverlap(scopes: AppletTree["scopes"]): void {
     const obj = scopes[which]
     if (!obj) continue
     for (const key of Object.keys(obj)) {
+      if (RESERVED_KEYS.has(key)) throw new CompileError(`'${key}' is a reserved name — it can't be a ${which} key`)
       const prev = seen.get(key)
       if (prev) throw new CompileError(`key '${key}' is defined in both ${prev} and ${which} — use one scope`)
       seen.set(key, which)

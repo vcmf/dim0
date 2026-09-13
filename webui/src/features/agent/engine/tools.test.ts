@@ -328,6 +328,16 @@ describe("writeNote", () => {
     expect(res.error).toMatch(/another folder/)
   })
 
+  it("rejects an explicit note_type=mini-app (frozen) without creating a node", async () => {
+    const before = store.getAllNodes().length
+    const res = (await writeNote.run(
+      { content: "function Widget() { return <div/> }", note_type: "mini-app" },
+      ctx,
+    )) as { error?: string }
+    expect(res.error).toMatch(/frozen/)
+    expect(store.getAllNodes().length).toBe(before)
+  })
+
   it("rejects an invalid applet without creating a node", async () => {
     const before = store.getAllNodes().length
     const res = (await writeNote.run({ content: "const x = 1", note_type: "applet" }, ctx)) as { error?: string }
