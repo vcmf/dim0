@@ -17,6 +17,11 @@ const skillTool = (name: SkillName, description: string): Tool =>
     parameters: z.object({}),
     // The guidance text IS the useful output; the loop feeds it back to the model.
     run: async () => SKILLS[name],
+    // The skill prompt must reach the model in FULL — it's the whole point of the
+    // call. Several skills exceed the loop's size cap (mini-app ~21k, applet ~18k),
+    // so without this they'd be silently truncated mid-guidance and the model would
+    // author from a fraction of the instructions. See docs/plans/tool-result-lifecycle.md.
+    keepFullResult: true,
   })
 
 
