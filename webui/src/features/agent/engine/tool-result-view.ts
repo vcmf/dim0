@@ -69,23 +69,28 @@ export const emptyResultText = (toolName: string): string => `(${toolName} compl
  *  The tail is simply unavailable. */
 function capped(m: ToolMessage, ceiling: number): ToolMessage {
   if (m.content.length <= ceiling) return m
-  const head = m.content.slice(0, ceiling)
+  let head = m.content.slice(0, ceiling)
+  // Don't leave a dangling high surrogate if the cut landed mid-pair (would render
+  // as U+FFFD and can confuse transports).
+  const last = head.charCodeAt(head.length - 1)
+  if (last >= 0xd800 && last <= 0xdbff) head = head.slice(0, -1)
   return {
     role: "tool",
     toolCallId: m.toolCallId,
     toolName: m.toolName,
-    content: `${head}\n…[${m.content.length - ceiling} more chars omitted — result too large to include in full]`,
+    content: `${head}\n…[${m.content.length - head.length} more chars omitted — result too large to include in full]`,
   }
 }
 
 
 /**
  * Derive the model-facing messages from the full log, eliding old bulky tool
- * results by recency. Kept whole (up to {@link RESULT_CEILING_CHARS}): all small
- * results, all `keepFull` (skill) results, the most recent
- * {@link KEEP_RECENT_TOOL_RESULTS} bulky results, and any bulky result not yet
- * shown. Older, already-shown bulky results are replaced WHOLE with
- * {@link clearedResultText}, keeping the `tool_use ↔ tool_result` pairing.
+ * results by recency. Kept: all small results, all `keepFull` (skill) results, the
+ * most recent {@link KEEP_RECENT_TOOL_RESULTS} bulky results, and any bulky result
+ * not yet shown — each capped at its tier ({@link SKILL_CEILING_CHARS} for skills,
+ * {@link RESULT_CEILING_CHARS} for everything else) if it exceeds it. Older,
+ * already-shown bulky results are replaced WHOLE with {@link clearedResultText},
+ * keeping the `tool_use ↔ tool_result` pairing.
  *
  * `shownBulky` is the run-scoped "included in a view once" set: a bulky result is
  * kept until it has appeared in one built view, then becomes elidable. So every

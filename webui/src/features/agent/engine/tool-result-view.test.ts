@@ -67,6 +67,17 @@ describe("buildModelMessages", () => {
     expect(out.toolName).toBe("fetch")
   })
 
+  it("does not leave a dangling surrogate when the crop lands mid-emoji", () => {
+    // The low surrogate of the trailing emoji falls just past the 20k cap, so a
+    // naive slice would keep a lone high surrogate at the edge.
+    const content = "x".repeat(RESULT_CEILING_CHARS - 1) + "😀"
+    const m: LlmMessage = { role: "tool", toolCallId: "e", toolName: "fetch", content }
+    const [out] = tools(buildModelMessages([m], meta, new Set()))
+    const head = out.content.split("\n…[")[0]
+    const lastCode = head.charCodeAt(head.length - 1)
+    expect(lastCode >= 0xd800 && lastCode <= 0xdbff).toBe(false) // no lone high surrogate
+  })
+
   it("uses the higher skill tier for keepFull results (not cropped at the non-skill cap)", () => {
     const keepMeta = (m: Extract<LlmMessage, { role: "tool" }>): ToolMsgMeta => ({ toolName: m.toolName ?? "tool", keepFull: true })
     // A skill well above the non-skill 20k tier but under the skill tier → kept whole.
