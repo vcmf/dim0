@@ -695,11 +695,18 @@ describe("runAgent tool-result view (fresh results kept full)", () => {
   })
 
 
-  it("substitutes a sentinel for an empty tool result", async () => {
-    const emptyTool: Tool = { name: "noop", description: "d", parameters: z.object({}), run: async () => "" }
+  it("substitutes a sentinel only for an absent (undefined) tool result", async () => {
+    const emptyTool: Tool = { name: "noop", description: "d", parameters: z.object({}), run: async () => undefined }
     const cap = captureAfterTool("noop")
     await drain(runAgent({ userMessage: "x", tools: [emptyTool], llm: cap.llm, ctx: {} as ToolContext }))
     expect(cap.toolMessage()?.content).toBe("(noop completed with no output)")
+  })
+
+  it("passes a meaningful null result through unchanged (not the no-output sentinel)", async () => {
+    const nullTool: Tool = { name: "lookup", description: "d", parameters: z.object({}), run: async () => null }
+    const cap = captureAfterTool("lookup")
+    await drain(runAgent({ userMessage: "x", tools: [nullTool], llm: cap.llm, ctx: {} as ToolContext }))
+    expect(cap.toolMessage()?.content).toBe("null")
   })
 
 

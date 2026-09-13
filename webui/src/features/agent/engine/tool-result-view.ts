@@ -55,21 +55,20 @@ export const emptyResultText = (toolName: string): string => `(${toolName} compl
 
 /**
  * Derive the model-facing messages from the full log, eliding old bulky tool
- * results. Recent bulky results (the last {@link KEEP_RECENT_TOOL_RESULTS}), all
- * small results, and all `keepFull` results are kept whole; older bulky results are
- * replaced with {@link clearedResultText}.
+ * results by pure recency. Kept whole: all small results, all `keepFull` (skill)
+ * results, and the most recent {@link KEEP_RECENT_TOOL_RESULTS} bulky results.
+ * Older bulky results are replaced WHOLE with {@link clearedResultText}, keeping the
+ * `tool_use ↔ tool_result` pairing. Non-tool messages pass through untouched.
  *
- * `sentFull` is the run-scoped FREEZE set: a result kept full once is added to it
- * and never elided afterwards, so a result the model has already seen uncompressed
- * is never rewritten — the prompt-cache prefix stays byte-identical across a run's
- * turns. Pass the same set across every turn of one run; it is mutated in place.
- * Non-tool messages pass through untouched.
+ * Pure and deterministic: the same log yields the same view. There is deliberately
+ * NO "freeze what was already sent" — that would keep every result frozen the first
+ * (and only) turn it appears as the most-recent bulky one, so nothing produced in a
+ * run would ever elide and context would grow unbounded. We accept that an aging
+ * result is rewritten once (full → sentinel) as it crosses the window, trading some
+ * prompt-cache reuse for a hard bound on context. `keepFull` results (skills) stay
+ * whole because the model may need the guidance across a whole multi-call task.
  */
-export function buildModelMessages(
-  messages: LlmMessage[],
-  metaOf: (m: ToolMessage) => ToolMsgMeta,
-  sentFull: Set<string>,
-): LlmMessage[] {
+export function buildModelMessages(messages: LlmMessage[], metaOf: (m: ToolMessage) => ToolMsgMeta): LlmMessage[] {
   // The bulky, elidable results in order — the last K of these are "recent".
   const bulkyIds: string[] = []
   for (const m of messages) {
@@ -87,14 +86,16 @@ export function buildModelMessages(
     if (meta.keepFull) {
       if (m.content.length <= KEEP_FULL_CEILING_CHARS) return m
       const head = m.content.slice(0, KEEP_FULL_CEILING_CHARS)
-      return { role: "tool", toolCallId: m.toolCallId, content: `${head}\n…[truncated ${m.content.length - KEEP_FULL_CEILING_CHARS} chars]` }
+      return {
+        role: "tool",
+        toolCallId: m.toolCallId,
+        toolName: m.toolName,
+        content: `${head}\n…[truncated ${m.content.length - KEEP_FULL_CEILING_CHARS} chars]`,
+      }
     }
+    // Keep whole if small or among the most recent bulky results; else elide.
     const elidable = m.content.length > BULKY_RESULT_CHARS
-    // Keep it whole if it's small, recent, or already frozen (seen full).
-    if (!elidable || recentBulky.has(m.toolCallId) || sentFull.has(m.toolCallId)) {
-      if (elidable) sentFull.add(m.toolCallId) // freeze: shown full → never rewrite
-      return m
-    }
-    return { role: "tool", toolCallId: m.toolCallId, content: clearedResultText(meta.toolName) }
+    if (!elidable || recentBulky.has(m.toolCallId)) return m
+    return { role: "tool", toolCallId: m.toolCallId, toolName: m.toolName, content: clearedResultText(meta.toolName) }
   })
 }

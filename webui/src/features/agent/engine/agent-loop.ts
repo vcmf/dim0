@@ -23,13 +23,14 @@ export const DEFAULT_MAX_TURNS = 30
  * Serialize a tool result to its FULL string for the log. No size cap here — the
  * loop stores results at full fidelity and shrinks a derived VIEW at assembly time
  * (`buildModelMessages`, tool-result-view.ts), so the just-produced result the
- * model is still acting on is never truncated. An empty/`undefined` result becomes
- * a sentinel (a bare-empty tool result makes some models end their turn).
+ * model is still acting on is never truncated. Only a genuinely absent result
+ * (`undefined` → `JSON.stringify` yields `undefined`) becomes a sentinel, since a
+ * bare-empty tool result makes some models end their turn; `null`, `""`, `0` etc.
+ * are meaningful values and pass through unchanged.
  */
 const serializeToolResult = (output: unknown, toolName: string): string => {
   const s = JSON.stringify(output)
-  if (s === undefined || s === "" || s === '""' || s === "null") return emptyResultText(toolName)
-  return s
+  return s === undefined ? emptyResultText(toolName) : s
 }
 
 
@@ -176,10 +177,11 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
   // or a follow-up call in a later round respects the earlier decision.
   const gate = newConfirmGate()
 
-  // Per-run freeze set for the derived view: a bulky tool result kept full once is
-  // never re-elided, so the prompt-cache prefix stays byte-stable across the run's
-  // turns (see buildModelMessages). Tools whose result must never be elided.
-  const sentFull = new Set<string>()
+  // Per-tool view policy: `keepFull` tools (skills) are never elided. Resolved from
+  // the tool message's `toolName`, set at insertion below — so a skill loaded IN
+  // this run is always protected. (A skill result carried in prior `history` without
+  // a `toolName`, e.g. from an older transcript, can't be recognized and may be
+  // elided once stale — acceptable: it's from a prior task and re-callable.)
   const keepFullNames = new Set(opts.tools.filter((t) => t.keepFullResult).map((t) => t.name))
   const metaOf = (m: Extract<LlmMessage, { role: "tool" }>): ToolMsgMeta => ({
     toolName: m.toolName ?? "tool",
@@ -189,7 +191,7 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
   for (let turn = 0; turn < maxTurns; turn += 1) {
     // The full log is `messages`; the model sees a recency-shrunk view derived
     // fresh each turn (old bulky results elided, recent + small + skills kept).
-    const modelMessages = buildModelMessages(messages, metaOf, sentFull)
+    const modelMessages = buildModelMessages(messages, metaOf)
     // Prefer streaming: emit cumulative `assistant_text` per delta so the UI
     // renders token-by-token; fall back to a single atomic turn otherwise.
     let result: LlmTurn
