@@ -139,16 +139,26 @@ prompt here — cheap now, expensive after launch.**
 
 ## Phase 4 — Hardening, measurement, ADR
 
-- **Perf** — measure bundle delta + board memory with N applets on one board;
-  validate the one open assumption (inline recharts on the main thread, design §5).
-- **App Store** — confirm the applet path needs no `unsafe-eval`; verify the legacy
-  store-build placeholder; the applet CSP closes FE-F5.
-- **Finalize the deferred smalls** — prop-validation strictness (§14.4), `persist`
-  granularity (§14.10).
-- **Backend** — decide `compile.py`'s fate: client-side parse likely makes the
-  server validator redundant → retire, or keep as a thin online double-check.
-- **ADR-APPLET-001** — promote the durable decisions (new type + frozen legacy,
-  inline/no-eval, JSX-canonical, interpreter-as-boundary).
+- [x] **ADR-APPLET-001** — durable decisions recorded (new type + frozen legacy,
+      inline/no-eval + interpreter-as-boundary, JSX-canonical + local-first state).
+- **App Store — deferred, not yet actionable.** The applet path already needs no
+  `unsafe-eval` (verified — no `eval`/`new Function`). But the "legacy mini-app
+  placeholder on store builds" can't be built yet: **there is no store-build flag**
+  (desktop is notarized Tauri, gated only by `isTauri()`; no iOS/App Store target
+  exists). Gate the legacy `eval` render off *when* a store build lands (ADR-APPLET-001).
+- **Perf — deferred (needs profiling).** The bundle-size win isn't realized while
+  the legacy runtime is kept; the inline-recharts-on-main-thread assumption is
+  unprofiled (LOD + placeholder bound the common case). Profile a busy board later.
+- **Deferred smalls** — per-component prop-validation strictness (§14.4), `persist`
+  granularity (§14.10), the expand surface, auto-grow height.
+- **Backend** — `compile.py` (server mini-app validation) is orthogonal: applets
+  validate client-side and the browser agent authors them; retire with the server
+  agent, not here.
+
+> Net: Phase 4's actionable deliverable is **the ADR**; the App-Store and perf
+> items are documented as future steps gated on surfaces that don't exist yet
+> (a store build; a profiling pass). The applet system is functionally complete
+> and eval-free through Phase 3.
 
 ---
 
