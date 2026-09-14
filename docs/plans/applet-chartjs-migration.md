@@ -107,11 +107,27 @@ elements ⇒ clean, fast, predictable snapshots.
 All three canvas renderers (Chart.js, Graph, Map) need the **same three things** —
 so build them **once** and share:
 
-1. **Theme resolution.** Canvas `fillStyle` can't resolve `var(--foreground)` /
-   `oklch color-mix(...)` — only SVG/CSS can. So resolve our tokens (`color-token.ts`
-   already does token→value) to **concrete colors before drawing, once per render**,
-   and **re-render on theme switch**. One `useResolvedPalette()` + a
-   theme-change subscription, used by all three.
+1. **Theme resolution — mostly already exists (verified).** Canvas `fillStyle`
+   can't resolve `var(--foreground)` / oklch `color-mix(...)` — only SVG/CSS can. But
+   the board harness **already** does this for its own canvas placeholders, and we
+   reuse it rather than rebuild:
+   - **`harness/theme/css-vars.ts`** — `readCssVarMixed(name, %)` (hidden DOM probe
+     with `color: color-mix(in oklch, var(--x) N%, transparent)` → concrete `rgb()`)
+     is the correct, only-robust way to concretize this app's **oklch/color-mix**
+     tokens for canvas. Reuse verbatim. (`board/utils/color.ts:cssVarToHex` is NOT
+     usable — it returns null for oklch.)
+   - **`harness/theme/resolver.ts:makeBoardThemeResolver`** — the proven "canvas
+     draw needs a concrete token color" pattern (already feeds `env.theme(...)` as
+     `ctx.fillStyle` in every node placeholder, including `applet`).
+   - **`harness/theme/use-board-theme.ts`** — a MutationObserver on
+     `data-theme`/`data-mode` that recomputes on theme switch. Our re-render-on-theme
+     pattern, already built.
+   - **What we add is thin:** a general `resolveToken(token) → concrete color` keyed
+     by the full chart token set (chart-1…5 + semantic — already enumerated in
+     `components/charts/color-token.ts`), over `readCssVarMixed`, + an rgb→hex step if
+     a lib needs hex. Likely **lift `css-vars.ts` from `harness/theme/` to a shared
+     `lib/`** since the applet renderer sits outside the board.
+   So this piece is **wiring, not new infrastructure.**
 2. **HiDPI backing store.** Size the canvas to `cssSize × devicePixelRatio` and
    `ctx.scale(dpr, dpr)` — crisp on screen *and* crisp in the raster (part of why
    canvas out-rasterizes SVG).
@@ -147,6 +163,13 @@ at a time. Everything else is a **cached snapshot image**. Hundreds of applets �
 hundreds of `<img>`, no reconciler, no live chart, no iframe — trivial for single-
 process WebKit.
 
+**Existing infra to build on (verified):** every node type already has a canvas
+`placeholder.ts` (incl. `applet`) drawing themed glyphs — the snapshot *replaces the
+glyph with a real applet image*. And `harness/canvas/use-thumbnail-capture.ts`
+already does offscreen-canvas→PNG for the board minimap — a precedent for the
+capture/caching plumbing (though snapDOM-of-the-DOM-subtree is a different mechanism
+than the lib's minimap render).
+
 Make the snapshot cheap enough to run at that scale (from the study):
 - **Cache the dataURL per applet, keyed on a content hash** — never re-rasterize a
   static applet.
@@ -175,8 +198,10 @@ engine choice beyond the above.
 2. **Capture timing.** Only after `document.fonts.ready` **and** the element's
    render-complete; JS-registered fonts (`new FontFace()`) need snapDOM's
    `localFonts` (our handwriting/mono faces — check how they're loaded).
-3. **Theme on canvas.** The shared resolver + re-render-on-theme is the main new
-   work; get it wrong and canvas elements don't re-theme.
+3. **Theme on canvas.** *De-risked* (§5): the oklch/color-mix resolver
+   (`css-vars.ts`), the canvas-consumption pattern (`resolver.ts`), and the
+   theme-switch MutationObserver (`use-board-theme.ts`) already exist in the board
+   harness — we add a thin token-set wrapper, not new infrastructure.
 4. **Function options / callbacks** (Chart.js tooltip/tick formatters, graph/map
    interactivity) can't be expressed — become author-time errors, not silent no-ops.
    Acceptable, but document the ceiling.
