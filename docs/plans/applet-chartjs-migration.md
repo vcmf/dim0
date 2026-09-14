@@ -231,6 +231,21 @@ Make the snapshot cheap enough to run at that scale (from the study):
 - **Batch export sequentially**, not in parallel, to avoid main-thread contention.
 - Lean on snapDOM's built-in **MutationObserver memoization** for repeats.
 
+**Live-canvas cost + escape hatches (only if the P4 WebKit spike shows a problem).**
+The observer/redraw cost is bounded to the *few* live applets (§2.1), and further
+reduced by: outer size from the node store (no observation), quiet internal
+ResizeObservers (fire on mount + user-resize only), rAF-throttled redraw, and
+showing the scaled snapshot *during* a drag-resize (live redraw once on settle).
+If the handful of live charts is *still* too heavy on WebKit, in order of
+preference:
+1. **Render at a fixed logical size + CSS-scale** the live canvas (no redraw on
+   resize; some blur when scaled up). Cheap, simple.
+2. **OffscreenCanvas + Web Worker** — render off the main thread. Kept in the back
+   pocket, *not* v1: WebKit's OffscreenCanvas support is late/uneven (depends on the
+   WKWebView version Tauri ships) and moving Chart.js into a worker is a big lift.
+The default is: don't pre-optimize — **measure a hundreds-of-applets board (a few
+live + the rest snapshots) on real Tauri/WebKit** and only reach for these if needed.
+
 ## 8. Scope
 
 **In:** Chart→Chart.js; Graph→canvas; Map→canvas; the shared canvas harness;
