@@ -1,8 +1,13 @@
-# Applet charts: migrate recharts → Chart.js (lightweight + native to-image)
+# Applet rendering: all-canvas rich elements + whole-applet snapshot
 
 > **Status:** proposal, for review before implementation. Participants: dev04 +
-> Claude. Targets `epic/applet` (where the applet chart code lives). Promote the
+> Claude. Targets `epic/applet` (where the applet render code lives). Promote the
 > durable decision to an ADR once the shape is agreed.
+>
+> Supersedes the narrower "migrate Chart → Chart.js" framing: the research below
+> shows the real move is **standardize every rich element on canvas and snapshot
+> the whole applet to an image** — Chart→Chart.js is one of four element decisions,
+> and the load-bearing piece is the whole-applet capture.
 
 ## 0. Frame — why this is a board-architecture decision, not a chart-library preference
 
@@ -24,181 +29,196 @@ it:
    Excalidraw shapes (so light they need no placeholder), applets **must** degrade
    to a cheap static representation when they're not the one you're touching.
 
-Both capabilities reduce to the same primitive: **turn an applet into a static
-image, fast, and cheaply.** So the chart engine must be chosen for **(a) bundle
-weight and (b) native, fast raster export** — *before* aesthetics or API taste.
+Both capabilities reduce to the same primitive: **turn a *whole applet* into a
+static image, fast, and cheaply.** So each rich element must be chosen for **(a)
+bundle weight and (b) how cleanly it rasterizes inside a whole-applet snapshot** —
+*before* aesthetics or API taste.
 
-**Priority #1 is therefore: lightweight + built-in fast `toImage`.** Everything
-below follows from that.
+**Priority #1 is therefore: lightweight + fast, reliable whole-applet `toImage`.**
+Everything below follows from that.
 
-## 1. Why recharts fails priority #1
+## 1. Why the current SVG stack fails priority #1
 
-`<Chart>` is recharts today (`components/charts/chart-impl.tsx`). Against the two
-must-haves it is the *worst* common choice:
+Today `Chart` is recharts (SVG) and `Graph`/`Map` are hand-rolled **SVG**. Against
+the two must-haves, SVG is the wrong substrate:
 
-- **No built-in raster export.** recharts renders **SVG**; there is no `toImage`.
-  SVG→PNG means serialize the DOM → draw onto a canvas via an `Image` → `toDataURL`,
-  fighting fonts/CSS/`foreignObject` tainting. Slow and fragile — exactly the export
-  path we'd lean on for hundreds of nodes.
-- **Heavy.** ~190 KB gz (our own `chart.tsx` note), and recharts **v3 pulls in
-  Redux Toolkit + react-redux + immer + d3 (`victory-vendor`)** internally. Heavy to
-  ship, heavy to run.
-- **Slowest render at scale.** SVG creates a **DOM node per data point**; a few
-  hundred charts × dozens of points each is a DOM explosion — the single-process
-  WebKit worst case.
+- **SVG doesn't snapshot cleanly.** DOM-to-image tools rasterize a subtree by
+  cloning it into an SVG `<foreignObject>` and painting to canvas. An SVG element is
+  **re-rasterized inside that foreignObject** — exactly where WebKit's font-
+  substitution and layer-positioning bugs bite (WebKit #83189/#23113). So our
+  richest elements are the *least* reliable to capture, on the engine we care about.
+- **recharts is heavy + slow.** ~190 KB gz, and v3 pulls in **Redux Toolkit +
+  react-redux + immer + d3 (`victory-vendor`)** internally; SVG also creates a **DOM
+  node per data point** — a DOM explosion across hundreds of charts.
 
-recharts optimizes for SVG crispness and composability — neither of which is our
-priority-#1. It's the wrong tool for a hundreds-of-applets, export-first board.
+## 2. The plan in one line
 
-## 2. Why Chart.js
+**Render every heavy rich element to `<canvas>`, and snapshot the whole applet
+subtree to an image with snapDOM.** Two pillars:
 
-| Need | Chart.js |
-|---|---|
-| **Native fast to-image** | ✅ `chart.toBase64Image()` — one call, canvas→PNG, no serialization |
-| **Lightweight** | ✅ ~65 KB gz (⅓ of recharts), v4 tree-shakeable (register only used controllers/scales) |
-| **Fast render at scale** | ✅ canvas — one draw call, not N DOM nodes |
-| **Consistent, model-known API** | ✅ one `{ type, data, options }` object for every chart type |
-| **Eval-free-interpreter fit** | ✅ plain object literals; one `<Chart>` component, no whitelist explosion |
+- **Pillar A — all-canvas rich elements.** Chart → Chart.js; Graph → our layout,
+  canvas render; Map → our projection, canvas render. Canvas because a live
+  `<canvas>` captures **cleanly and deterministically** in DOM-to-image (the libs
+  read `canvas.toDataURL()` and inline it — no foreignObject re-render, no WebKit
+  font/positioning bugs), *and* it renders faster at scale.
+- **Pillar B — whole-applet snapshot.** One `snapshotApplet(root) → dataURL` via
+  **snapDOM**, used for both the LOD placeholder (perf) and board export. This is
+  the load-bearing piece; the element choices exist to make *this* fast + reliable.
 
-### 2.1 The consistency win (kills the pie bug)
-Chart.js uses **one config shape for all chart types**, and the `data` shape is
-uniform — pie included:
+## 3. Per-element renderer study (the results)
 
-```jsx
-<Chart type="bar"  data={{ labels, datasets: [{ label, data }] }} />
-<Chart type="line" data={{ labels, datasets: [{ label, data }] }} />
-<Chart type="pie"  data={{ labels, datasets: [{ data, backgroundColor }] }} />
-```
+Each rich element evaluated for: lightweight, canvas (clean rasterization), perf at
+scale, keeps our declarative eval-free API (no callbacks).
 
-Pie takes the **same `{ labels, datasets: [{ data }] }}` shape** as bar/line — it
-is *not* special-cased into `{ name, value }` the way recharts (and our wrapper)
-does. The class of failure that silently broke real applets — "pie needs a
-different data shape and renders empty with no error" — **disappears by
-construction.** (See the AI-market-share applet: `data={[31.4, …]}` + `labels` +
-invented `colors` → empty pie, "value value value" legend.)
+| Element | Today | Best option | Δ bundle | Effort | Why |
+|---|---|---|---|---|---|
+| **Chart** | recharts (SVG, ~190 KB) | **Chart.js** via one `<Chart type data options>` | **−125 KB** (65 vs 190) | med | Native `toBase64Image()`, canvas, one `{type,data,options}` shape for *all* types → **pie uses the same `{labels,datasets:[{data}]}` as bar/line, killing the silent pie-shape bug**; model already fluent |
+| **Graph** | hand-rolled SVG + our d3-force/d3-hierarchy layout | **Keep layout, swap render body to Canvas 2D** | **+0 KB** | small (~120–150 line render rewrite; layout files untouched) | Every lib (Sigma/Cytoscape/force-graph/g6, 55–350 KB) *inverts* our architecture — owns layout + **callback styling** our eval-free interpreter can't feed; WebGL ones (Sigma/g6) put a GPU context per applet (won't scale to hundreds on WebKit) and **rasterize blank/black in DOM-to-image** |
+| **Map** | hand-rolled SVG + `d3-geo` projection | **Keep projection, render via `d3-geo` canvas path** (`geoPath(projection).context(ctx)`) | **+0 KB** (d3-geo already shipped) | small (~1 day) | Tile libs (Leaflet ~42 KB+network, MapLibre ~200 KB+GL) ruled out on weight + offline + per-instance GL; d3-geo *is* the light offline renderer and already in the tree |
+| **Table** | HTML/DOM | **Keep as HTML** | 0 | none | Plain DOM captures fine inside the snapshot; no canvas needed |
+| Card / text / intrinsics | HTML/DOM | Keep | 0 | none | Captured by the whole-applet snapshot |
 
-### 2.2 Model familiarity
-Chart.js config is heavily represented in training data; the model authors it
-fluently. Fewer invented-syntax mistakes than our small, bespoke `kind/labels/
-data/datasets/color` API.
+**Takeaways:** the two hand-rolled elements (Graph, Map) go to canvas at **+0 KB**
+each — we already own their layout/projection and every library would *lose* us
+that while adding weight and a callback API we can't use. Only Chart pulls a new
+dependency (Chart.js), and it *replaces* a heavier one.
 
-## 3. The performance architecture this unlocks (the real point)
+## 4. Whole-applet capture — snapDOM (the spine)
 
-Chart.js is not just a lighter chart — it enables a **snapshot-first render model**
-for the whole applet layer:
+All serious DOM-to-image tools share the foreignObject-clone engine; they differ on
+speed, fidelity, and WebKit robustness. The study's verdict:
 
-- **Live** (interactive React + Chart.js canvas) **only** for applets that are
-  in-view, at-rest, above the LOD zoom threshold, and recently interacted — a
-  *handful* at any moment.
-- **Snapshot** (a static image) for everything else — off-screen, zoomed-out, or
-  idle. Hundreds of applets become hundreds of `<img>` (or one draw onto the board
-  canvas): no React reconciliation, no live chart, no iframe. Trivial for
-  single-process WebKit.
+**Use snapDOM (`@zumer/snapdom`, ~50 KB gz, zero-dep, MIT, very active).** On a
+complex tree it's **~33 ms vs ~181 ms (modern-screenshot) vs ~196 ms (html2canvas)**,
+has **explicit CSS-variable fidelity fixes** (load-bearing — we theme via CSS vars,
+where the others are weak/buggy), embeds `@font-face` fonts, captures embedded
+`<canvas>` via `toDataURL`, handles Shadow DOM, and ships **documented Safari/WebKit
+workarounds**. Crucially, **`html-to-image` declares Safari unsupported** — a
+non-starter for our WebKit target. (html2canvas: slow, being abandoned — skip.
+Native Element/Region Capture: Chromium-only, no WebKit — rule out under Tauri.)
 
-This is the same "LOD placeholder" idea already stubbed in the applet node
-(`node-types/applet/placeholder.ts` is a generic glyph today), but Chart.js makes
-the placeholder a **real snapshot of the applet**, produced cheaply:
+**This is exactly why Pillar A (canvas) matters:** snapDOM captures a live
+`<canvas>` by reading its pixels directly (`toDataURL`), which is deterministic and
+sidesteps the foreignObject re-render path where SVG hits WebKit's bugs. Canvas
+elements ⇒ clean, fast, predictable snapshots.
 
-- A chart-only applet → `toBase64Image()` directly.
-- A composed applet (Card + text + several charts) → rasterize the applet's root
-  DOM subtree with **`html-to-image`** (foreignObject). Crucially, **Chart.js
-  canvases capture cleanly** inside that pass (their pixels are read directly),
-  whereas SVG charts (recharts/Graph/Map) need fragile re-serialization. So even the
-  whole-applet snapshot is *easier and more reliable* with canvas charts.
+## 5. The shared canvas harness (consolidation the studies converged on)
 
-**Net:** lightweight engine + clean rasterization → a board that stays smooth on
-WebKit with hundreds of applets, and a whole-board export that finally includes
-applets.
+All three canvas renderers (Chart.js, Graph, Map) need the **same three things** —
+so build them **once** and share:
 
-## 4. Scope — what changes, what doesn't
+1. **Theme resolution.** Canvas `fillStyle` can't resolve `var(--foreground)` /
+   `oklch color-mix(...)` — only SVG/CSS can. So resolve our tokens (`color-token.ts`
+   already does token→value) to **concrete colors before drawing, once per render**,
+   and **re-render on theme switch**. One `useResolvedPalette()` + a
+   theme-change subscription, used by all three.
+2. **HiDPI backing store.** Size the canvas to `cssSize × devicePixelRatio` and
+   `ctx.scale(dpr, dpr)` — crisp on screen *and* crisp in the raster (part of why
+   canvas out-rasterizes SVG).
+3. **Capture-ready signalling.** A snapshot must fire only after
+   `document.fonts.ready` **and** the element's render-complete (Chart.js
+   `onComplete`, or our draw `useEffect` commit for Graph/Map) — foreignObject/
+   snapDOM captures whatever is painted at that instant, so a too-early capture
+   yields a blank/partial element.
 
-**Migrate:**
-- `components/charts/chart-impl.tsx` + `chart.tsx` + `chart-translate.ts` +
-  `chart-types.ts` → a Chart.js-backed `<Chart>` (via `react-chartjs-2` or a thin
-  canvas-ref wrapper that owns create/update/destroy).
-- The applet **registry + skill**: replace the `kind/labels/data/datasets/color`
-  signature with the Chart.js `{ type, data, options }` shape; new worked examples;
-  update the pie guidance (now the same shape as bar/line).
-- **Theming**: `color-token.ts` already resolves our `chart-1…5` / semantic tokens
-  to values — reuse it to **inject the palette into the config** and **re-render on
-  theme switch** (canvas doesn't live-update with CSS).
-- **To-image plumbing**: a `snapshotApplet(node) → dataURL` util (Chart.js
-  `toBase64Image` for chart-only; `html-to-image` for composed), wired into (a) the
-  LOD placeholder and (b) board export.
+So the migration produces a small **`applet/render/canvas/`** harness (resolved
+palette + DPR canvas + ready-signal) that Chart/Graph/Map all consume, plus a
+**`snapshotApplet()`** util wrapping snapDOM.
 
-**Do NOT migrate (out of scope here):**
-- **`Graph` and `Map`** are already hand-rolled **SVG**, not recharts — they stay.
-  But they *do* need a to-image path for the snapshot/export story; `html-to-image`
-  covers them (with the usual SVG caveats). A later pass could canvas-render them if
-  their SVG rasterization proves unreliable at scale.
-- **Table** and the HTML/Card/text components — unaffected (captured by the DOM
-  snapshot).
-- No Chart.js **plugins** or **function options** (see risks).
+## 6. Net bundle — this makes applets *lighter*
 
-## 5. Risks / hard parts (be honest)
+| | Before | After |
+|---|---|---|
+| Chart | recharts ~190 KB (+ internal Redux/d3) | Chart.js ~65 KB |
+| Graph | our SVG (0) | our canvas (0) |
+| Map | our SVG + d3-geo (0*) | our canvas + d3-geo (0*) |
+| Snapshot | — (none / fragile manual SVG raster) | snapDOM ~50 KB |
+| **Net** | ~190 KB | **~115 KB** |
 
-1. **Theming on canvas is the main new work.** recharts themed for free via CSS
-   tokens; Chart.js needs real color values in the config, so we inject the resolved
-   palette and **re-render on theme change**. Bounded, but it's the biggest piece.
-2. **Function options can't be expressed.** Chart.js `options` allow callbacks
-   (tooltip/tick formatters, `onClick`). The eval-free interpreter rejects
-   functions → these become **author-time errors** (self-correcting), not silent
-   no-ops. The common case (labels, datasets, colors, title, legend, axis min/max)
-   is all plain values. Document "options are plain config, no callbacks."
-3. **Canvas blurs on deep zoom-in.** Acceptable: at rest we show a snapshot; live
-   charts appear only above the LOD threshold near 1:1, and users zoom *into*
-   individual charts rarely. If it bites, Chart.js supports `devicePixelRatio`
-   scaling.
-4. **Whole-applet snapshot needs `html-to-image`, not just `toBase64Image`.** A
-   composed applet is a DOM subtree, so the placeholder/export uses DOM
-   rasterization; Chart.js's role is to make the chart parts capture cleanly + keep
-   the live render cheap. `html-to-image` has its own font/CSS caveats to validate.
-5. **Migration burden is low** — applets are epic-only (not on `main`) and old
-   mini-apps are frozen, so there's little authored content to convert; it's mostly
-   re-pointing the component + skill. Decide: hard cut vs a compat shim mapping the
-   old `kind/labels/data` → Chart.js config for any existing epic applets.
-6. **Author-time validation still required.** Chart.js is *also* silent-wrong on
-   misuse (a pie with numbers renders empty, no throw). Pair the migration with a
-   Chart config schema (reject unknown/mis-shaped props at author time) — the
-   consistent single shape makes this far easier than recharts' per-kind shapes.
+*d3-geo already shipped (promote to a direct dependency). Net: **~75 KB lighter**,
+*and* we gain fast reliable to-image + the snapshot perf path. Weight and capability
+move the same direction — rare and worth banking.
 
-## 6. Rough phases
+## 7. The perf architecture this unlocks (the payoff)
 
-1. **P1 — Chart.js `<Chart type data options>` behind the applet node.** New impl +
-   registry + skill + worked examples (bar/line/pie/scatter/doughnut). Charts render
-   live and correctly; pie inconsistency gone.
-2. **P2 — Theming.** Palette injection via `color-token.ts` + re-render on theme
-   switch, across all 6 themes × light/dark.
-3. **P3 — Snapshot + LOD (the perf win).** `snapshotApplet` util; swap live
-   applets for snapshot images when off-screen / zoomed-out / idle; hydrate to live
-   on focus/interaction. Measure a hundreds-of-applets board on WebKit vs the old
-   iframe baseline.
-4. **P4 — Board export.** Reuse `snapshotApplet` so whole-board export includes
-   applets; add the SVG path for Graph/Map.
-5. **P5 — Chart config validation.** Author-time schema (option B) rejecting bad
-   shapes / unknown options with `line:col`.
+**Snapshot-first rendering.** Live (React + canvas) only for applets that are
+in-view, at-rest, above the LOD zoom threshold, and recently interacted — a handful
+at a time. Everything else is a **cached snapshot image**. Hundreds of applets →
+hundreds of `<img>`, no reconciler, no live chart, no iframe — trivial for single-
+process WebKit.
 
-## 7. Open questions
+Make the snapshot cheap enough to run at that scale (from the study):
+- **Cache the dataURL per applet, keyed on a content hash** — never re-rasterize a
+  static applet.
+- **Capture lazily**, only on the live→snapshot transition (zoom-out / off-screen),
+  and **throttle to idle** (`requestIdleCallback`) since WebKit is single-thread.
+- **Batch export sequentially**, not in parallel, to avoid main-thread contention.
+- Lean on snapDOM's built-in **MutationObserver memoization** for repeats.
 
-- **Keep the `<Chart>` name/API or introduce `<Chart type data options>` fresh?**
-  Leaning: same component name, new config-object props; drop the recharts-era
-  `kind/labels/data/datasets/color` (with an optional compat shim for epic applets).
-- **`react-chartjs-2` vs a thin custom ref wrapper?** react-chartjs-2 handles
-  lifecycle/updates for ~small weight; a custom wrapper avoids the dep. Likely
-  react-chartjs-2 to start.
-- **Snapshot cadence** — when exactly does an applet go live↔snapshot (zoom
-  threshold, viewport margin, idle timeout, interaction)? Reuse the mini-app
-  deferred-mount heuristics as a starting point.
-- **`html-to-image` reliability** for composed applets (fonts, theme CSS,
-  cross-origin) — spike it early; it's load-bearing for both perf and export.
-- **Do Graph/Map eventually move to canvas too**, for a uniform snapshot story, or
-  is SVG rasterization good enough for them?
+## 8. Scope
 
-## 8. Non-goals
+**In:** Chart→Chart.js; Graph→canvas; Map→canvas; the shared canvas harness;
+`snapshotApplet()` (snapDOM); LOD placeholder + board export wired to it; Chart
+config **author-time validation** (Chart.js is *also* silent-wrong on misuse, but
+its single consistent shape makes a schema easy).
 
-- Not switching Graph/Map rendering engines (SVG stays; only their to-image path is
-  added).
-- Not building a charting DSL or supporting Chart.js plugins/function options.
-- Not re-opening the engine choice beyond Chart.js — priority #1 (light + native
-  to-image) selects it; a lighter-but-weaker lib (uPlot/Frappe) loses versatility
-  and model-familiarity, and a heavier one (ECharts/recharts) loses the weight.
+**Out:** Table / Card / text stay HTML (captured by the snapshot); no Chart.js
+plugins or **function options** (rejected as author-time errors); not re-opening the
+engine choice beyond the above.
+
+## 9. Risks / gotchas (research-informed)
+
+1. **Tainted canvas = hard failure.** Any cross-origin image drawn into a
+   chart/map canvas *without* CORS headers makes `toDataURL()` **throw**, killing the
+   whole capture. Proxy/same-origin every image feeding a canvas; wrap capture in
+   try/catch with a fallback (e.g., the generic glyph placeholder).
+2. **Capture timing.** Only after `document.fonts.ready` **and** the element's
+   render-complete; JS-registered fonts (`new FontFace()`) need snapDOM's
+   `localFonts` (our handwriting/mono faces — check how they're loaded).
+3. **Theme on canvas.** The shared resolver + re-render-on-theme is the main new
+   work; get it wrong and canvas elements don't re-theme.
+4. **Function options / callbacks** (Chart.js tooltip/tick formatters, graph/map
+   interactivity) can't be expressed — become author-time errors, not silent no-ops.
+   Acceptable, but document the ceiling.
+5. **Canvas blur on deep zoom-in** — mitigated by DPR backing store + showing the
+   *live* chart only near 1:1; snapshots serve the zoomed-out view anyway.
+6. **snapDOM Safari edges** — it engineers around them, but spike a composed applet
+   (Card + Chart.js + a canvas Graph + fonts + theme) on real Tauri/WebKit **early**;
+   it's load-bearing for both perf and export.
+
+## 10. Phases
+
+1. **P1 — Shared canvas harness + Chart.js `<Chart>`.** Palette resolver + DPR
+   canvas + ready-signal; Chart.js `<Chart type data options>` on top; registry +
+   skill + worked examples; pie inconsistency gone.
+2. **P2 — Graph → canvas.** Rewrite `graph.tsx` render body to Canvas 2D on the
+   harness; layout files untouched.
+3. **P3 — Map → canvas.** `map.tsx` render via `d3-geo` canvas path on the harness;
+   promote `d3-geo` to a direct dep.
+4. **P4 — `snapshotApplet()` + LOD (the perf win).** snapDOM util; live↔snapshot
+   swap with content-hash caching + idle throttling; **measure a hundreds-of-applets
+   board on real WebKit vs the old iframe baseline.**
+5. **P5 — Board export** reuses `snapshotApplet()`; **Chart config validation**
+   (author-time schema).
+
+## 11. Open questions
+
+- **`<Chart>` name/API** — keep the name, new `{type,data,options}` props, drop the
+  recharts-era `kind/labels/data/datasets/color` (compat shim for any epic applets?).
+- **`react-chartjs-2` vs a thin custom canvas-ref wrapper** — the wrapper handles
+  lifecycle/updates for ~small weight; the custom path avoids the dep and slots onto
+  our harness directly. Leaning custom, since Graph/Map already need the harness.
+- **Snapshot cadence** — exact live↔snapshot thresholds (zoom, viewport margin,
+  idle, interaction); reuse mini-app deferred-mount heuristics as a start.
+- **Handwriting/mono font embedding** in snapDOM (`@font-face` vs JS `FontFace`) —
+  verify our faces capture; else pass via `localFonts`.
+- **Graph/Map interactivity later** — canvas loses per-element DOM hit-testing; when
+  tooltips/click arrive, use cached `Path2D` + `ctx.isPointInPath`. Fine for v1
+  (declarative, no callbacks).
+
+## 12. Non-goals
+
+- Not switching Graph/Map *layout/projection* (those stay — only the render layer
+  moves to canvas).
+- Not a charting DSL, Chart.js plugins, or function options.
+- Not native Element/Region Capture (Chromium-only; unusable under Tauri WebKit).
