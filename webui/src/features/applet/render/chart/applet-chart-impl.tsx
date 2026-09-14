@@ -30,9 +30,9 @@ import {
   type ChartConfiguration,
 } from "chart.js"
 
-import { resolveToken } from "@/lib/theme/resolve-token"
 import { useCaptureReady } from "@/lib/canvas/use-capture-ready"
 
+import { themedOptions } from "./chart-options"
 import { themeChartData } from "./theme-data"
 import type { AppletChartData, AppletChartProps, AppletChartType } from "./types"
 
@@ -62,34 +62,6 @@ function withFill(data: AppletChartData, fill: boolean): AppletChartData {
 }
 
 
-// Themed, snapshot-safe options merged UNDER the author's `options` (author wins,
-// except `animation` which is forced off for deterministic captures).
-function themedOptions(user: Record<string, unknown> = {}): Record<string, unknown> {
-  const fg = resolveToken("foreground")
-  const muted = resolveToken("muted-foreground")
-  const grid = resolveToken("border")
-  const base = {
-    responsive: true,
-    maintainAspectRatio: false,
-    color: fg,
-    plugins: { legend: { labels: { color: fg } } },
-    scales: {
-      x: { ticks: { color: muted }, grid: { color: grid } },
-      y: { ticks: { color: muted }, grid: { color: grid } },
-    },
-  }
-  const userPlugins = (user.plugins as Record<string, unknown>) ?? {}
-  const userScales = (user.scales as Record<string, unknown>) ?? {}
-  return {
-    ...base,
-    ...user,
-    plugins: { ...base.plugins, ...userPlugins },
-    scales: { ...base.scales, ...userScales },
-    animation: false, // always last — deterministic + fast snapshots
-  }
-}
-
-
 /** The Chart.js-backed applet chart (lazy-loaded target). */
 export function AppletChartImpl({ type, data, options, height, className }: AppletChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -111,7 +83,7 @@ export function AppletChartImpl({ type, data, options, height, className }: Appl
     const p = propsRef.current
     const { fill } = mapType(p.type)
     chart.data = withFill(themeChartData(p.type, p.data), fill) as Chart["data"]
-    chart.options = themedOptions(p.options) as Chart["options"]
+    chart.options = themedOptions(p.type, p.options) as Chart["options"]
     chart.update("none")
   }, [])
 
@@ -124,7 +96,7 @@ export function AppletChartImpl({ type, data, options, height, className }: Appl
     const config = {
       type: chartType,
       data: withFill(themeChartData(p.type, p.data), fill),
-      options: themedOptions(p.options),
+      options: themedOptions(p.type, p.options),
     } as unknown as ChartConfiguration
     const chart = new Chart(canvas, config)
     chartRef.current = chart
@@ -136,10 +108,15 @@ export function AppletChartImpl({ type, data, options, height, className }: Appl
     }
   }, [type])
 
-  // Update in place when data/options change.
+  // Update in place when data/options CONTENT changes. Key on serialized signatures,
+  // not object identity — applets recreate inline `data={{…}}`/`options={{…}}` literals
+  // every render, so identity deps would fire chart.update() on every unrelated
+  // re-render (a wasted reflow).
+  const dataSig = JSON.stringify(data ?? null)
+  const optSig = JSON.stringify(options ?? null)
   useEffect(() => {
     applyData()
-  }, [data, options, applyData])
+  }, [dataSig, optSig, applyData])
 
   // Re-theme on a theme/mode flip.
   useEffect(() => {

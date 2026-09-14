@@ -36,7 +36,8 @@ export interface AppletChartData {
 
 export interface AppletChartProps {
   type: AppletChartType
-  data: AppletChartData
+  /** Optional — an omitted `data` renders an empty chart rather than crashing. */
+  data?: AppletChartData
   /** Plain Chart.js options (no callbacks). Merged over the applet defaults. */
   options?: Record<string, unknown>
   /** Container height in px (default 220). Width fills the applet layout box. */

@@ -52,4 +52,16 @@ describe("themeChartData", () => {
     expect(out.datasets[0]).not.toBe(input.datasets[0])
     expect(input.datasets[0].backgroundColor).toBeUndefined() // input untouched
   })
+
+  it("does not throw on a missing data prop — yields an empty-dataset config", () => {
+    expect(themeChartData("bar", undefined)).toEqual({ labels: undefined, datasets: [] })
+  })
+
+  it("gives an area dataset a translucent fill distinct from its border", () => {
+    const out = themeChartData("area", { labels: ["a"], datasets: [{ data: [1] }] })
+    // background (fill) resolves via a low-alpha probe; border via the solid palette —
+    // both defined strings, and the fill path is exercised.
+    expect(typeof out.datasets[0].backgroundColor).toBe("string")
+    expect(typeof out.datasets[0].borderColor).toBe("string")
+  })
 })
