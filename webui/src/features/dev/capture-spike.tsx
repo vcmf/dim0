@@ -59,6 +59,17 @@ function drawSpikeCanvas(canvas: HTMLCanvasElement): void {
 }
 
 
+// Real byte size of a base64 data URL (not the string length — base64 is 4/3 the
+// bytes plus padding, so string.length overstates the payload by ~33%).
+function pngBytes(dataUrl: string): number {
+  const comma = dataUrl.indexOf(",")
+  if (comma < 0) return 0
+  const b64 = dataUrl.slice(comma + 1)
+  const pad = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0
+  return Math.max(0, Math.floor(b64.length * 3) / 4 - pad)
+}
+
+
 interface Shot {
   src: string
   ms: number
@@ -75,10 +86,27 @@ export function CaptureSpikePage() {
   const [busy, setBusy] = useState(false)
   const [fontsReady, setFontsReady] = useState(false)
 
-  useEffect(() => {
+  // Repaint the canvas at the CURRENT dpr + theme colors + loaded fonts. Canvas
+  // pixels don't reflow when a font loads or the theme flips, so we must redraw
+  // explicitly — on mount, after fonts.ready, on theme change, and before capture.
+  const redraw = useCallback(() => {
     if (canvasRef.current) drawSpikeCanvas(canvasRef.current)
-    document.fonts.ready.then(() => setFontsReady(true)).catch(() => setFontsReady(true))
   }, [])
+
+  useEffect(() => {
+    redraw()
+    document.fonts.ready
+      .then(() => {
+        setFontsReady(true)
+        redraw() // canvas text used the fallback until the @fontsource face loaded
+      })
+      .catch(() => setFontsReady(true))
+    // Keep the live canvas in sync with theme flips so a capture reflects the
+    // current theme (eyeball goal #5). HTML surfaces re-theme via CSS; canvas can't.
+    const obs = new MutationObserver(() => redraw())
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-mode"] })
+    return () => obs.disconnect()
+  }, [redraw])
 
   // Capture the card subtree N times; record the first (cold) and the mean of the
   // rest (warm), plus a preview of the first PNG.
@@ -88,6 +116,7 @@ export function CaptureSpikePage() {
     setBusy(true)
     try {
       await document.fonts.ready
+      redraw() // fresh theme colors, loaded fonts, current dpr in the canvas before snapping
       let firstSrc = ""
       const times: number[] = []
       for (let i = 0; i < n; i += 1) {
@@ -99,16 +128,16 @@ export function CaptureSpikePage() {
       }
       const cold = times[0]
       const warm = times.length > 1 ? times.slice(1).reduce((a, b) => a + b, 0) / (times.length - 1) : cold
-      setShots((s) => [
-        { src: firstSrc, ms: cold, label: `cold ${cold.toFixed(0)}ms · warm×${n - 1} ${warm.toFixed(0)}ms · ${(firstSrc.length / 1024).toFixed(0)}KB` },
-        ...s,
-      ])
+      const kb = (pngBytes(firstSrc) / 1024).toFixed(0)
+      // Cap retained shots: full PNG data URLs are hundreds of KB each and keeping
+      // many mounted <img>s would perturb the very warm/throughput timings we measure.
+      setShots((s) => [{ src: firstSrc, ms: cold, label: `cold ${cold.toFixed(0)}ms · warm×${Math.max(0, n - 1)} ${warm.toFixed(0)}ms · ${kb}KB` }, ...s].slice(0, 4))
     } catch (e) {
-      setShots((s) => [{ src: "", ms: 0, label: `CAPTURE FAILED: ${e instanceof Error ? e.message : String(e)}` }, ...s])
+      setShots((s) => [{ src: "", ms: 0, label: `CAPTURE FAILED: ${e instanceof Error ? e.message : String(e)}` }, ...s].slice(0, 4))
     } finally {
       setBusy(false)
     }
-  }, [busy])
+  }, [busy, redraw])
 
   return (
     <div className="min-h-screen bg-background p-6 text-foreground">
