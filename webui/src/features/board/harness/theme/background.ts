@@ -2,7 +2,7 @@ import type { CanvasBackground } from "@canvas-harness/core"
 import type { ThemeId } from "@/components/theme-constants"
 import { darkModeDisplayHex } from "@/features/board/lib/colors/dark-variants"
 import type { BoardBackgroundTexture } from "@/features/board/utils/board-background"
-import { blendCssColors, readCssVar, readCssVarMixed } from "./css-vars"
+import { blendCssColors, readCssVar, readCssVarMixed } from "@/lib/theme/css-vars"
 import { getSwatch, type Mode } from "./tokens"
 
 
