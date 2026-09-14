@@ -216,6 +216,31 @@ at a time. Everything else is a **cached snapshot image**. Hundreds of applets �
 hundreds of `<img>`, no reconciler, no live chart, no iframe — trivial for single-
 process WebKit.
 
+**The swap heuristic already exists — reuse it, don't invent it.** The gating that
+decides live↔placeholder is already built and proven across node types:
+- **LOD zoom threshold** — `def.ts` `lod: { minZoomForReact, minZoomForPlaceholder }`
+  (canvas-harness-native). The applet already has `{ 0.25, 0.05 }`: `camera.z ≥ 0.25`
+  → React view; below → placeholder; below `0.05` → nothing. Keep 0.25 (tune
+  post-spike).
+- **`createDeferredMount`** (`harness/shared-views/`) — in-view (IntersectionObserver)
+  + **camera-at-rest** + **LRU cap** + nearest-viewport-center admission. The
+  mini-app uses it (cap 8); the applet view does **not yet**.
+
+So an applet is **live** iff: `z ≥ minZoomForReact` AND in-view AND camera-at-rest
+AND within the cap (nearest-center wins) OR focused/interacting (interaction always
+hydrates immediately). Otherwise it shows the **placeholder = a snapshot `<img>`**.
+The idle-but-visible-at-high-zoom case is therefore **live** (within the cap), never
+a resting placeholder — the placeholder serves the below-threshold / off-screen /
+beyond-cap cases plus the transient snapshot→live hydration.
+
+**Migration's job here is small** (the machinery exists): (1) add
+`createDeferredMount({ cap: 10 })` to the applet view — bumped from the mini-app's 8,
+cautious to start; (2) upgrade `drawAppletPlaceholder` from a glyph to a real
+snapDOM snapshot (glyph as fallback); (3) keep `minZoomForReact: 0.25`. Transitions:
+double-buffer snapshot→live (keep showing the snapshot until the live tree renders —
+no flash); reuse the cached snapshot on live→snapshot unless the content hash
+(source + state) changed.
+
 **Existing infra to build on (verified):** every node type already has a canvas
 `placeholder.ts` (incl. `applet`) drawing themed glyphs — the snapshot *replaces the
 glyph with a real applet image*. And `harness/canvas/use-thumbnail-capture.ts`
