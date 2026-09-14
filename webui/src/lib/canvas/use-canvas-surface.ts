@@ -23,12 +23,16 @@ export interface CanvasSize {
  * display / browser zoom). Bursts are coalesced to one draw per frame.
  *
  * **The caller MUST give the `<canvas>` a CSS size** (e.g. `width:100%; height:200px`,
- * or a sized container) — the backing store is derived from the measured CSS box. We
- * observe the canvas's *parent* (not the canvas), so writing `canvas.width` never
- * feeds back into the ResizeObserver.
+ * or a sized container) — the backing store is derived from the measured CSS box.
+ * With a CSS size, writing `canvas.width` (the intrinsic size) does NOT change the CSS
+ * box, so observing the canvas itself is loop-free *and* catches a canvas-only
+ * relayout (a flex/grid sibling changing this canvas's box while the parent's is
+ * fixed). Without a CSS size the intrinsic size drives layout and this WOULD loop —
+ * hence the contract.
  *
- * `draw` should be stable (wrap in `useCallback`); pass extra `deps` (e.g. the data)
- * that should also trigger a redraw.
+ * `draw` should be stable (wrap in `useCallback`), and `deps` must be a
+ * **stable-length** array (like any hook dependency list — it's spread into the
+ * effect deps); pass what should also trigger a redraw (e.g. the data).
  */
 export function useCanvasSurface(
   ref: RefObject<HTMLCanvasElement | null>,
@@ -89,10 +93,11 @@ export function useCanvasSurface(
 
     render()
 
-    // Observe the PARENT (stable CSS box) so resizing the canvas backing store can't
-    // re-trigger the observer (the ResizeObserver-loop the caller-sized canvas avoids).
+    // Observe the canvas itself: with the required CSS size, writing canvas.width
+    // doesn't change the observed CSS box (no loop), and a canvas-only relayout is
+    // still caught.
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => render()) : null
-    ro?.observe(canvas.parentElement ?? canvas)
+    ro?.observe(canvas)
 
     const mo = new MutationObserver(() => render())
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-mode"] })

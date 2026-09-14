@@ -44,15 +44,25 @@ export function tokenToCssVar(input: string): string | null {
 // Cache concrete colors per (theme, token). readCssVarMixed appends+measures+removes
 // a DOM probe (a forced style/layout flush), so resolving per-draw for an N-series
 // chart would cause N reflows per frame; caching makes repeat resolves free until the
-// theme changes (keyed on the theme signature, so a flip naturally re-probes).
+// theme changes.
+//
+// ASSUMPTION: the theme is fully identified by the `data-theme`/`data-mode` attributes
+// on `<html>` — which is how this app themes (theme-provider.tsx), and the same signal
+// `useCanvasSurface` redraws on. If theming ever becomes non-attribute (a live editor
+// overriding `--primary` inline, a subtree-scoped theme), both this cache AND that
+// redraw trigger must be revisited; call `clearTokenCache()` to drop stale entries.
 const probeCache = new Map<string, string>()
 
+
+/** A key for the active theme: the `data-theme`/`data-mode` attributes on `<html>`. */
 function themeSignature(): string {
   if (typeof document === "undefined") return ""
   const r = document.documentElement
   return `${r.dataset.theme ?? ""}:${r.dataset.mode ?? ""}`
 }
 
+
+/** Resolve `cssVar` to a concrete color via the probe, memoized per active theme. */
 function cachedMix(cssVar: string): string {
   const key = `${themeSignature()}|${cssVar}`
   const hit = probeCache.get(key)
@@ -60,6 +70,12 @@ function cachedMix(cssVar: string): string {
   const value = readCssVarMixed(cssVar, 100)
   probeCache.set(key, value)
   return value
+}
+
+
+/** Drop all memoized colors — for a non-attribute theme change (see the cache note). */
+export function clearTokenCache(): void {
+  probeCache.clear()
 }
 
 
@@ -90,7 +106,9 @@ export function resolveToken(input: string | undefined | null): string {
 }
 
 
-/** The default categorical color for series `index`, cycling the 5 chart tokens. */
+/** The default categorical color for series `index`, cycling the 5 chart tokens.
+ *  Tolerates a negative, fractional, or NaN index (wraps into 1..5). */
 export function paletteColor(index: number): string {
-  return resolveToken(`chart-${(index % 5) + 1}`)
+  const i = Number.isFinite(index) ? Math.abs(Math.trunc(index)) : 0
+  return resolveToken(`chart-${(i % 5) + 1}`)
 }
