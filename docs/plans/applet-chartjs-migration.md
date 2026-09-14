@@ -65,6 +65,59 @@ subtree to an image with snapDOM.** Two pillars:
   **snapDOM**, used for both the LOD placeholder (perf) and board export. This is
   the load-bearing piece; the element choices exist to make *this* fast + reliable.
 
+## 2.1 Composability model — DOM composes, canvas rasterizes per leaf, snapDOM flattens
+
+Composability is the precious property, so it dictates the design: **we do NOT
+render an applet to one big canvas** (that would force us to reimplement HTML layout
+— grids, text wrap, Cards — on canvas and destroy composability). Instead, three
+cleanly separated layers:
+
+1. **Composition = HTML/CSS (unchanged).** The interpreter renders the applet tree
+   to DOM; each rich element (`Chart`/`Graph`/`Map`) is a **`<canvas>` leaf in the
+   flow, exactly like an `<img>`**. Cards, grids, flex, text, tables, and multiple
+   rich elements nest freely — the *authoring grammar is identical to today*.
+2. **Per-leaf rendering = canvas.** Each rich element is a self-contained black box
+   that renders itself into **whatever box the layout hands it** (fit-to-box at
+   `× devicePixelRatio`). Elements never know about each other; the DOM composes
+   them.
+3. **Flatten = snapDOM.** A snapshot walks the whole subtree and stitches it into
+   ONE image: every **HTML box** via the foreignObject clone at its laid-out
+   position, every **`<canvas>`** via `toDataURL()` pixels at its laid-out position.
+   The composed layout is preserved exactly.
+
+**Two states, one composition:**
+- **LIVE** — the full React/DOM tree: HTML + N live canvases, fully interactive.
+  Shown when focused / at-rest / near 1:1 zoom.
+- **SNAPSHOT** — a single `<img>`: a snapDOM raster of that *exact composed DOM*.
+  Static, cheap. Shown zoomed-out / off-screen / on a hundreds-of-applets board.
+
+The snapshot is a photograph of the live composition, so the layout is identical in
+both; you swap live↔snapshot on focus/interaction and zoom. Moving each leaf to
+canvas makes this flatten *more* reliable the more you compose (canvas captures
+deterministically; SVG re-rasterizes in foreignObject and hits WebKit font/
+positioning bugs — the current fragile case).
+
+### Sizing & the ResizeObserver cost (why it's cheap here)
+Canvas doesn't auto-size, so a canvas leaf must know its box — but the cost is far
+smaller than it looks, by construction:
+- **ResizeObserver only fires on a real content-box change** — *not* on board
+  pan/zoom (those are CSS transforms; the element's own box is unchanged), and not
+  continuously. So there is no per-frame observer storm during navigation.
+- **The snapshot model bounds it to the *few* live applets.** Hundreds of applets
+  are static `<img>` — no observer, no canvas, no redraw; they scale for free. Only
+  the handful of live applets carry observers.
+- **Applets are fixed-size for v1** (auto-grow deferred), so the *outer* size comes
+  from the board's node-dimension store (a prop), not observation — ResizeObserver is
+  needed only for *internal* responsive boxes (e.g. a chart in a `grid-cols-3` cell).
+- **The redraw (not the observe) is the real cost, and it's rAF-throttled** — one
+  redraw per frame max, inheriting the mini-app view's existing pattern.
+- **Best case: resize shows the scaled snapshot, redraws live only on settle** — so
+  a drag-resize scales an `<img>` (free) and does exactly one live redraw when the
+  drag ends. Zero redraw-during-drag.
+
+Net: cheaper than the old mini-app iframe resize (which round-tripped over
+postMessage), and bounded to the few applets that are actually live.
+
 ## 3. Per-element renderer study (the results)
 
 Each rich element evaluated for: lightweight, canvas (clean rasterization), perf at
