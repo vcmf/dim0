@@ -52,6 +52,20 @@ canvas pixels present, timing (fonts.ready + render-complete), capture latency.
 on WKWebView, with a measured capture time and a documented font/timing recipe. If
 it fails or is slow, **stop and re-plan the snapshot approach** (design §9.6).
 
+**RESULT (2026-09-14, PR #297) — 🟢 PASS on Safari/macOS WebKit.** A composed card
+(Card + handwriting/mono/sans `@fontsource` text + `chart-1…5` themed surfaces + a
+theme-resolved DPR canvas) captured faithfully via snapDOM 3.0.0: **fonts embed**,
+**theme colors match** (HTML *and* canvas), **canvas pixels captured**, and a
+**light↔dark theme switch re-captures correctly** (canvas repaints on theme change).
+Timing: **~116–120 ms warm**, cold ~240–370 ms, **~210–225 KB/PNG** at DPR.
+Recipe confirmed: self-hosted `@fontsource` faces embed cleanly (biggest gotcha,
+de-risked); await `document.fonts.ready` + repaint canvas before capture.
+**Two inputs for PR 5:** (1) capture is main-thread + sequential → a 200-applet
+board export ≈ 24 s (needs a progress UI); (2) ~210 KB/PNG × hundreds is tens of MB
+→ **downscale the placeholder snapshot** (shown small when zoomed out) + evict; don't
+cache full-DPR PNGs. Linux WebKitGTK check via real `tauri dev` still pending, but
+not a gate. → **proceed to PR 1.**
+
 ---
 
 ## PR 1 — Shared canvas harness (foundation)
