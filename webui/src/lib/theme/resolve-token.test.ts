@@ -32,9 +32,13 @@ describe("tokenToCssVar", () => {
     expect(tokenToCssVar("red")).toBeNull()
   })
 
-  it("returns null for an unknown token name", () => {
+  it("returns null for an unknown token name — bare AND var() spelling consistently", () => {
     expect(tokenToCssVar("chart-9")).toBeNull()
     expect(tokenToCssVar("not-a-token")).toBeNull()
+    // The var() form checks membership too, so it can't silently resolve an unset
+    // var to a garbage inherited color.
+    expect(tokenToCssVar("var(--chart-9)")).toBeNull()
+    expect(tokenToCssVar("var(--not-a-token)")).toBeNull()
   })
 
   it("covers the 5 chart tokens + core semantics", () => {

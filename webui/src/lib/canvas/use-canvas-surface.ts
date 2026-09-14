@@ -18,10 +18,17 @@ export interface CanvasSize {
 /**
  * Drive a canvas draw loop with DPR sizing + theme reactivity. `draw` is called with
  * a `ctx` already scaled to devicePixelRatio (draw in CSS pixels) on a cleared
- * surface. Redraws on: mount, ResizeObserver (the canvas's own box), a
- * `data-theme`/`data-mode` change, and `document.fonts.ready`. Bursts are coalesced
- * to one draw per frame. `draw` should be stable (wrap in `useCallback`); pass extra
- * `deps` (e.g. the data) that should also trigger a redraw.
+ * surface. Redraws on: mount, container resize, a `data-theme`/`data-mode` change,
+ * `document.fonts.ready`, and a `devicePixelRatio` change (moving to a different-DPR
+ * display / browser zoom). Bursts are coalesced to one draw per frame.
+ *
+ * **The caller MUST give the `<canvas>` a CSS size** (e.g. `width:100%; height:200px`,
+ * or a sized container) — the backing store is derived from the measured CSS box. We
+ * observe the canvas's *parent* (not the canvas), so writing `canvas.width` never
+ * feeds back into the ResizeObserver.
+ *
+ * `draw` should be stable (wrap in `useCallback`); pass extra `deps` (e.g. the data)
+ * that should also trigger a redraw.
  */
 export function useCanvasSurface(
   ref: RefObject<HTMLCanvasElement | null>,
@@ -34,6 +41,9 @@ export function useCanvasSurface(
 
     let frame = 0
     let cancelled = false
+    let lastW = -1
+    let lastH = -1
+    let dprMql: MediaQueryList | null = null
 
     const render = (): void => {
       cancelAnimationFrame(frame)
@@ -45,8 +55,16 @@ export function useCanvasSurface(
         const height = rect.height || c.clientHeight
         if (width === 0 || height === 0) return
         const dpr = window.devicePixelRatio || 1
-        c.width = Math.round(width * dpr)
-        c.height = Math.round(height * dpr)
+        const bw = Math.round(width * dpr)
+        const bh = Math.round(height * dpr)
+        // Setting canvas.width/height resets the bitmap + context state, so only do it
+        // when the target actually changed (avoids clearing on a theme-only redraw).
+        if (bw !== lastW || bh !== lastH) {
+          c.width = bw
+          c.height = bh
+          lastW = bw
+          lastH = bh
+        }
         const ctx = c.getContext("2d")
         if (!ctx) return
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0) // draw in CSS px; crisp at dpr
@@ -55,10 +73,26 @@ export function useCanvasSurface(
       })
     }
 
+    // A `matchMedia((resolution: <dpr>dppx))` matches only the current dpr; it fires
+    // once when dpr leaves that value, so re-arm for the new dpr each time.
+    const onDprChange = (): void => {
+      lastW = lastH = -1 // force a backing-store resize at the new dpr
+      armDpr()
+      render()
+    }
+    const armDpr = (): void => {
+      dprMql?.removeEventListener("change", onDprChange)
+      dprMql = typeof window.matchMedia === "function" ? window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`) : null
+      dprMql?.addEventListener("change", onDprChange)
+    }
+    armDpr()
+
     render()
 
+    // Observe the PARENT (stable CSS box) so resizing the canvas backing store can't
+    // re-trigger the observer (the ResizeObserver-loop the caller-sized canvas avoids).
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => render()) : null
-    ro?.observe(canvas)
+    ro?.observe(canvas.parentElement ?? canvas)
 
     const mo = new MutationObserver(() => render())
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-mode"] })
@@ -74,9 +108,10 @@ export function useCanvasSurface(
       cancelAnimationFrame(frame)
       ro?.disconnect()
       mo.disconnect()
+      dprMql?.removeEventListener("change", onDprChange)
     }
     // `draw` + `deps` are the caller-controlled redraw triggers; the internal
-    // observers cover resize/theme/fonts.
+    // observers cover resize/theme/fonts/dpr.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ref, draw, ...deps])
 }

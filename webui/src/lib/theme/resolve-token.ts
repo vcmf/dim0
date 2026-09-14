@@ -26,30 +26,67 @@ export const THEME_TOKEN_NAMES: ReadonlySet<string> = new Set([
 
 
 /**
- * Map an input to the `--custom-property` it names, or `null` if it isn't a theme
- * token. Pure (no DOM) — the testable decision layer. `chart-1` → `--chart-1`;
- * `var(--chart-1)` → `--chart-1`; a raw color (`#abc`, `rgb(...)`, `oklch(...)`) →
- * `null` (passes through unresolved).
+ * Map an input to the `--custom-property` it names, or `null` if it isn't a KNOWN
+ * theme token. Pure (no DOM). Handles bare (`chart-1`), `--`-prefixed (`--chart-1`),
+ * and `var(--chart-1)` spellings identically — all check membership, so
+ * `chart-1`/`--chart-1`/`var(--chart-1)` → `--chart-1` while `chart-9` and
+ * `var(--chart-9)` both → `null` (consistent; no silent garbage from an unset var).
+ * A raw color (`#abc`, `rgb(...)`, `oklch(...)`) → `null` (handled by `resolveToken`).
  */
 export function tokenToCssVar(input: string): string | null {
   const trimmed = input.trim()
-  const fromVar = trimmed.match(/^var\(\s*(--[\w-]+)\s*\)$/)
-  if (fromVar) return fromVar[1]
-  const bare = trimmed.startsWith("--") ? trimmed.slice(2) : trimmed
-  return THEME_TOKEN_NAMES.has(bare) ? `--${bare}` : null
+  const fromVar = trimmed.match(/^var\(\s*--([\w-]+)\s*\)$/)
+  const name = fromVar ? fromVar[1] : trimmed.startsWith("--") ? trimmed.slice(2) : trimmed
+  return THEME_TOKEN_NAMES.has(name) ? `--${name}` : null
+}
+
+
+// Cache concrete colors per (theme, token). readCssVarMixed appends+measures+removes
+// a DOM probe (a forced style/layout flush), so resolving per-draw for an N-series
+// chart would cause N reflows per frame; caching makes repeat resolves free until the
+// theme changes (keyed on the theme signature, so a flip naturally re-probes).
+const probeCache = new Map<string, string>()
+
+function themeSignature(): string {
+  if (typeof document === "undefined") return ""
+  const r = document.documentElement
+  return `${r.dataset.theme ?? ""}:${r.dataset.mode ?? ""}`
+}
+
+function cachedMix(cssVar: string): string {
+  const key = `${themeSignature()}|${cssVar}`
+  const hit = probeCache.get(key)
+  if (hit !== undefined) return hit
+  const value = readCssVarMixed(cssVar, 100)
+  probeCache.set(key, value)
+  return value
 }
 
 
 /**
  * Resolve a token/color to a concrete color string usable as `ctx.fillStyle`.
- * A theme token resolves via the browser probe; a raw color (hex/rgb/oklch/named)
- * passes through unchanged. Empty/undefined → `foreground` as a safe default.
- * Call at draw time and re-run on theme change (the value is theme-dependent).
+ * A theme token (bare, `--`, or `var()`) resolves via the browser probe (cached per
+ * theme); a valid raw color (hex/rgb/oklch/named) passes through; empty/undefined →
+ * `foreground`. An unresolvable input (a typo like `chart-9`/`forground`, or a
+ * non-theme `var(--x)` canvas can't read) → `foreground` fallback + a DEV warning,
+ * so a mistake shows a visible color instead of silently keeping the prior fill.
  */
 export function resolveToken(input: string | undefined | null): string {
-  if (input == null || input.trim() === "") return readCssVarMixed("--foreground", 100)
+  if (input == null || input.trim() === "") return cachedMix("--foreground")
   const cssVar = tokenToCssVar(input)
-  return cssVar ? readCssVarMixed(cssVar, 100) : input.trim()
+  if (cssVar) return cachedMix(cssVar)
+
+  // Not a known theme token: a valid literal color passes through; anything else
+  // (a typo, or a var() we can't hand to canvas) falls back visibly.
+  const raw = input.trim()
+  const isVar = raw.includes("var(")
+  const canValidate = typeof CSS !== "undefined" && typeof CSS.supports === "function"
+  if (!isVar && (!canValidate || CSS.supports("color", raw))) return raw
+
+  if (import.meta.env.DEV) {
+    console.warn(`[applet] resolveToken: unresolvable color "${input}" — using foreground fallback`)
+  }
+  return cachedMix("--foreground")
 }
 
 

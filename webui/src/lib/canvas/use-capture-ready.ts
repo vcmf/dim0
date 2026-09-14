@@ -21,7 +21,13 @@ export function useCaptureReady(ref: RefObject<HTMLElement | null>, rendered: bo
     const done = () => {
       if (active) setFontsReady(true)
     }
-    document.fonts?.ready.then(done).catch(done)
+    // No FontFaceSet (jsdom, some embedded webviews) → treat fonts as ready so the
+    // element can never be stuck un-capturable.
+    if (typeof document === "undefined" || !document.fonts) {
+      done()
+      return
+    }
+    document.fonts.ready.then(done).catch(done)
     return () => {
       active = false
     }
