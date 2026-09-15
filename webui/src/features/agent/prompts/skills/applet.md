@@ -117,11 +117,12 @@ Actions appear **only** in event handlers (`onClick`, `onChange`, `onKeyDown`, `
 
 ## Component signatures
 
-### `<Chart kind data? datasets? labels? yAxis? xAxis? legend? tooltip? height? />`
-- `kind`: `"bar" | "line" | "area" | "scatter" | "pie" | "composed"`.
-- Single series: `data={[42, 58, 71]}`. Multi-series: `datasets={[{ label, data: [...], color? }, …]}`. Use `data` OR `datasets`, never both.
-- `labels` default to `"0","1",…`. `kind="pie"`: pass `data={[{ name, value }, …]}`.
-- Colors: palette names (`"primary"`, `"chart-1"`…`"chart-5"`, …) that re-theme; avoid raw hex.
+### `<Chart type data options? height? />` — ONE shape for every chart type
+- `type`: `"bar" | "line" | "area" | "pie" | "doughnut" | "scatter" | "radar"`.
+- `data`: `{ labels: [...], datasets: [{ label?, data: [...], backgroundColor?, borderColor? }, …] }`. **The SAME `{ labels, datasets }` shape works for every type — pie included.** A pie/doughnut is one dataset: `data={{ labels: ["A", "B", "C"], datasets: [{ data: [10, 20, 30] }] }}` (no per-slice `{ name, value }` objects). Multi-series is just more `datasets`.
+- **Colors auto-fill** from the theme ramp (chart-1..5). To set one, put a palette name (`"chart-1"`, `"primary"`, …) in `backgroundColor`/`borderColor` — a string, or an **array** for per-slice pie colors. Avoid raw hex (won't theme).
+- `options`: plain Chart.js options, e.g. `options={{ scales: { y: { min: 0, max: 100 } }, plugins: { legend: { display: false } } }}`. **No callback/function options.**
+- `height`: px (default 220).
 
 ### `<Graph nodes edges layout? directed? root? viewBox? height? />`
 - `nodes`: `[{ id, label?, sublabel?, color?, x?, y? }]`; `edges`: `[{ a, b, label?, color? }]` (`a → b`).
@@ -212,19 +213,31 @@ Actions appear **only** in event handlers (`onClick`, `onChange`, `onKeyDown`, `
 </Widget>
 ```
 
-### Bar chart (static — `data` only)
+### Bar chart (static)
 ```jsx
 <Widget data={{ labels: ["Oct", "Nov", "Dec"], sales: [42, 58, 71] }}>
   <Card className="p-4 max-w-md">
     <CardHeader><CardTitle>Q4 sales (k$)</CardTitle></CardHeader>
     <CardContent>
-      <Chart kind="bar" labels={labels} data={sales} color="primary" height={220} />
+      <Chart type="bar" data={{ labels: labels, datasets: [{ label: "Sales", data: sales }] }} height={220} />
     </CardContent>
   </Card>
 </Widget>
 ```
 
-### Multi-series line chart
+### Pie chart (same `{ labels, datasets }` shape — no `{ name, value }`)
+```jsx
+<Widget data={{ labels: ["Direct", "Search", "Social", "Email"], visits: [40, 30, 20, 10] }}>
+  <Card className="p-4 max-w-sm">
+    <CardHeader><CardTitle>Traffic sources</CardTitle></CardHeader>
+    <CardContent>
+      <Chart type="pie" data={{ labels: labels, datasets: [{ data: visits }] }} height={220} />
+    </CardContent>
+  </Card>
+</Widget>
+```
+
+### Multi-series line chart (+ an axis range via `options`)
 ```jsx
 <Widget data={{
   months: ["Jan", "Feb", "Mar", "Apr", "May"],
@@ -234,11 +247,12 @@ Actions appear **only** in event handlers (`onClick`, `onChange`, `onKeyDown`, `
   <Card className="p-4 max-w-md">
     <CardHeader><CardTitle>Revenue vs cost</CardTitle></CardHeader>
     <CardContent>
-      <Chart kind="line" labels={months}
-        datasets={[
-          { label: "Revenue", data: revenue, color: "chart-1" },
-          { label: "Cost", data: cost, color: "chart-2" }
-        ]}
+      <Chart type="line"
+        data={{ labels: months, datasets: [
+          { label: "Revenue", data: revenue, borderColor: "chart-1" },
+          { label: "Cost", data: cost, borderColor: "chart-2" }
+        ] }}
+        options={{ scales: { y: { min: 0 } } }}
         height={220} />
     </CardContent>
   </Card>
@@ -272,7 +286,7 @@ Actions appear **only** in event handlers (`onClick`, `onChange`, `onKeyDown`, `
           <div className="text-2xl font-bold">{avg}</div>
         </div>
       </div>
-      <Chart kind="line" labels={months} data={revenue} color="chart-1" height={200} />
+      <Chart type="line" data={{ labels: months, datasets: [{ label: "Revenue", data: revenue, borderColor: "chart-1" }] }} height={200} />
     </CardContent>
   </Card>
 </Widget>
@@ -333,7 +347,7 @@ The host runs six themes × {light, dark}, and the applet inherits whichever is 
    `bg-primary text-primary-foreground` · `bg-secondary text-secondary-foreground` · `bg-destructive text-destructive-foreground` · `bg-muted text-muted-foreground` / `bg-accent text-accent-foreground`. Body text on a colored background with no paired foreground is the #1 cause of unreadable widgets.
 2. **`primary` is a high-contrast extreme — use it sparingly** (the one main action). Reach for `secondary` (with `text-secondary-foreground`) as your default themed surface; `muted` / `accent` are the calm neutral surfaces.
 
-**For variety / categorical color, use the `chart-1`…`chart-5` ramp** — tuned per theme to be vivid *and* harmonious. Available as `color="chart-1"` props (Chart/Graph) and as `bg-chart-1` / `text-chart-1` / `border-chart-1` classes.
+**For variety / categorical color, use the `chart-1`…`chart-5` ramp** — tuned per theme to be vivid *and* harmonious. Charts auto-fill from it (override via a dataset's `backgroundColor`/`borderColor`); Graph/Map take a `color="chart-1"` prop; and it's available as `bg-chart-1` / `text-chart-1` / `border-chart-1` classes.
 
 **Semantic token cheat-sheet.**
 
@@ -350,7 +364,7 @@ The host runs six themes × {light, dark}, and the applet inherits whichever is 
 | Categorical color | `bg-chart-1`…`bg-chart-5` (and `text-`/`border-`) |
 | Border | `border` |
 
-For charts/graphs, pass `color="chart-1"`…`"chart-5"` (or `"primary"` / `"destructive"`) rather than literal hex.
+Use palette names (`"chart-1"`…`"chart-5"`, `"primary"`, `"destructive"`) for chart dataset colors and Graph/Map `color`, rather than literal hex.
 
 **Never** use raw hex (`#965e30`), `rgb()`, named colors (`"red"`), or pure black/white — they don't theme. (Applet elements can't set a raw `style` attribute anyway; stick to classes.)
 

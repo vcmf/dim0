@@ -63,11 +63,11 @@ function themeSignature(): string {
 
 
 /** Resolve `cssVar` to a concrete color via the probe, memoized per active theme. */
-function cachedMix(cssVar: string): string {
-  const key = `${themeSignature()}|${cssVar}`
+function cachedMix(cssVar: string, percent = 100): string {
+  const key = `${themeSignature()}|${percent}|${cssVar}`
   const hit = probeCache.get(key)
   if (hit !== undefined) return hit
-  const value = readCssVarMixed(cssVar, 100)
+  const value = readCssVarMixed(cssVar, percent)
   probeCache.set(key, value)
   return value
 }
@@ -103,6 +103,15 @@ export function resolveToken(input: string | undefined | null): string {
     console.warn(`[applet] resolveToken: unresolvable color "${input}" — using foreground fallback`)
   }
   return cachedMix("--foreground")
+}
+
+
+/** Resolve a theme token at `percent` alpha (0–100) — e.g. a translucent chart-ramp
+ *  color for area fills. Cached per (theme, token, alpha) like {@link resolveToken};
+ *  a non-token input falls back to the opaque `resolveToken`. */
+export function resolveTokenAlpha(input: string, percent: number): string {
+  const cssVar = tokenToCssVar(input)
+  return cssVar ? cachedMix(cssVar, percent) : resolveToken(input)
 }
 
 

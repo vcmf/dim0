@@ -4,10 +4,11 @@
 
 import type { ComponentType } from "react"
 
-import { ChartElement, GraphElement, MapElement } from "@/components/charts"
+import { GraphElement, MapElement } from "@/components/charts"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 
+import { AppletChart } from "./chart/applet-chart"
 import { Table } from "./table"
 
 
@@ -23,7 +24,7 @@ export const COMPONENT_IMPLS = {
   CardContent,
   CardFooter,
   Button,
-  Chart: ChartElement,
+  Chart: AppletChart, // Chart.js (canvas) — snapshot-ready; recharts ChartElement kept for legacy
   Graph: GraphElement,
   Map: MapElement,
   Table,
