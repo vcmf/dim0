@@ -1,3 +1,6 @@
 export { AppletRenderer, type AppletRendererProps } from "./renderer"
 export { deleteAppletState, fetchAppletState, saveAppletState } from "./state-client"
+export { snapshotApplet } from "./snapshot"
+export { evictAppletSnapshot, getAppletSnapshot } from "./snapshot-cache"
+export { useAppletSnapshot } from "./use-applet-snapshot"
 export { useAppletInitialState, type AppletInitialState } from "./use-applet-initial-state"

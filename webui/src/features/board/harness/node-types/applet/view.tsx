@@ -12,13 +12,27 @@ import { ChartLineIcon } from "@phosphor-icons/react"
 import { type NodeId } from "@canvas-harness/core"
 import { useCanvasStore, useNode, useSelection } from "@canvas-harness/react"
 
-import { AppletRenderer, deleteAppletState, saveAppletState, useAppletInitialState } from "@/features/applet/render"
+import {
+  AppletRenderer,
+  deleteAppletState,
+  evictAppletSnapshot,
+  saveAppletState,
+  useAppletInitialState,
+  useAppletSnapshot,
+} from "@/features/applet/render"
 import { removeNodeSubtree } from "@/features/board/harness/graph/subtree"
 import { cn } from "@/lib/utils"
 
 import type { NoteNodeData } from "../../convert/note-to-node"
-import { NodeTitleCaption, NodeTrafficLights } from "../../shared-views"
+import { createDeferredMount, NodeTitleCaption, NodeTrafficLights } from "../../shared-views"
 import { useBoardAppStore } from "../../store/board-app-store"
+
+
+// Bounded pool of LIVE applet views. Unlike the mini-app's ~5 MB iframes, an applet is
+// lightweight React — but on a hundreds-of-applets board we still cap how many run the
+// interpreter + live canvases at once (the rest show a cached snapshot / glyph). Cap 10,
+// slightly above the mini-app's 8 since applets are cheaper; tune post-measurement.
+const useAppletMount = createDeferredMount({ cap: 10 })
 
 
 export interface AppletViewProps {
@@ -39,11 +53,26 @@ export function AppletNodeView({ id }: AppletViewProps) {
   const selection = useSelection()
   const isSelected = selection.includes(id)
   const noteId = id as unknown as string
+  const source = node?.content ?? ""
+
+  const wrapRef = useRef<HTMLDivElement>(null) // outer box → drives in-view / retention
+  const captureRef = useRef<HTMLDivElement>(null) // the card box → what snapDOM rasterizes
+
+  // Deferred mount: bound how many applets run live at once. `isSelected` overrides so
+  // an interacting applet always hydrates immediately regardless of the pool.
+  const { shouldMount, isInView } = useAppletMount(noteId, wrapRef)
 
   // Hydrate persisted state before mounting the renderer, so the applet inits with
   // saved state instead of flashing defaults then re-mounting (shared with the
   // inspect surface).
   const { initialState, stateLoaded } = useAppletInitialState(noteId)
+
+  // Live iff mounted-by-the-pool (or selected) and ready to render.
+  const live = (shouldMount || isSelected) && !!source && stateLoaded
+
+  // While live AND actually painted (in view), rasterize into the snapshot cache so the
+  // canvas getSnapshot can blit it when this applet later zooms out / moves off-screen.
+  useAppletSnapshot({ noteId, captureRef, source, state: initialState, active: live && isInView })
 
   // Debounce persistence: a rapidly-updating applet (slider, text field) would
   // otherwise issue an IndexedDB write per keystroke. Coalesce to one write ~300ms
@@ -74,18 +103,24 @@ export function AppletNodeView({ id }: AppletViewProps) {
 
   const data = (node.data ?? {}) as Partial<NoteNodeData>
   const label = data.label?.markdown
-  const source = node.content ?? ""
 
   return (
-    <div className="pointer-events-none relative h-full w-full select-none">
-      <div className="absolute inset-0 flex flex-col overflow-hidden rounded-2xl border border-border bg-background px-2 pb-2 pt-10">
+    <div ref={wrapRef} className="pointer-events-none relative h-full w-full select-none">
+      <div
+        ref={captureRef}
+        className="absolute inset-0 flex flex-col overflow-hidden rounded-2xl border border-border bg-background px-2 pb-2 pt-10"
+        // Retained-but-off-screen: keep the live tree mounted (no re-interpret) but skip
+        // its paint/layout — restores instantly on return, no re-mount flash. A selected
+        // applet stays painted so its interaction never blanks.
+        style={{ contentVisibility: shouldMount && !isInView && !isSelected ? "hidden" : undefined }}
+      >
         <div
           className={cn(
             "scrollbar-thin relative h-full w-full overflow-auto rounded-xl border border-border/50 bg-background",
             isSelected ? "pointer-events-auto" : "pointer-events-none",
           )}
         >
-          {source && stateLoaded ? (
+          {live ? (
             <AppletRenderer source={source} initialState={initialState} onPersist={onPersist} className="h-full w-full" />
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground">
@@ -104,6 +139,7 @@ export function AppletNodeView({ id }: AppletViewProps) {
           canEdit
             ? () => {
                 void deleteAppletState(noteId) // don't orphan the persisted state row
+                evictAppletSnapshot(noteId) // drop the cached snapshot too
                 removeNodeSubtree(store, id)
               }
             : undefined

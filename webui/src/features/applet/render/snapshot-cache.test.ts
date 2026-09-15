@@ -1,0 +1,90 @@
+import { afterEach, describe, expect, it } from "vitest"
+
+import {
+  clearAppletSnapshots,
+  evictAppletSnapshot,
+  getAppletSnapshot,
+  getAppletSnapshotHash,
+  setAppletSnapshot,
+  snapshotKey,
+} from "./snapshot-cache"
+
+// A CanvasImageSource stand-in — the cache never inspects the image, only stores/returns
+// it, so a tagged object suffices for identity assertions.
+const img = (tag: string) => ({ tag }) as unknown as CanvasImageSource
+
+afterEach(() => clearAppletSnapshots())
+
+
+describe("snapshotKey", () => {
+  it("is deterministic for the same inputs", () => {
+    expect(snapshotKey("<Chart/>", { a: 1 }, "dark:")).toBe(snapshotKey("<Chart/>", { a: 1 }, "dark:"))
+  })
+
+  it("is independent of object key order in state", () => {
+    expect(snapshotKey("s", { a: 1, b: 2 }, "t")).toBe(snapshotKey("s", { b: 2, a: 1 }, "t"))
+  })
+
+  it("changes when source, state, or theme changes", () => {
+    const base = snapshotKey("s", { a: 1 }, "light:")
+    expect(snapshotKey("s2", { a: 1 }, "light:")).not.toBe(base) // source
+    expect(snapshotKey("s", { a: 2 }, "light:")).not.toBe(base) // state
+    expect(snapshotKey("s", { a: 1 }, "dark:")).not.toBe(base) // theme
+  })
+
+  it("does not throw on non-serializable state (cyclic) — degrades to a constant tail", () => {
+    const cyclic: Record<string, unknown> = {}
+    cyclic.self = cyclic
+    expect(() => snapshotKey("s", cyclic, "t")).not.toThrow()
+    // two different cyclic states hash equal (state contribution collapses), by design
+    const other: Record<string, unknown> = { x: 1 }
+    other.self = other
+    expect(snapshotKey("s", cyclic, "t")).toBe(snapshotKey("s", other, "t"))
+  })
+})
+
+
+describe("snapshot cache", () => {
+  it("stores and retrieves an image + its hash", () => {
+    setAppletSnapshot("n1", img("a"), "h1")
+    expect(getAppletSnapshot("n1")).toEqual({ tag: "a" })
+    expect(getAppletSnapshotHash("n1")).toBe("h1")
+  })
+
+  it("returns null / null for an absent id", () => {
+    expect(getAppletSnapshot("missing")).toBeNull()
+    expect(getAppletSnapshotHash("missing")).toBeNull()
+  })
+
+  it("replaces an existing entry (latest image + hash win)", () => {
+    setAppletSnapshot("n1", img("old"), "h1")
+    setAppletSnapshot("n1", img("new"), "h2")
+    expect(getAppletSnapshot("n1")).toEqual({ tag: "new" })
+    expect(getAppletSnapshotHash("n1")).toBe("h2")
+  })
+
+  it("evicts a single entry, and clears all", () => {
+    setAppletSnapshot("n1", img("a"), "h")
+    setAppletSnapshot("n2", img("b"), "h")
+    evictAppletSnapshot("n1")
+    expect(getAppletSnapshot("n1")).toBeNull()
+    expect(getAppletSnapshot("n2")).not.toBeNull()
+    clearAppletSnapshots()
+    expect(getAppletSnapshot("n2")).toBeNull()
+  })
+
+  it("bounds memory with an LRU: over capacity, the least-recently-used is dropped", () => {
+    // MAX_SNAPSHOTS is 120; fill past it and assert the oldest untouched entry is gone.
+    for (let i = 0; i < 121; i++) setAppletSnapshot(`k${i}`, img(`${i}`), "h")
+    expect(getAppletSnapshot("k0")).toBeNull() // oldest evicted
+    expect(getAppletSnapshot("k120")).not.toBeNull() // newest kept
+  })
+
+  it("a get() touches recency so the touched entry survives eviction", () => {
+    for (let i = 0; i < 120; i++) setAppletSnapshot(`k${i}`, img(`${i}`), "h") // fills to cap
+    getAppletSnapshot("k0") // touch the oldest → now most-recent
+    setAppletSnapshot("k120", img("120"), "h") // over cap → evicts the now-oldest (k1)
+    expect(getAppletSnapshot("k0")).not.toBeNull() // survived because touched
+    expect(getAppletSnapshot("k1")).toBeNull() // evicted instead
+  })
+})
