@@ -5,21 +5,18 @@
 // just wraps it in the standard canvas chrome (traffic lights + title caption) and
 // gates pointer events on selection so canvas pan/zoom passes cleanly through
 // unselected applets. State is hydrated from / persisted to the local store.
+//
+// Zoomed out / off-screen, the node shows the cheap canvas placeholder (drawAppletPlaceholder),
+// exactly like the `sheet` node type — no snapshot bitmaps in the LOD path. (`snapshotApplet`
+// exists only for on-demand PNG/SVG export of selected nodes, not for this placeholder.)
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef } from "react"
 
 import { ChartLineIcon } from "@phosphor-icons/react"
 import { type NodeId } from "@canvas-harness/core"
 import { useCanvasStore, useNode, useSelection } from "@canvas-harness/react"
 
-import {
-  AppletRenderer,
-  deleteAppletState,
-  evictAppletSnapshot,
-  saveAppletState,
-  useAppletInitialState,
-  useAppletSnapshot,
-} from "@/features/applet/render"
+import { AppletRenderer, deleteAppletState, saveAppletState, useAppletInitialState } from "@/features/applet/render"
 import { removeNodeSubtree } from "@/features/board/harness/graph/subtree"
 import { cn } from "@/lib/utils"
 
@@ -30,7 +27,7 @@ import { useBoardAppStore } from "../../store/board-app-store"
 
 // Bounded pool of LIVE applet views. Unlike the mini-app's ~5 MB iframes, an applet is
 // lightweight React — but on a hundreds-of-applets board we still cap how many run the
-// interpreter + live canvases at once (the rest show a cached snapshot / glyph). Cap 10,
+// interpreter + live canvases at once (the rest show the canvas placeholder). Cap 10,
 // slightly above the mini-app's 8 since applets are cheaper; tune post-measurement.
 const useAppletMount = createDeferredMount({ cap: 10 })
 
@@ -56,7 +53,6 @@ export function AppletNodeView({ id }: AppletViewProps) {
   const source = node?.content ?? ""
 
   const wrapRef = useRef<HTMLDivElement>(null) // outer box → drives in-view / retention
-  const captureRef = useRef<HTMLDivElement>(null) // the card box → what snapDOM rasterizes
 
   // Deferred mount: bound how many applets run live at once. `isSelected` overrides so
   // an interacting applet always hydrates immediately regardless of the pool.
@@ -67,61 +63,44 @@ export function AppletNodeView({ id }: AppletViewProps) {
   // inspect surface).
   const { initialState, stateLoaded } = useAppletInitialState(noteId)
 
-  // The state the snapshot hash reflects: the loaded initial state, then the latest
-  // persisted state after each interaction SETTLES (the same debounced cadence as the
-  // IndexedDB write, not per keystroke) — so a slider drag re-captures once, on settle.
-  const [snapState, setSnapState] = useState<Record<string, unknown> | null>(null)
-  useEffect(() => {
-    setSnapState(initialState ?? null) // initialState is `… | undefined`; state holds `… | null`
-  }, [initialState])
-
   // Debounce persistence: a rapidly-updating applet (slider, text field) would
   // otherwise issue an IndexedDB write per keystroke. Coalesce to one write ~300ms
   // after the last change, and flush the pending state on unmount.
   const pendingState = useRef<Record<string, unknown> | null>(null)
   const persistTimer = useRef<number | null>(null)
-  // `updateSnap` refreshes the snapshot-hash state — true for the debounced settle, but
-  // FALSE from the unmount cleanup (a setState on an unmounting component is a wasted
-  // no-op + dev warning; the persist write is the only part cleanup needs).
-  const flushPersist = useCallback(
-    (updateSnap: boolean) => {
-      if (persistTimer.current !== null) {
-        clearTimeout(persistTimer.current)
-        persistTimer.current = null
-      }
-      if (pendingState.current !== null) {
-        void saveAppletState(noteId, pendingState.current)
-        if (updateSnap) setSnapState(pendingState.current)
-        pendingState.current = null
-      }
-    },
-    [noteId],
-  )
+  /** Persist the latest pending applet state now: cancel any debounce timer and, if a
+   *  change is pending, write it to the local store. Called on the debounced settle and
+   *  once on unmount so the final state isn't lost. */
+  const flushPersist = useCallback(() => {
+    if (persistTimer.current !== null) {
+      clearTimeout(persistTimer.current)
+      persistTimer.current = null
+    }
+    if (pendingState.current !== null) {
+      void saveAppletState(noteId, pendingState.current)
+      pendingState.current = null
+    }
+  }, [noteId])
   const onPersist = useCallback(
     (next: Record<string, unknown>) => {
       pendingState.current = next
       if (persistTimer.current !== null) clearTimeout(persistTimer.current)
-      persistTimer.current = window.setTimeout(() => flushPersist(true), 300)
+      persistTimer.current = window.setTimeout(flushPersist, 300)
     },
     [flushPersist],
   )
-  useEffect(() => () => flushPersist(false), [flushPersist])
+  useEffect(() => () => flushPersist(), [flushPersist])
 
   // Live iff mounted-by-the-pool (or selected) and ready to render.
   const live = (shouldMount || isSelected) && !!source && stateLoaded
 
-  // Memoize the live renderer element so a snapshot-state re-render (setSnapState) never
-  // re-renders the interpreter — its props (source/initialState/onPersist) are stable.
+  // Memoize the renderer element (stable across re-renders driven by isInView/isSelected,
+  // e.g. a pan settle or a select) so React skips re-reconciling the interpreted subtree —
+  // AppletRenderer isn't memoized and would otherwise re-interpret on every such re-render.
   const appletEl = useMemo(
     () => <AppletRenderer source={source} initialState={initialState} onPersist={onPersist} className="h-full w-full" />,
     [source, initialState, onPersist],
   )
-
-  // While live AND actually painted (in view), rasterize into the snapshot cache so the
-  // canvas getSnapshot can blit it when this applet later zooms out / moves off-screen.
-  // `isAlive` lets a capture that resolves after a delete skip re-inserting an orphan.
-  const isAlive = useCallback(() => store.getNode(id) != null, [store, id])
-  useAppletSnapshot({ noteId, captureRef, source, state: snapState, active: live && isInView, isAlive })
 
   if (!node) return null
 
@@ -131,7 +110,6 @@ export function AppletNodeView({ id }: AppletViewProps) {
   return (
     <div ref={wrapRef} className="pointer-events-none relative h-full w-full select-none">
       <div
-        ref={captureRef}
         className="absolute inset-0 flex flex-col overflow-hidden rounded-2xl border border-border bg-background px-2 pb-2 pt-10"
         // Retained-but-off-screen: keep the live tree mounted (no re-interpret) but skip
         // its paint/layout — restores instantly on return, no re-mount flash. A selected
@@ -163,7 +141,6 @@ export function AppletNodeView({ id }: AppletViewProps) {
           canEdit
             ? () => {
                 void deleteAppletState(noteId) // don't orphan the persisted state row
-                evictAppletSnapshot(noteId) // drop the cached snapshot too
                 removeNodeSubtree(store, id)
               }
             : undefined
