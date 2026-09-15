@@ -21,7 +21,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { snapdom } from "@zumer/snapdom"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { readCssVarMixed } from "@/features/board/harness/theme/css-vars"
+import { readCssVarMixed } from "@/lib/theme/css-vars"
 
 
 // Draw a mini bar chart into `canvas` at DPR, using theme-resolved chart colors —
