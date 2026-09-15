@@ -1,8 +1,10 @@
 // The applet `<Chart>` — Chart.js on a canvas, themed + snapshot-ready.
 //
 // Heavy (Chart.js ~65 KB) so it's lazy-loaded via applet-chart.tsx. Only the applet
-// renderer uses it; the legacy recharts ChartElement is untouched (mini-apps/widgets).
-// Canvas (not SVG) so the whole applet snapshots cleanly (design §2). Colors resolve
+// renderer uses it; the legacy recharts ChartElement is now unused (recharts stays a
+// dep only because the legacy widgets import it directly — removing the dead Chart
+// wrapper is a follow-up). Canvas (not SVG) so the whole applet snapshots cleanly
+// (design §2). Colors resolve
 // through the shared harness and re-theme on a data-theme/data-mode change; animation
 // is OFF for deterministic, fast snapshots.
 
@@ -74,6 +76,12 @@ export function AppletChartImpl({ type, data, options, height, className }: Appl
   const propsRef = useRef({ type, data, options })
   propsRef.current = { type, data, options }
 
+  // The (data, options) signatures LAST pushed into the live chart. The create effect
+  // records what it built the chart from, so the update effect can skip a redundant
+  // re-apply of the identical config — robust to type-changes-without-data-changes
+  // (a boolean "fresh" flag would get stranded when the update effect's deps don't fire).
+  const appliedSig = useRef<{ data: string; options: string } | null>(null)
+
   useCaptureReady(wrapRef, rendered)
 
   // Re-theme + push the latest data/options into the existing chart (no recreate).
@@ -100,10 +108,13 @@ export function AppletChartImpl({ type, data, options, height, className }: Appl
     } as unknown as ChartConfiguration
     const chart = new Chart(canvas, config)
     chartRef.current = chart
+    // Record what we just built from so the update effect skips a redundant re-apply.
+    appliedSig.current = { data: JSON.stringify(p.data ?? null), options: JSON.stringify(p.options ?? null) }
     setRendered(true)
     return () => {
       chart.destroy()
       chartRef.current = null
+      appliedSig.current = null
       setRendered(false)
     }
   }, [type])
@@ -111,11 +122,18 @@ export function AppletChartImpl({ type, data, options, height, className }: Appl
   // Update in place when data/options CONTENT changes. Key on serialized signatures,
   // not object identity — applets recreate inline `data={{…}}`/`options={{…}}` literals
   // every render, so identity deps would fire chart.update() on every unrelated
-  // re-render (a wasted reflow).
+  // re-render. The stringify is O(config) on the render path — fine for typical chart
+  // sizes; a version signal from the interpreter could remove it if huge charts churn.
   const dataSig = JSON.stringify(data ?? null)
   const optSig = JSON.stringify(options ?? null)
   useEffect(() => {
+    // Skip when the live chart already holds this exact config — i.e. the create effect
+    // just built it from the same data/options (mount, or a type change on unchanged
+    // data). Any genuine content change falls through to re-theme + update.
+    const applied = appliedSig.current
+    if (applied && applied.data === dataSig && applied.options === optSig) return
     applyData()
+    appliedSig.current = { data: dataSig, options: optSig }
   }, [dataSig, optSig, applyData])
 
   // Re-theme on a theme/mode flip.

@@ -6,8 +6,7 @@
 // per-slice for pie/doughnut, per-series otherwise. Re-run on theme change (the
 // resolved colors are theme-dependent). See applet-chartjs-migration.md §5.
 
-import { readCssVarMixed } from "@/lib/theme/css-vars"
-import { paletteColor, resolveToken } from "@/lib/theme/resolve-token"
+import { paletteColor, resolveToken, resolveTokenAlpha } from "@/lib/theme/resolve-token"
 
 import type { AppletChartData, AppletChartType, AppletDataset } from "./types"
 
@@ -21,9 +20,10 @@ function resolveColorProp(value: string | string[]): string | string[] {
 }
 
 
-/** A translucent chart-ramp color for area fills (opaque fills occlude other series). */
+/** A translucent chart-ramp color for area fills (opaque fills occlude other series).
+ *  Cached per theme via resolveTokenAlpha (unlike a bare readCssVarMixed). */
 function paletteFill(index: number): string {
-  return readCssVarMixed(`--chart-${(index % 5) + 1}`, 22)
+  return resolveTokenAlpha(`chart-${(index % 5) + 1}`, 22)
 }
 
 
@@ -64,8 +64,10 @@ function themeDataset(type: AppletChartType, ds: AppletDataset, index: number): 
  * inside `resolveToken`/`paletteColor` (call at render time).
  */
 export function themeChartData(type: AppletChartType, data: AppletChartData | undefined): AppletChartData {
+  // Spread `data` so any extra top-level Chart.js keys the author passed (the
+  // interpreter is untyped) are forwarded; only `datasets` is replaced.
   return {
-    labels: data?.labels,
+    ...(data ?? {}),
     datasets: (data?.datasets ?? []).map((ds, i) => themeDataset(type, ds, i)),
   }
 }

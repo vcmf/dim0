@@ -30,9 +30,10 @@ export function mergeDeep(
 // radar, x/y otherwise.
 function themedScales(type: AppletChartType, muted: string, grid: string): Record<string, unknown> | undefined {
   if (type === "pie" || type === "doughnut") return undefined
-  const axis = { ticks: { color: muted }, grid: { color: grid } }
-  if (type === "radar") return { r: { ...axis, angleLines: { color: grid }, pointLabels: { color: muted } } }
-  return { x: axis, y: axis }
+  // A factory so x and y are DISTINCT objects (no shared reference handed to Chart.js).
+  const axis = () => ({ ticks: { color: muted }, grid: { color: grid } })
+  if (type === "radar") return { r: { ...axis(), angleLines: { color: grid }, pointLabels: { color: muted } } }
+  return { x: axis(), y: axis() }
 }
 
 
