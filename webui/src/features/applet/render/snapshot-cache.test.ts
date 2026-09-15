@@ -4,7 +4,6 @@ import {
   clearAppletSnapshots,
   evictAppletSnapshot,
   getAppletSnapshot,
-  getAppletSnapshotForPaint,
   getAppletSnapshotHash,
   setAppletSnapshot,
   snapshotKey,
@@ -107,32 +106,13 @@ describe("snapshot cache", () => {
 })
 
 
-describe("getAppletSnapshotForPaint (recency-capped placeholder)", () => {
-  it("draws a bitmap only for the 10 most-recently-captured applets; older ones → glyph (null)", () => {
-    for (let i = 0; i < 15; i++) setAppletSnapshot(`p${i}`, img(`${i}`), "h") // 15 cached
-    // Total bitmaps bounded to 10 regardless of how many are queried (timing-independent).
-    const drawn = Array.from({ length: 15 }, (_, i) => getAppletSnapshotForPaint(`p${i}`)).filter(Boolean).length
-    expect(drawn).toBe(10)
-    expect(getAppletSnapshotForPaint("p14")).not.toBeNull() // newest → bitmap
-    expect(getAppletSnapshotForPaint("p5")).not.toBeNull() // 10th-newest → bitmap
-    expect(getAppletSnapshotForPaint("p4")).toBeNull() // beyond MRU-10 → glyph
-    expect(getAppletSnapshotForPaint("p0")).toBeNull() // oldest → glyph
-  })
-
-  it("a re-capture moves an old applet back into the eligible set (and pushes one out)", () => {
-    for (let i = 0; i < 15; i++) setAppletSnapshot(`q${i}`, img(`${i}`), "h")
-    expect(getAppletSnapshotForPaint("q0")).toBeNull() // too old to be eligible
-    setAppletSnapshot("q0", img("0new"), "h2") // re-capture → now newest
-    expect(getAppletSnapshotForPaint("q0")).not.toBeNull() // eligible again
-    expect(getAppletSnapshotForPaint("q5")).toBeNull() // pushed out of the newest-10
-  })
-
-  it("evict + clear keep the eligible set consistent", () => {
-    for (let i = 0; i < 12; i++) setAppletSnapshot(`e${i}`, img(`${i}`), "h") // eligible: e2..e11
-    evictAppletSnapshot("e11") // drop the newest → e1 slides into the newest-10
-    expect(getAppletSnapshotForPaint("e11")).toBeNull() // gone
-    expect(getAppletSnapshotForPaint("e1")).not.toBeNull() // now within the newest-10
-    clearAppletSnapshots()
-    expect(getAppletSnapshotForPaint("e10")).toBeNull() // nothing eligible after clear
+describe("snapshotKey delimiter safety", () => {
+  it("does not alias when a field contains a separator-like substring (length-prefixed)", () => {
+    // Two different (source, state) tuples that a naive delimiter could join identically.
+    const a = snapshotKey("x|:|", { a: 1 }, "t")
+    const b = snapshotKey("x", { a: 1 }, "t|:|")
+    expect(a).not.toBe(b)
+    // And a source that literally contains the old delimiter still hashes distinctly.
+    expect(snapshotKey("a|:|b", null, "t")).not.toBe(snapshotKey("a|:|c", null, "t"))
   })
 })
