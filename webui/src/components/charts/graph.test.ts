@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { definiteHeight } from "./graph"
+import { definiteHeight } from "./graph-draw"
 
 // definiteHeight decides the wrapper's CSS height. The canvas is height:100%, so an
 // INDEFINITE height ("auto"/""/≤0) must resolve to undefined → the caller sizes from

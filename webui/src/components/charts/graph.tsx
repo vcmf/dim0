@@ -13,7 +13,7 @@ import type { CSSProperties } from "react"
 import { useCanvasSurface } from "@/lib/canvas/use-canvas-surface"
 import { useCaptureReady } from "@/lib/canvas/use-capture-ready"
 
-import { drawGraph, parseViewBox } from "./graph-draw"
+import { definiteHeight, drawGraph, parseViewBox } from "./graph-draw"
 import { layoutGraph } from "./graph-layout"
 import type { GraphProps } from "./graph-types"
 
@@ -21,22 +21,6 @@ import type { GraphProps } from "./graph-types"
 // Fallback CSS height when neither an explicit height nor a usable viewBox aspect is
 // available (a degenerate graph) — the canvas still needs a measurable box.
 const FALLBACK_HEIGHT = 300
-
-
-/**
- * A DEFINITE CSS height for the wrapper, or `undefined` to size from the viewBox aspect
- * instead. Excludes non-positive numbers and indefinite strings (`""`, `"auto"` — the
- * GraphProps-documented default): a `height:100%` canvas inside an indefinite box
- * collapses to 0 and never draws, unlike the old SVG which sized from its viewBox.
- */
-export function definiteHeight(height: number | string | undefined): string | undefined {
-  if (typeof height === "number") return height > 0 ? `${height}px` : undefined
-  if (typeof height === "string") {
-    const trimmed = height.trim()
-    return trimmed === "" || trimmed === "auto" ? undefined : trimmed
-  }
-  return undefined
-}
 
 
 export function GraphElement(props: GraphProps) {
