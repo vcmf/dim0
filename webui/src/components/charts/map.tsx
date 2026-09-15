@@ -110,9 +110,12 @@ export function MapElement(props: MapProps) {
     ...(explicitHeight != null ? { height: explicitHeight } : { aspectRatio: `${VIEW_W} / ${VIEW_H}` }),
   }
 
+  // Placeholders carry an explicit capture-ready sentinel so the snapshotter never
+  // captures them by default: the load is terminal on failure (the message IS the final
+  // render → ready), but transient while loading (→ not ready, wait for the canvas).
   if (failed) {
     return (
-      <div className="flex w-full items-center justify-center p-4 text-sm text-muted-foreground" style={{ height }}>
+      <div data-capture-ready="true" className="flex w-full items-center justify-center p-4 text-sm text-muted-foreground" style={{ height }}>
         Map failed to load.
       </div>
     )
@@ -120,7 +123,7 @@ export function MapElement(props: MapProps) {
 
   if (!view) {
     return (
-      <div className="flex w-full items-center justify-center p-4 text-sm text-muted-foreground" style={{ height }}>
+      <div data-capture-ready="false" className="flex w-full items-center justify-center p-4 text-sm text-muted-foreground" style={{ height }}>
         Loading map…
       </div>
     )

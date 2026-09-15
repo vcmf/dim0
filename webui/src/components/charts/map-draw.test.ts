@@ -108,4 +108,21 @@ describe("drawMap", () => {
     expect(drawMap(ctx, view, SIZE)).toBe(true)
     expect(ctx.arc).not.toHaveBeenCalled()
   })
+
+  it("skips the dot for a non-positive/invalid marker radius but still draws its label (SVG parity, no throw)", () => {
+    const ctx = mockCtx()
+    const view: MapView = {
+      ...makeView(),
+      markers: [
+        { x: 100, y: 60, label: "neg", color: "var(--chart-1)", r: -3 },
+        { x: 120, y: 60, label: "zero", color: "var(--chart-2)", r: 0 },
+        { x: 140, y: 60, label: "nan", color: "var(--chart-3)", r: Number.NaN },
+        { x: 160, y: 60, label: "ok", color: "var(--chart-4)", r: 5 },
+      ],
+    }
+    expect(() => drawMap(ctx, view, SIZE)).not.toThrow()
+    expect((ctx.arc as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1) // only the r=5 dot
+    const texts = (ctx.fillText as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0])
+    expect(texts).toEqual(["neg", "zero", "nan", "ok"]) // every label still rendered
+  })
 })

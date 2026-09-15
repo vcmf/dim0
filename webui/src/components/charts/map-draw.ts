@@ -77,13 +77,18 @@ function drawMarkers(ctx: CanvasRenderingContext2D, markers: ProjectedMarker[], 
   ctx.textAlign = "center"
   ctx.textBaseline = "alphabetic"
   for (const m of markers) {
-    ctx.beginPath()
-    ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2)
-    ctx.fillStyle = resolveCssColor(m.color)
-    ctx.fill()
-    ctx.strokeStyle = ring
-    ctx.lineWidth = MARKER_STROKE_WIDTH
-    ctx.stroke()
+    // A non-positive/invalid radius draws no dot — canvas `ctx.arc` THROWS on a negative
+    // radius (which would abort the whole paint), unlike SVG's `<circle>` that silently
+    // skips it. The label still renders, matching the old SVG's r≤0 + <text> behavior.
+    if (Number.isFinite(m.r) && m.r > 0) {
+      ctx.beginPath()
+      ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2)
+      ctx.fillStyle = resolveCssColor(m.color)
+      ctx.fill()
+      ctx.strokeStyle = ring
+      ctx.lineWidth = MARKER_STROKE_WIDTH
+      ctx.stroke()
+    }
     if (m.label != null) {
       ctx.fillStyle = labelColor
       ctx.font = `${MARKER_LABEL_FONT_SIZE}px ${family}`
@@ -116,15 +121,15 @@ export function drawMap(ctx: CanvasRenderingContext2D, view: MapView, size: { wi
   ctx.translate(offsetX, offsetY)
   ctx.scale(scale, scale)
 
+  // The border color + width are loop-invariant — set once; only the fill varies.
   const path = geoPath(view.projection, ctx)
-  const border = resolveCssColor("var(--border)")
   ctx.lineWidth = REGION_STROKE_WIDTH
+  ctx.strokeStyle = resolveCssColor("var(--border)")
   for (const region of view.regions) {
     ctx.beginPath()
     path(region.feature) // renders the region's subpaths onto ctx (no fill/stroke)
     ctx.fillStyle = resolveCssColor(region.fill)
     ctx.fill()
-    ctx.strokeStyle = border
     ctx.stroke()
   }
 
