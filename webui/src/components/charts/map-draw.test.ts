@@ -122,7 +122,10 @@ describe("drawMap", () => {
     }
     expect(() => drawMap(ctx, view, SIZE)).not.toThrow()
     expect((ctx.arc as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1) // only the r=5 dot
-    const texts = (ctx.fillText as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0])
-    expect(texts).toEqual(["neg", "zero", "nan", "ok"]) // every label still rendered
+    const calls = (ctx.fillText as ReturnType<typeof vi.fn>).mock.calls
+    expect(calls.map((c) => c[0])).toEqual(["neg", "zero", "nan", "ok"]) // every label still rendered
+    // …and at a FINITE y — the guard keeps a NaN radius from painting the label nowhere
+    // in a real browser (the mock would record a NaN-y call regardless).
+    expect(calls.every((c) => Number.isFinite(c[2]))).toBe(true)
   })
 })

@@ -102,8 +102,9 @@ export function MapElement(props: MapProps) {
   useCanvasSurface(canvasRef, draw, [view])
   useCaptureReady(wrapRef, rendered)
 
-  // The canvas needs a measurable CSS box: a definite author height, else the fixed
-  // ~2:1 viewBox aspect.
+  // The box needs a measurable CSS size: a definite author height, else the fixed ~2:1
+  // viewBox aspect. Shared by the canvas wrapper AND the placeholders so the box doesn't
+  // visibly jump when the atlas resolves (e.g. under height="auto").
   const explicitHeight = definiteHeight(height)
   const wrapStyle: CSSProperties = {
     width: "100%",
@@ -115,7 +116,7 @@ export function MapElement(props: MapProps) {
   // render → ready), but transient while loading (→ not ready, wait for the canvas).
   if (failed) {
     return (
-      <div data-capture-ready="true" className="flex w-full items-center justify-center p-4 text-sm text-muted-foreground" style={{ height }}>
+      <div data-capture-ready="true" className="flex items-center justify-center p-4 text-sm text-muted-foreground" style={wrapStyle}>
         Map failed to load.
       </div>
     )
@@ -123,7 +124,7 @@ export function MapElement(props: MapProps) {
 
   if (!view) {
     return (
-      <div data-capture-ready="false" className="flex w-full items-center justify-center p-4 text-sm text-muted-foreground" style={{ height }}>
+      <div data-capture-ready="false" className="flex items-center justify-center p-4 text-sm text-muted-foreground" style={wrapStyle}>
         Loading map…
       </div>
     )

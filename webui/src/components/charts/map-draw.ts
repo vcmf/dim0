@@ -92,7 +92,11 @@ function drawMarkers(ctx: CanvasRenderingContext2D, markers: ProjectedMarker[], 
     if (m.label != null) {
       ctx.fillStyle = labelColor
       ctx.font = `${MARKER_LABEL_FONT_SIZE}px ${family}`
-      ctx.fillText(m.label, m.x, m.y - m.r - 3) // caption sits just above the dot
+      // Offset above the dot by its radius — but a non-finite radius must not make the y
+      // NaN (a real canvas then paints the label nowhere); fall back to 0 so a marker
+      // with a garbage radius still shows its label.
+      const offset = Number.isFinite(m.r) ? m.r : 0
+      ctx.fillText(m.label, m.x, m.y - offset - 3)
     }
   }
 }
