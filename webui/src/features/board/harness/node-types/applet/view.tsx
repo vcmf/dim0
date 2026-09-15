@@ -10,7 +10,7 @@
 // exactly like the `sheet` node type — no snapshot bitmaps in the LOD path. (`snapshotApplet`
 // exists only for on-demand PNG/SVG export of selected nodes, not for this placeholder.)
 
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect, useMemo, useRef } from "react"
 
 import { ChartLineIcon } from "@phosphor-icons/react"
 import { type NodeId } from "@canvas-harness/core"
@@ -68,6 +68,9 @@ export function AppletNodeView({ id }: AppletViewProps) {
   // after the last change, and flush the pending state on unmount.
   const pendingState = useRef<Record<string, unknown> | null>(null)
   const persistTimer = useRef<number | null>(null)
+  /** Persist the latest pending applet state now: cancel any debounce timer and, if a
+   *  change is pending, write it to the local store. Called on the debounced settle and
+   *  once on unmount so the final state isn't lost. */
   const flushPersist = useCallback(() => {
     if (persistTimer.current !== null) {
       clearTimeout(persistTimer.current)
@@ -91,6 +94,14 @@ export function AppletNodeView({ id }: AppletViewProps) {
   // Live iff mounted-by-the-pool (or selected) and ready to render.
   const live = (shouldMount || isSelected) && !!source && stateLoaded
 
+  // Memoize the renderer element (stable across re-renders driven by isInView/isSelected,
+  // e.g. a pan settle or a select) so React skips re-reconciling the interpreted subtree —
+  // AppletRenderer isn't memoized and would otherwise re-interpret on every such re-render.
+  const appletEl = useMemo(
+    () => <AppletRenderer source={source} initialState={initialState} onPersist={onPersist} className="h-full w-full" />,
+    [source, initialState, onPersist],
+  )
+
   if (!node) return null
 
   const data = (node.data ?? {}) as Partial<NoteNodeData>
@@ -112,7 +123,7 @@ export function AppletNodeView({ id }: AppletViewProps) {
           )}
         >
           {live ? (
-            <AppletRenderer source={source} initialState={initialState} onPersist={onPersist} className="h-full w-full" />
+            appletEl
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground">
               <ChartLineIcon className="size-5 shrink-0" />
