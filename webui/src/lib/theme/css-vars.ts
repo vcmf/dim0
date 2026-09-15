@@ -19,24 +19,39 @@ export const readCssVar = (name: string): string => {
 
 
 /**
+ * Concretize ANY CSS color string to the browser-computed `rgb(...)`/`rgba(...)`
+ * via a hidden DOM probe. Handles `var(--x)`, `color-mix(...)`, `oklch(...)`, hex,
+ * and named colors uniformly — the single probe the two helpers below reuse. Use it
+ * when a color arrives as an arbitrary CSS string (e.g. a layout that already resolved
+ * tokens to `var()`/`color-mix()`) and a `<canvas>` needs a concrete color. Returns
+ * the input unchanged outside a browser context.
+ *
+ * SCOPE: the probe is attached to `document.body`, so `var()`/`color-mix()` resolve
+ * against the `:root`-level theme — correct for this app (themed via `data-theme`/
+ * `data-mode` on `<html>`), but it would NOT pick up a subtree-scoped token override.
+ */
+export const readComputedColor = (cssColor: string): string => {
+  if (typeof window === "undefined") return cssColor
+  const probe = document.createElement("div")
+  probe.style.position = "absolute"
+  probe.style.visibility = "hidden"
+  probe.style.color = cssColor
+  document.body.appendChild(probe)
+  const resolved = window.getComputedStyle(probe).color
+  document.body.removeChild(probe)
+  return resolved || cssColor
+}
+
+
+/**
  * Read a CSS custom property mixed with transparency via `color-mix`.
  * `percent` is the source color's strength (0–100). 100 = opaque,
- * 0 = fully transparent.
- *
- * Uses a hidden DOM probe so the browser handles the mix natively —
- * works for any CSS color format (oklch, rgb, hex) the var resolves
+ * 0 = fully transparent. Works for any CSS color format the var resolves
  * to. Returns `""` outside a browser context.
  */
 export const readCssVarMixed = (name: string, percent: number): string => {
   if (typeof window === "undefined") return ""
-  const probe = document.createElement("div")
-  probe.style.position = "absolute"
-  probe.style.visibility = "hidden"
-  probe.style.color = `color-mix(in oklch, var(${name}) ${percent}%, transparent)`
-  document.body.appendChild(probe)
-  const resolved = window.getComputedStyle(probe).color
-  document.body.removeChild(probe)
-  return resolved
+  return readComputedColor(`color-mix(in oklch, var(${name}) ${percent}%, transparent)`)
 }
 
 
@@ -59,12 +74,5 @@ export const blendCssColors = (
   aPercent: number,
 ): string => {
   if (typeof window === "undefined") return a
-  const probe = document.createElement("div")
-  probe.style.position = "absolute"
-  probe.style.visibility = "hidden"
-  probe.style.color = `color-mix(in oklch, ${a} ${aPercent}%, ${b})`
-  document.body.appendChild(probe)
-  const resolved = window.getComputedStyle(probe).color
-  document.body.removeChild(probe)
-  return resolved
+  return readComputedColor(`color-mix(in oklch, ${a} ${aPercent}%, ${b})`)
 }
