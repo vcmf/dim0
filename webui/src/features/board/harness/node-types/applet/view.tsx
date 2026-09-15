@@ -80,26 +80,32 @@ export function AppletNodeView({ id }: AppletViewProps) {
   // after the last change, and flush the pending state on unmount.
   const pendingState = useRef<Record<string, unknown> | null>(null)
   const persistTimer = useRef<number | null>(null)
-  const flushPersist = useCallback(() => {
-    if (persistTimer.current !== null) {
-      clearTimeout(persistTimer.current)
-      persistTimer.current = null
-    }
-    if (pendingState.current !== null) {
-      void saveAppletState(noteId, pendingState.current)
-      setSnapState(pendingState.current) // refresh the snapshot hash once the change settles
-      pendingState.current = null
-    }
-  }, [noteId])
+  // `updateSnap` refreshes the snapshot-hash state — true for the debounced settle, but
+  // FALSE from the unmount cleanup (a setState on an unmounting component is a wasted
+  // no-op + dev warning; the persist write is the only part cleanup needs).
+  const flushPersist = useCallback(
+    (updateSnap: boolean) => {
+      if (persistTimer.current !== null) {
+        clearTimeout(persistTimer.current)
+        persistTimer.current = null
+      }
+      if (pendingState.current !== null) {
+        void saveAppletState(noteId, pendingState.current)
+        if (updateSnap) setSnapState(pendingState.current)
+        pendingState.current = null
+      }
+    },
+    [noteId],
+  )
   const onPersist = useCallback(
     (next: Record<string, unknown>) => {
       pendingState.current = next
       if (persistTimer.current !== null) clearTimeout(persistTimer.current)
-      persistTimer.current = window.setTimeout(flushPersist, 300)
+      persistTimer.current = window.setTimeout(() => flushPersist(true), 300)
     },
     [flushPersist],
   )
-  useEffect(() => () => flushPersist(), [flushPersist])
+  useEffect(() => () => flushPersist(false), [flushPersist])
 
   // Live iff mounted-by-the-pool (or selected) and ready to render.
   const live = (shouldMount || isSelected) && !!source && stateLoaded

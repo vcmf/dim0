@@ -8,58 +8,18 @@ import { useEffect, useMemo, useRef, useSyncExternalStore } from "react"
 import type { RefObject } from "react"
 
 import { cancelIdle, scheduleIdle } from "@/lib/schedule-idle"
+import { getThemeSignature, subscribeThemeChange } from "@/lib/theme/theme-signal"
 
-import { snapshotApplet } from "./snapshot"
 import { getAppletSnapshotHash, setAppletSnapshot, snapshotKey } from "./snapshot-cache"
+// snapshotApplet (→ @zumer/snapdom, ~50 KB) is dynamic-imported at capture time so it
+// stays out of the eager board bundle (the board imports this hook via the applet view).
 
 
-// --- Shared theme signal --------------------------------------------------------------
-// A theme flip recolors every applet, so a snapshot taken under the old theme is stale.
-// ONE module-level MutationObserver (not one per applet — hundreds of views would each
-// install their own on <html>) tracks `data-theme:data-mode` and fans out to subscribers.
-
-let currentThemeSig = readThemeSignature()
-const themeListeners = new Set<() => void>()
-let themeObserver: MutationObserver | null = null
-
-
-/** Read `data-theme:data-mode` off <html> (empty string outside a browser). */
-function readThemeSignature(): string {
-  if (typeof document === "undefined") return ""
-  const r = document.documentElement
-  return `${r.dataset.theme ?? ""}:${r.dataset.mode ?? ""}`
-}
-
-
-/** Install the single shared observer on first use; refresh the cached signature in case
- *  the theme changed between module load and now. */
-function ensureThemeObserver(): void {
-  currentThemeSig = readThemeSignature()
-  if (themeObserver || typeof document === "undefined") return
-  themeObserver = new MutationObserver(() => {
-    const next = readThemeSignature()
-    if (next === currentThemeSig) return
-    currentThemeSig = next
-    themeListeners.forEach((l) => l())
-  })
-  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-mode"] })
-}
-
-
-function subscribeTheme(cb: () => void): () => void {
-  ensureThemeObserver()
-  themeListeners.add(cb)
-  return () => {
-    themeListeners.delete(cb)
-  }
-}
-
-
-/** The active theme signature as a reactive value, backed by the shared observer. */
+/** The active theme signature as a reactive value — a theme flip recolors the applet, so
+ *  its snapshot must be re-captured. Backed by the shared, single-observer theme signal. */
 function useThemeSignature(): string {
-  return useSyncExternalStore(subscribeTheme, () => currentThemeSig, () => "")
+  return useSyncExternalStore(subscribeThemeChange, getThemeSignature, () => "")
 }
-// --------------------------------------------------------------------------------------
 
 
 export interface UseAppletSnapshotOptions {
@@ -103,13 +63,16 @@ export function useAppletSnapshot({ noteId, captureRef, source, state, active, i
     const handle = scheduleIdle(() => {
       const el = captureRef.current
       if (cancelled || !el) return
-      void snapshotApplet(el, { shouldCancel: () => cancelled }).then((img) => {
+      void (async () => {
+        const { snapshotApplet } = await import("./snapshot") // lazy: keeps snapDOM off the eager path
+        if (cancelled) return
+        const img = await snapshotApplet(el, { shouldCancel: () => cancelled })
         // Re-check before writing: the hash may have moved on while rasterizing, and the
         // node may have been DELETED (its evict ran before this effect's cleanup) — don't
         // resurrect an orphan snapshot for a node that no longer exists.
         if (cancelled || !img || !isAliveRef.current() || getAppletSnapshotHash(noteId) === hash) return
         setAppletSnapshot(noteId, img, hash)
-      })
+      })()
     })
     return () => {
       cancelled = true // aborts an in-flight capture's readiness poll + raster

@@ -1,6 +1,9 @@
 import { defineNode } from "@canvas-harness/core"
 
-import { getAppletSnapshot } from "@/features/applet/render"
+// Import the pure cache reader DIRECTLY (not via the feature barrel, which also re-exports
+// snapshotApplet → the heavy @zumer/snapdom). Node registration runs on board load; this
+// keeps the getSnapshot hook dependency-free.
+import { getAppletSnapshot } from "@/features/applet/render/snapshot-cache"
 
 import { drawAppletPlaceholder } from "./placeholder"
 import { AppletNodeView } from "./view"

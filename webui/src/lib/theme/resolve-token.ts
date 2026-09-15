@@ -54,8 +54,10 @@ export function tokenToCssVar(input: string): string | null {
 const probeCache = new Map<string, string>()
 
 
-/** A key for the active theme: the `data-theme`/`data-mode` attributes on `<html>`. */
-function themeSignature(): string {
+/** A key for the active theme: the `data-theme`/`data-mode` attributes on `<html>`.
+ *  Exported as the single canonical reader (theme-signal.ts, the applet snapshot cache
+ *  invalidation) so the theme-attribute set lives in one place. */
+export function themeSignature(): string {
   if (typeof document === "undefined") return ""
   const r = document.documentElement
   return `${r.dataset.theme ?? ""}:${r.dataset.mode ?? ""}`

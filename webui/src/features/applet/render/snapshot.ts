@@ -61,16 +61,26 @@ async function waitForCaptureReady(el: HTMLElement, timeoutMs: number, shouldCan
   await nextFrame()
   if (allCaptureReady(el) || shouldCancel()) return
   await new Promise<void>((resolve) => {
-    const start = typeof performance !== "undefined" ? performance.now() : Date.now()
-    const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now())
+    let done = false
+    const finish = () => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      resolve()
+    }
+    // A wall-clock cap independent of rAF — so a backgrounded tab (rAF paused) or a
+    // webview without requestAnimationFrame still resolves rather than hanging forever.
+    const timer = setTimeout(finish, timeoutMs)
     const tick = () => {
-      if (allCaptureReady(el) || shouldCancel() || now() - start > timeoutMs) {
-        resolve()
+      if (done) return
+      if (allCaptureReady(el) || shouldCancel()) {
+        finish()
         return
       }
-      requestAnimationFrame(tick)
+      // No rAF to poll on (paused/absent) → don't spin; the setTimeout cap still resolves.
+      if (typeof requestAnimationFrame === "function") requestAnimationFrame(tick)
     }
-    requestAnimationFrame(tick)
+    tick()
   })
 }
 
