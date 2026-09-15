@@ -7,7 +7,7 @@
 // `readCssVarMixed` DOM probe (the only robust oklch/`color-mix` concretizer).
 // See docs/plans/applet-chartjs-migration.md §5.
 
-import { readCssVarMixed } from "./css-vars"
+import { readComputedColor, readCssVar, readCssVarMixed } from "./css-vars"
 
 
 // The theme tokens that exist as real CSS custom properties (mirrors the set in
@@ -62,14 +62,24 @@ function themeSignature(): string {
 }
 
 
-/** Resolve `cssVar` to a concrete color via the probe, memoized per active theme. */
-function cachedMix(cssVar: string, percent = 100): string {
-  const key = `${themeSignature()}|${percent}|${cssVar}`
+/** Memoize a probe result under `subkey`, namespaced by the active theme. The shared
+ *  get/set dance for every cached concretizer — so the cache-key scheme lives in ONE
+ *  place (change it here and cachedMix + resolveCssColor follow). */
+function cachedProbe(subkey: string, compute: () => string): string {
+  const key = `${themeSignature()}|${subkey}`
   const hit = probeCache.get(key)
   if (hit !== undefined) return hit
-  const value = readCssVarMixed(cssVar, percent)
+  const value = compute()
   probeCache.set(key, value)
   return value
+}
+
+
+/** Resolve `cssVar` to a concrete color via the probe, memoized per active theme.
+ *  `percent` mixes the token toward transparent (100 = opaque) — for translucent area
+ *  fills; keyed per (theme, percent, token). */
+function cachedMix(cssVar: string, percent = 100): string {
+  return cachedProbe(`${percent}|${cssVar}`, () => readCssVarMixed(cssVar, percent))
 }
 
 
@@ -112,6 +122,55 @@ export function resolveToken(input: string | undefined | null): string {
 export function resolveTokenAlpha(input: string, percent: number): string {
   const cssVar = tokenToCssVar(input)
   return cssVar ? cachedMix(cssVar, percent) : resolveToken(input)
+}
+
+
+/** DEV-only warning that a color couldn't be resolved and fell back to `foreground`. */
+function warnUnresolvable(input: string | undefined | null): void {
+  if (import.meta.env.DEV) {
+    console.warn(`[applet] resolveCssColor: unresolvable color "${input}" — using foreground fallback`)
+  }
+}
+
+
+/**
+ * Concretize an ARBITRARY CSS color string (`var(--x)`, `color-mix(...)`, `oklch`,
+ * hex, named) to a canvas-usable color, memoized per active theme. Unlike
+ * {@link resolveToken} (which maps a known token NAME), this takes any CSS color —
+ * for callers whose colors are already resolved to CSS by an upstream layer (e.g. the
+ * graph layout emits `var(--card)` / `color-mix(in srgb, var(--foreground) 50%, …)`).
+ * Empty/blank → `foreground`. An INVALID literal (e.g. a typo'd token the upstream
+ * layer passed through as-is, `chart-9`) → `foreground` fallback + a DEV warning,
+ * matching {@link resolveToken} — probing it would silently yield the inherited body
+ * color. `var()`/`color-mix()` are trusted (CSS.supports can't resolve them reliably
+ * across engines). Repeat resolves are free until the theme changes.
+ */
+export function resolveCssColor(color: string | undefined | null): string {
+  if (color == null || color.trim() === "") return cachedMix("--foreground")
+  const c = color.trim()
+
+  // A lone `var(--x)` naming an UNDEFINED custom property resolves to the inherited
+  // (body) color silently — the same typo trap as an invalid literal. Catch the common
+  // single-var spelling (a `var(--x, fallback)` with a comma, or a color-mix, is trusted
+  // and left to resolve — the fallback is intentional). Mirrors resolveToken, which
+  // rejects any non-token var().
+  const singleVar = c.match(/^var\(\s*--([\w-]+)\s*\)$/)
+  if (singleVar && readCssVar(`--${singleVar[1]}`) === "") {
+    warnUnresolvable(color)
+    return cachedMix("--foreground")
+  }
+
+  // Validate literal colors so a typo falls back visibly instead of painting the
+  // inherited body color. Trust var()/color-mix() (what an upstream resolver emits for
+  // tokens); CSS.supports doesn't substitute them and can report false negatives.
+  const trusted = c.includes("var(") || c.includes("color-mix(")
+  const canValidate = typeof CSS !== "undefined" && typeof CSS.supports === "function"
+  if (!trusted && canValidate && !CSS.supports("color", c)) {
+    warnUnresolvable(color)
+    return cachedMix("--foreground")
+  }
+
+  return cachedProbe(`css|${c}`, () => readComputedColor(c))
 }
 
 
