@@ -193,6 +193,10 @@ describe("smokeTestApplet — Chart config shape", () => {
     ok(`<Widget state={{ sales: null }}><Chart type="bar" data={{ datasets: [{ label: "Sales", data: sales }] }} /></Widget>`)
   })
 
+  it("allows a nullish `datasets` binding on the initial state (fetched/populated later)", () => {
+    ok(`<Widget state={{ rows: null }}><Chart type="bar" data={{ labels: [], datasets: rows }} /></Widget>`)
+  })
+
   it("allows an intentionally-empty datasets array", () => {
     ok(`<Widget data={{}}><Chart type="bar" data={{ labels: [], datasets: [] }} /></Widget>`)
   })

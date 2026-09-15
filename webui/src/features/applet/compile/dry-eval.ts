@@ -168,17 +168,16 @@ function checkChart(node: ElNode, bound: Record<string, unknown>): void {
     if (node.props && name in node.props) return { present: true, value: (node.props as Record<string, JsonValue>)[name] }
     return { present: false, value: undefined }
   }
-  const valid = CHART_TYPES.join(", ")
 
   const type = resolve("type")
   if (!type.present) {
-    throw new SmokeFail(`<Chart> needs a \`type\` — one of ${valid}. e.g. \`<Chart type="bar" data={{ labels, datasets: [{ data }] }} />\`.`)
+    throw new SmokeFail(`<Chart> needs a \`type\` — one of ${CHART_TYPES.join(", ")}. e.g. \`<Chart type="bar" data={{ labels, datasets: [{ data }] }} />\`.`)
   }
   // Reject any present, non-nullish type that isn't a valid kind — a string typo AND a
   // non-string (a number/object from a bad binding), both of which break the renderer. A
   // nullish resolved value (a dynamic type not yet set) is left alone, like `data` below.
   if (type.value != null && !(typeof type.value === "string" && (CHART_TYPES as readonly string[]).includes(type.value))) {
-    throw new SmokeFail(`<Chart> \`type\` must be one of ${valid} — got ${JSON.stringify(type.value)}.`)
+    throw new SmokeFail(`<Chart> \`type\` must be one of ${CHART_TYPES.join(", ")} — got ${JSON.stringify(type.value)}.`)
   }
 
   // `data` is optional (omitted → an empty chart, not a crash); only a PRESENT, non-nullish
@@ -195,13 +194,19 @@ function checkChart(node: ElNode, bound: Record<string, unknown>): void {
   if (typeof d !== "object") {
     throw new SmokeFail(`<Chart> \`data\` must be an object \`{ labels, datasets: [{ data: [...] }] }\`, but it evaluates to ${typeName(d)}.`)
   }
-  const datasets = (d as Record<string, unknown>).datasets
-  if (!Array.isArray(datasets)) {
+  // A MISSING `datasets` key is the mistake (data put directly on `data`) → flag. A present
+  // but nullish `datasets` (a dynamic binding not yet populated) renders an empty chart —
+  // the renderer does `(data?.datasets ?? []).map(...)` — so leave it, like the top-level and
+  // per-dataset nullish policy.
+  const dObj = d as Record<string, unknown>
+  if (!("datasets" in dObj) || (dObj.datasets != null && !Array.isArray(dObj.datasets))) {
     throw new SmokeFail(
       `<Chart> \`data\` needs a \`datasets\` array: \`data={{ labels: [...], datasets: [{ data: [...] }] }}\`. ` +
         `Put the numbers under \`datasets[].data\`, not directly on \`data\`.`,
     )
   }
+  const datasets = dObj.datasets
+  if (datasets == null) return // populated later — an empty chart, not a crash
   datasets.forEach((ds, i) => {
     if (ds == null || typeof ds !== "object" || Array.isArray(ds)) {
       throw new SmokeFail(`<Chart> dataset ${i} must be an object like \`{ label: "Sales", data: [10, 20, 30] }\`, but it is ${typeName(ds)}.`)
