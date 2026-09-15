@@ -50,15 +50,9 @@ export interface MapMarker {
 
 
 // === INTERMEDIATE — what the renderer consumes (post-projection) ===
-// Colors are already resolved to CSS; coordinates are in viewBox units.
-
-
-export interface RegionPath {
-  id: string                        // numeric ISO id of the region
-  name: string                      // English name from the atlas
-  d: string                         // SVG path data
-  fill: string                      // resolved CSS fill
-}
+// Colors are already resolved to CSS; coordinates are in viewBox units. (Regions are
+// traced straight from atlas features on the canvas — see map-draw.ts — so no
+// serialized-path intermediate is needed.)
 
 
 export interface ProjectedMarker {

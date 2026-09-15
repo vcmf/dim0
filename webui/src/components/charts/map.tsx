@@ -39,7 +39,7 @@ function definiteHeight(height: number | string | undefined): string | undefined
 
 
 export function MapElement(props: MapProps) {
-  const { data = [], markers = [], color = "chart-1", height = 320 } = props
+  const { height = 320 } = props
   const [geo, setGeo] = useState<WorldGeo | null>(null)
   const [failed, setFailed] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -60,16 +60,24 @@ export function MapElement(props: MapProps) {
 
   // Project the atlas + join the agent's data once per (geo, data, markers, color).
   // Regions carry their resolved CSS fill; markers are pre-projected to viewBox coords.
+  //
+  // Key on the RAW prop identities (props.data/markers/color), NOT destructured defaults:
+  // `const { data = [] } = props` mints a fresh `[]` every render when the prop is
+  // undefined (a marker-less or data-less map — both common), which would make `view` a
+  // new object on every self-re-render (setGeo/setRendered) and spin useCanvasSurface +
+  // the reset effect into a runaway rAF loop. The raw props are stable across the
+  // component's own re-renders, so this recomputes only when the atlas or a real input
+  // changes. Defaults are applied inside.
   const view = useMemo<MapView | null>(() => {
     if (!geo) return null
     const projection = buildProjection(geo.features, VIEW_W, VIEW_H)
-    const fillFor = buildFillResolver(data, geo.resolve, color)
+    const fillFor = buildFillResolver(props.data ?? [], geo.resolve, props.color ?? "chart-1")
     return {
       projection,
       regions: geo.features.map((f) => ({ feature: f, fill: fillFor(String(f.id ?? "")) })),
-      markers: projectMarkers(markers, projection),
+      markers: projectMarkers(props.markers ?? [], projection),
     }
-  }, [geo, data, markers, color])
+  }, [geo, props.data, props.markers, props.color])
 
   // A new view is not yet painted — reset capture-readiness so a re-projection can't
   // leave data-capture-ready stuck "true" over a cleared canvas. The draw re-flips it.
