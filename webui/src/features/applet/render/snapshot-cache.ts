@@ -66,40 +66,17 @@ export function getAppletSnapshot(id: string): CanvasImageSource | null {
 }
 
 
-// Cap how many applets draw a snapshot BITMAP: the excess fall back to the cheap vector
-// glyph, bounding per-frame `drawImage` cost the way the live pool bounds React mounts.
-//
-// We gate by CACHE MEMBERSHIP (the N most-recently-captured entries), NOT a per-paint
-// counter. The harness paints incrementally — during motion it "strip renders" a subset
-// of nodes per frame — so a counter can't reliably detect a paint "pass" (it resets
-// between strips and the cap never bites). MRU membership is a stable per-id property
-// that holds across full AND partial renders, and bounds the TOTAL bitmaps to N.
-const MAX_SNAPSHOT_PLACEHOLDERS = 10
-
-// The ids eligible for a bitmap right now: the MAX_SNAPSHOT_PLACEHOLDERS most-recently-
-// written cache keys. Recomputed on every cache mutation — writes are infrequent (only on
-// a capture, itself throttled + bounded to the live pool), so this stays off the hot path.
-let eligible = new Set<string>()
-
-
-/** Recompute the eligible set = the newest MAX_SNAPSHOT_PLACEHOLDERS cache keys. */
-function refreshEligible(): void {
-  const keys = Array.from(cache.keys())
-  eligible = new Set(keys.slice(Math.max(0, keys.length - MAX_SNAPSHOT_PLACEHOLDERS)))
-}
-
-
-/**
- * The snapshot for `id` on the PAINT hot path, but only for the
- * {@link MAX_SNAPSHOT_PLACEHOLDERS} most-recently-captured applets; any other id returns
- * `null` (→ the cheap glyph). O(1), pure, and independent of paint timing (works under the
- * harness's strip rendering). Bounds by RECENCY, not nearest-to-center — `getSnapshot` isn't
- * handed the camera; a harness `SnapshotEnv` change (pass the viewport/target size) could
- * make it both center-aware and zoom-matched.
- */
-export function getAppletSnapshotForPaint(id: string): CanvasImageSource | null {
-  return eligible.has(id) ? getAppletSnapshot(id) : null
-}
+// NOTE: a per-placeholder BITMAP cap (draw at most N snapshots, glyph the rest) was
+// attempted and reverted. Both tried mechanisms were wrong: a per-paint counter never bit
+// (the harness strip-renders a subset of nodes per frame, so it can't detect a "pass"),
+// and cache-recency (newest-N) froze the eligible set to an off-screen group while zoomed
+// out (snapshots are consumed exactly when applets are NOT live, so nothing re-captures to
+// move the window) — making the applets you're actually viewing fall back to glyphs. A
+// CORRECT cap must know which applets are nearest the viewport, which `getSnapshot` isn't
+// told (only `node`, no camera). The right fix is camera-aware: either a board-level
+// nearest-center budget fed from the canvas store, or a `@canvas-harness` SnapshotEnv change
+// that hands the draw its target size (which also gives zoom-matched resolution). Until then
+// we bound cost via the dpr-1 capture (small bitmaps), not by count.
 
 
 /** The content hash of the cached snapshot for `id`, or `null` if none — lets the
@@ -128,7 +105,6 @@ export function setAppletSnapshot(id: string, img: CanvasImageSource, hash: stri
     totalBytes -= cache.get(oldest)!.bytes
     cache.delete(oldest)
   }
-  refreshEligible()
 }
 
 
@@ -138,7 +114,6 @@ export function evictAppletSnapshot(id: string): void {
   if (entry) {
     totalBytes -= entry.bytes
     cache.delete(id)
-    refreshEligible()
   }
 }
 
@@ -147,7 +122,6 @@ export function evictAppletSnapshot(id: string): void {
 export function clearAppletSnapshots(): void {
   cache.clear()
   totalBytes = 0
-  eligible = new Set()
 }
 
 
@@ -169,7 +143,10 @@ subscribeThemeChange(clearAppletSnapshots)
  * to a constant, so such an applet just isn't re-captured on state change.
  */
 export function snapshotKey(source: string, state: unknown, themeSig: string): string {
-  const payload = [themeSig, source, stableStringify(state)].join("|:|")
+  // Length-prefix each field (`len:field`) so the concatenation is UNAMBIGUOUS regardless
+  // of what the fields contain — `source` is arbitrary applet JSX and can hold any separator
+  // string, so a plain delimiter (or a NUL, which also turned the file binary) isn't safe.
+  const payload = [themeSig, source, stableStringify(state)].map((p) => `${p.length}:${p}`).join("")
   let h1 = 5381 // djb2 (xor variant)
   let h2 = 52711 // second seed, add variant → independent of h1
   for (let i = 0; i < payload.length; i++) {
