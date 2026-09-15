@@ -10,6 +10,7 @@ import type { RefObject } from "react"
 import { cancelIdle, scheduleIdle } from "@/lib/schedule-idle"
 import { getThemeSignature, subscribeThemeChange } from "@/lib/theme/theme-signal"
 
+import { withCaptureSlot } from "./capture-scheduler"
 import { getAppletSnapshotHash, setAppletSnapshot, snapshotKey } from "./snapshot-cache"
 // snapshotApplet (→ @zumer/snapdom, ~50 KB) is dynamic-imported at capture time so it
 // stays out of the eager board bundle (the board imports this hook via the applet view).
@@ -63,7 +64,10 @@ export function useAppletSnapshot({ noteId, captureRef, source, state, active, i
     const handle = scheduleIdle(() => {
       const el = captureRef.current
       if (cancelled || !el) return
-      void (async () => {
+      // Through the shared gate so a settle over many visible applets doesn't burst
+      // snapDOM all at once (WebKit is single-threaded).
+      void withCaptureSlot(async () => {
+        if (cancelled) return
         const { snapshotApplet } = await import("./snapshot") // lazy: keeps snapDOM off the eager path
         if (cancelled) return
         const img = await snapshotApplet(el, { shouldCancel: () => cancelled })
@@ -72,7 +76,7 @@ export function useAppletSnapshot({ noteId, captureRef, source, state, active, i
         // resurrect an orphan snapshot for a node that no longer exists.
         if (cancelled || !img || !isAliveRef.current() || getAppletSnapshotHash(noteId) === hash) return
         setAppletSnapshot(noteId, img, hash)
-      })()
+      })
     })
     return () => {
       cancelled = true // aborts an in-flight capture's readiness poll + raster
