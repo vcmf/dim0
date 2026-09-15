@@ -59,7 +59,7 @@ describe("themeChartData", () => {
 
   it("forwards extra top-level data keys (untyped interpreter config)", () => {
     const out = themeChartData("bar", { labels: ["a"], datasets: [{ data: [1] }], xLabels: ["x"] } as never)
-    expect((out as Record<string, unknown>).xLabels).toEqual(["x"])
+    expect((out as unknown as Record<string, unknown>).xLabels).toEqual(["x"])
   })
 
   it("gives an area dataset a translucent fill distinct from its border", () => {
