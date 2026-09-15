@@ -1,36 +1,51 @@
-// React component for the <map> custom element. Pure SVG.
+// React component for the <map> custom element — Canvas 2D on the shared harness.
 //
-// Lazily loads the world atlas (map-geo.ts), then runs the pure projection
-// helpers (map-projection.ts) to render a choropleth plus an optional
-// marker overlay. While the geometry chunk is in flight it shows a light
-// placeholder; a load failure shows an inline message rather than throwing.
+// Lazily loads the world atlas (map-geo.ts), runs the pure projection helpers
+// (map-projection.ts), then paints a choropleth + optional marker overlay to a
+// `<canvas>` via drawMap on the shared canvas surface (DPR-crisp, theme-reactive).
+// Canvas (not SVG) so the whole applet snapshots cleanly — SVG re-rasterizes inside
+// snapDOM's foreignObject and hits WebKit font/positioning bugs (design §2). While the
+// geometry chunk is in flight it shows a light placeholder; a load failure shows an
+// inline message rather than throwing.
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { CSSProperties } from "react"
 
+import { useCanvasSurface } from "@/lib/canvas/use-canvas-surface"
+import { useCaptureReady } from "@/lib/canvas/use-capture-ready"
+
+import { drawMap, VIEW_H, VIEW_W } from "./map-draw"
+import type { MapView } from "./map-draw"
 import { loadWorld } from "./map-geo"
 import type { WorldGeo } from "./map-geo"
-import {
-  buildFillResolver,
-  buildProjection,
-  buildRegionPaths,
-  projectMarkers,
-} from "./map-projection"
+import { buildFillResolver, buildProjection, projectMarkers } from "./map-projection"
 import type { MapProps } from "./map-types"
 
 
-// viewBox dimensions. ~2:1 matches the Natural Earth aspect ratio, so the
-// fitted map nearly fills the box with little letterboxing.
-const VIEW_W = 800
-const VIEW_H = 400
-const REGION_STROKE_WIDTH = 0.5
-const MARKER_LABEL_FONT_SIZE = 10
+/**
+ * A DEFINITE CSS height for the wrapper, or `undefined` to size from the viewBox aspect.
+ * Excludes non-positive numbers and indefinite strings (`""`, `"auto"`): a `height:100%`
+ * canvas inside an indefinite box collapses to 0 and never draws. (Mirrors graph.tsx —
+ * a follow-up can share it once both canvas ports land.)
+ */
+function definiteHeight(height: number | string | undefined): string | undefined {
+  if (typeof height === "number") return height > 0 ? `${height}px` : undefined
+  if (typeof height === "string") {
+    const trimmed = height.trim()
+    return trimmed === "" || trimmed === "auto" ? undefined : trimmed
+  }
+  return undefined
+}
 
 
 export function MapElement(props: MapProps) {
   const { data = [], markers = [], color = "chart-1", height = 320 } = props
   const [geo, setGeo] = useState<WorldGeo | null>(null)
   const [failed, setFailed] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [rendered, setRendered] = useState(false)
+  const renderedRef = useRef(false)
 
   useEffect(() => {
     let active = true
@@ -43,20 +58,48 @@ export function MapElement(props: MapProps) {
     }
   }, [])
 
-  const view = useMemo(() => {
+  // Project the atlas + join the agent's data once per (geo, data, markers, color).
+  // Regions carry their resolved CSS fill; markers are pre-projected to viewBox coords.
+  const view = useMemo<MapView | null>(() => {
     if (!geo) return null
     const projection = buildProjection(geo.features, VIEW_W, VIEW_H)
     const fillFor = buildFillResolver(data, geo.resolve, color)
     return {
-      regions: buildRegionPaths(geo.features, projection, fillFor),
+      projection,
+      regions: geo.features.map((f) => ({ feature: f, fill: fillFor(String(f.id ?? "")) })),
       markers: projectMarkers(markers, projection),
     }
   }, [geo, data, markers, color])
 
-  const style: CSSProperties = {
+  // A new view is not yet painted — reset capture-readiness so a re-projection can't
+  // leave data-capture-ready stuck "true" over a cleared canvas. The draw re-flips it.
+  useEffect(() => {
+    renderedRef.current = false
+    setRendered(false)
+  }, [view])
+
+  // Paint the map; flip `rendered` on the first draw that actually painted so the
+  // snapshotter (data-capture-ready) never treats a blank canvas as finished content.
+  const draw = useCallback(
+    (ctx: CanvasRenderingContext2D, size: { width: number; height: number }) => {
+      if (!view) return
+      const painted = drawMap(ctx, view, size)
+      if (painted && !renderedRef.current) {
+        renderedRef.current = true
+        setRendered(true)
+      }
+    },
+    [view],
+  )
+  useCanvasSurface(canvasRef, draw, [view])
+  useCaptureReady(wrapRef, rendered)
+
+  // The canvas needs a measurable CSS box: a definite author height, else the fixed
+  // ~2:1 viewBox aspect.
+  const explicitHeight = definiteHeight(height)
+  const wrapStyle: CSSProperties = {
     width: "100%",
-    height,
-    display: "block",
+    ...(explicitHeight != null ? { height: explicitHeight } : { aspectRatio: `${VIEW_W} / ${VIEW_H}` }),
   }
 
   if (failed) {
@@ -76,44 +119,8 @@ export function MapElement(props: MapProps) {
   }
 
   return (
-    <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} style={style} role="img">
-      <g data-map-layer="regions">
-        {view.regions.map((r) => (
-          <path
-            key={r.id}
-            data-map-region={r.id}
-            d={r.d}
-            fill={r.fill}
-            stroke="var(--border)"
-            strokeWidth={REGION_STROKE_WIDTH}
-          />
-        ))}
-      </g>
-      <g data-map-layer="markers">
-        {view.markers.map((m, i) => (
-          <g key={i}>
-            <circle
-              cx={m.x}
-              cy={m.y}
-              r={m.r}
-              fill={m.color}
-              stroke="var(--background)"
-              strokeWidth={1}
-            />
-            {m.label != null && (
-              <text
-                x={m.x}
-                y={m.y - m.r - 3}
-                textAnchor="middle"
-                fontSize={MARKER_LABEL_FONT_SIZE}
-                fill="var(--foreground)"
-              >
-                {m.label}
-              </text>
-            )}
-          </g>
-        ))}
-      </g>
-    </svg>
+    <div ref={wrapRef} style={wrapStyle}>
+      <canvas ref={canvasRef} role="img" style={{ display: "block", width: "100%", height: "100%" }} />
+    </div>
   )
 }
