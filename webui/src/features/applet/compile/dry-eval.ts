@@ -27,10 +27,10 @@ export type SmokeResult = { ok: true } | { ok: false; message: string }
 // `nodes`/`edges` unguarded; MapElement maps `data`/`markers`. Kept small + explicit;
 // a general per-component prop schema on the registry would subsume this (§14.4).
 //
-// NOTE: `Chart` is intentionally absent. The Chart.js applet chart takes a config
+// NOTE: `Chart` is intentionally absent HERE. The Chart.js applet chart takes a config
 // OBJECT (`data={{ labels, datasets: [{ data }] }}`), not a top-level array, so the
-// array-prop heuristic doesn't apply — full Chart config-shape validation is a
-// separate follow-up (implementation plan PR 6).
+// array-prop heuristic doesn't apply — it has its own config-shape check (`checkChart`),
+// which catches the silent-blank mistakes (wrong `data` shape, bad `type`).
 //
 // The check is deliberately conservative — see `walkElement`: it flags only a prop
 // that is present AND evaluates to a non-array, non-nullish value. A nullish value
@@ -41,6 +41,11 @@ const ARRAY_PROPS: Record<string, readonly string[]> = {
   Graph: ["nodes", "edges"],
   Map: ["data", "markers"],
 }
+
+
+// The chart kinds `<Chart type>` accepts (mirrors AppletChartType). A wrong/missing type
+// renders a broken chart with no error, so it's caught here.
+const CHART_TYPES = ["bar", "line", "area", "pie", "doughnut", "scatter", "radar"] as const
 
 
 /** Signals a smoke-test failure with an author-facing message (distinct from an
@@ -126,6 +131,8 @@ function walkElement(node: ElNode, env: Env): void {
     }
   }
 
+  if (node.tag === "Chart") checkChart(node, bound)
+
   const arrayProps = ARRAY_PROPS[node.tag]
   if (arrayProps) {
     for (const prop of arrayProps) {
@@ -148,6 +155,62 @@ function walkElement(node: ElNode, env: Env): void {
   }
 
   if (node.children) for (const child of node.children) walk(child, env)
+}
+
+
+/**
+ * Validate a `<Chart>`'s config shape — the silent-blank class the live renderer swallows
+ * (a wrong `data` shape makes Chart.js draw nothing; a bad `type` breaks it) — against the
+ * resolved props on the initial state. Throws a `SmokeFail` with an actionable message.
+ * Conservative like the array-prop check: an absent/nullish `data`, or empty `datasets`,
+ * is left to the renderer (an intentionally-empty chart), never flagged.
+ */
+function checkChart(node: ElNode, bound: Record<string, unknown>): void {
+  // A prop's value if the author set it (as a `{expr}` binding or a literal attr), else absent.
+  const resolve = (name: string): { present: boolean; value: unknown } => {
+    if (node.bind && name in node.bind) return { present: true, value: bound[name] }
+    if (node.props && name in node.props) return { present: true, value: (node.props as Record<string, JsonValue>)[name] }
+    return { present: false, value: undefined }
+  }
+  const valid = CHART_TYPES.join(", ")
+
+  const type = resolve("type")
+  if (!type.present) {
+    throw new SmokeFail(`<Chart> needs a \`type\` — one of ${valid}. e.g. \`<Chart type="bar" data={{ labels, datasets: [{ data }] }} />\`.`)
+  }
+  if (typeof type.value === "string" && !(CHART_TYPES as readonly string[]).includes(type.value)) {
+    throw new SmokeFail(`<Chart type="${type.value}"> is not a valid chart type. Use one of ${valid}.`)
+  }
+
+  // `data` is optional (omitted → an empty chart, not a crash); only a PRESENT, non-nullish
+  // value is shape-checked.
+  const data = resolve("data")
+  if (!data.present || data.value == null) return
+  const d = data.value
+  if (Array.isArray(d)) {
+    throw new SmokeFail(
+      `<Chart> \`data\` must be an object \`{ labels, datasets: [{ data: [...] }] }\`, not a top-level array. ` +
+        `Every type — pie/doughnut included — uses that same shape (no per-slice \`{ name, value }\` objects).`,
+    )
+  }
+  if (typeof d !== "object") {
+    throw new SmokeFail(`<Chart> \`data\` must be an object \`{ labels, datasets: [{ data: [...] }] }\`, but it evaluates to ${typeName(d)}.`)
+  }
+  const datasets = (d as Record<string, unknown>).datasets
+  if (!Array.isArray(datasets)) {
+    throw new SmokeFail(
+      `<Chart> \`data\` needs a \`datasets\` array: \`data={{ labels: [...], datasets: [{ data: [...] }] }}\`. ` +
+        `Put the numbers under \`datasets[].data\`, not directly on \`data\`.`,
+    )
+  }
+  datasets.forEach((ds, i) => {
+    if (ds == null || typeof ds !== "object" || !Array.isArray((ds as Record<string, unknown>).data)) {
+      throw new SmokeFail(
+        `<Chart> dataset ${i} must be an object with a \`data\` array, e.g. \`{ label: "Sales", data: [10, 20, 30] }\`. ` +
+          `Even pie/doughnut use this — a \`{ name, value }\` per-slice object is the old shape.`,
+      )
+    }
+  })
 }
 
 
