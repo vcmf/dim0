@@ -113,7 +113,9 @@ export function AppletNodeView({ id }: AppletViewProps) {
 
   // While live AND actually painted (in view), rasterize into the snapshot cache so the
   // canvas getSnapshot can blit it when this applet later zooms out / moves off-screen.
-  useAppletSnapshot({ noteId, captureRef, source, state: snapState, active: live && isInView })
+  // `isAlive` lets a capture that resolves after a delete skip re-inserting an orphan.
+  const isAlive = useCallback(() => store.getNode(id) != null, [store, id])
+  useAppletSnapshot({ noteId, captureRef, source, state: snapState, active: live && isInView, isAlive })
 
   if (!node) return null
 

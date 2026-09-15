@@ -73,25 +73,27 @@ describe("snapshot cache", () => {
     expect(getAppletSnapshot("n2")).toBeNull()
   })
 
+  // MAX_SNAPSHOTS is 96; CAP+1 fills just past capacity.
+  const CAP = 96
+
   it("bounds memory with an LRU: over capacity, the least-recently-used is dropped", () => {
-    // MAX_SNAPSHOTS is 120; fill past it and assert the oldest untouched entry is gone.
-    for (let i = 0; i < 121; i++) setAppletSnapshot(`k${i}`, img(`${i}`), "h")
+    for (let i = 0; i <= CAP; i++) setAppletSnapshot(`k${i}`, img(`${i}`), "h") // CAP+1 entries
     expect(getAppletSnapshot("k0")).toBeNull() // oldest evicted
-    expect(getAppletSnapshot("k120")).not.toBeNull() // newest kept
+    expect(getAppletSnapshot(`k${CAP}`)).not.toBeNull() // newest kept
   })
 
   it("reads do NOT reorder recency (LRU is write-driven, so the paint hot path is pure)", () => {
-    for (let i = 0; i < 120; i++) setAppletSnapshot(`k${i}`, img(`${i}`), "h") // fills to cap
+    for (let i = 0; i < CAP; i++) setAppletSnapshot(`k${i}`, img(`${i}`), "h") // fills to cap
     getAppletSnapshot("k0") // a read must NOT rescue the oldest entry
-    setAppletSnapshot("k120", img("120"), "h") // over cap → evicts the oldest (k0)
+    setAppletSnapshot(`k${CAP}`, img(`${CAP}`), "h") // over cap → evicts the oldest (k0)
     expect(getAppletSnapshot("k0")).toBeNull() // still evicted — the read didn't touch it
     expect(getAppletSnapshot("k1")).not.toBeNull()
   })
 
   it("a re-capture (write) refreshes recency so the rewritten entry survives", () => {
-    for (let i = 0; i < 120; i++) setAppletSnapshot(`k${i}`, img(`${i}`), "h") // fills to cap
+    for (let i = 0; i < CAP; i++) setAppletSnapshot(`k${i}`, img(`${i}`), "h") // fills to cap
     setAppletSnapshot("k0", img("0-new"), "h2") // re-capture k0 → now most-recent
-    setAppletSnapshot("k120", img("120"), "h") // over cap → evicts the now-oldest (k1)
+    setAppletSnapshot(`k${CAP}`, img(`${CAP}`), "h") // over cap → evicts the now-oldest (k1)
     expect(getAppletSnapshot("k0")).toEqual({ tag: "0-new" }) // survived via the rewrite
     expect(getAppletSnapshot("k1")).toBeNull()
   })

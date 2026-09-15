@@ -2,6 +2,11 @@
 // rasterizing an applet snapshot) off the interaction path. WebKit (Tauri's engine) is
 // single-threaded, so idle-scheduling matters there most; it also lacks a stable
 // requestIdleCallback in older WKWebView, hence the rAF fallback.
+//
+// This is the intended SHARED home for the pattern. A near-identical private copy lives
+// in harness/canvas/use-thumbnail-capture.ts (with a 2-frame rAF variant to land after
+// the hydration paint); folding it in here is a follow-up (its 2-frame nuance needs to
+// become an option first).
 
 /** Opaque handle returned by {@link scheduleIdle}; pass it to {@link cancelIdle}. */
 export type IdleHandle = { id: number; kind: "idle" | "raf" }

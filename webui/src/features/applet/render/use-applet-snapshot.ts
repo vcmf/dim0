@@ -4,7 +4,7 @@
 // screen / is painted during motion. Re-captures only when the content hash (source +
 // state + theme) changes. See docs/plans/applet-chartjs-implementation.md PR 5.
 
-import { useEffect, useMemo, useSyncExternalStore } from "react"
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react"
 import type { RefObject } from "react"
 
 import { cancelIdle, scheduleIdle } from "@/lib/schedule-idle"
@@ -75,6 +75,9 @@ export interface UseAppletSnapshotOptions {
   /** True only when the applet is LIVE and actually painted (mounted + in view) — a
    *  hidden/off-screen element would snapshot blank, so don't capture then. */
   active: boolean
+  /** Whether the node still exists — checked right before writing, so a capture that
+   *  resolves after the node was deleted can't re-insert an orphan into the cache. */
+  isAlive: () => boolean
 }
 
 
@@ -85,10 +88,12 @@ export interface UseAppletSnapshotOptions {
  * an abort (the applet went off-screen mid-capture) leaves the previous snapshot / glyph
  * in place.
  */
-export function useAppletSnapshot({ noteId, captureRef, source, state, active }: UseAppletSnapshotOptions): void {
+export function useAppletSnapshot({ noteId, captureRef, source, state, active, isAlive }: UseAppletSnapshotOptions): void {
   const themeSig = useThemeSignature()
   // A string hash → stable across state-object identity churn (the effect keys on it).
   const hash = useMemo(() => snapshotKey(source, state, themeSig), [source, state, themeSig])
+  const isAliveRef = useRef(isAlive)
+  isAliveRef.current = isAlive
 
   useEffect(() => {
     if (!active || !source) return
@@ -99,8 +104,10 @@ export function useAppletSnapshot({ noteId, captureRef, source, state, active }:
       const el = captureRef.current
       if (cancelled || !el) return
       void snapshotApplet(el, { shouldCancel: () => cancelled }).then((img) => {
-        // Re-check the hash: state/theme may have moved on while we were rasterizing.
-        if (cancelled || !img || getAppletSnapshotHash(noteId) === hash) return
+        // Re-check before writing: the hash may have moved on while rasterizing, and the
+        // node may have been DELETED (its evict ran before this effect's cleanup) — don't
+        // resurrect an orphan snapshot for a node that no longer exists.
+        if (cancelled || !img || !isAliveRef.current() || getAppletSnapshotHash(noteId) === hash) return
         setAppletSnapshot(noteId, img, hash)
       })
     })

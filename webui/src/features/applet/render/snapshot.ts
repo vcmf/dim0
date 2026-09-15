@@ -15,6 +15,12 @@ import { snapdom } from "@zumer/snapdom"
  *  not block the capture forever — a slightly-early snap beats none). */
 const CAPTURE_TIMEOUT_MS = 3000
 
+/** Cap the raster scale for LOD snapshots. The cache holds DECODED bitmaps whose memory
+ *  is w·h·4·scale² — so capturing at a retina dpr (2–3) would 4–9× the footprint the
+ *  perf path is trying to shrink. Snapshots are shown zoomed-out / during motion (small
+ *  on screen), where >1.5× adds bytes but no visible detail. */
+const MAX_SNAPSHOT_SCALE = 1.5
+
 
 /** Resolve once web fonts are loaded (or immediately if there's no FontFaceSet, as in
  *  jsdom / some embedded webviews — matches use-capture-ready's guard). */
@@ -85,7 +91,8 @@ export async function snapshotApplet(
     await waitForCaptureReady(el, timeoutMs, shouldCancel)
     if (shouldCancel()) return null // aborted (applet went off-screen / unmounted) — skip the raster
     const dpr = (typeof window !== "undefined" && window.devicePixelRatio) || 1
-    const result = await snapdom(el, { scale: dpr })
+    const scale = Math.min(dpr, MAX_SNAPSHOT_SCALE) // bound decoded-bitmap memory on HiDPI
+    const result = await snapdom(el, { scale })
     const img = await result.toPng()
     // Decode so the <img> is drawable in a synchronous canvas paint (an undecoded image
     // draws nothing). decode() is absent in jsdom — guard it.
