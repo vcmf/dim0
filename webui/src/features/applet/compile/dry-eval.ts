@@ -15,6 +15,7 @@
 // failures (state reached only after an interaction, a bad datum *shape* inside an
 // array) are out of scope and documented as such.
 
+import { CHART_TYPES } from "../render/chart/types"
 import { evalExpr, makeCtx, type Env, type Expr } from "../interpreter"
 import type { AppletTree, ElNode, JsonValue, Node } from "../tree"
 
@@ -41,11 +42,6 @@ const ARRAY_PROPS: Record<string, readonly string[]> = {
   Graph: ["nodes", "edges"],
   Map: ["data", "markers"],
 }
-
-
-// The chart kinds `<Chart type>` accepts (mirrors AppletChartType). A wrong/missing type
-// renders a broken chart with no error, so it's caught here.
-const CHART_TYPES = ["bar", "line", "area", "pie", "doughnut", "scatter", "radar"] as const
 
 
 /** Signals a smoke-test failure with an author-facing message (distinct from an
@@ -178,8 +174,11 @@ function checkChart(node: ElNode, bound: Record<string, unknown>): void {
   if (!type.present) {
     throw new SmokeFail(`<Chart> needs a \`type\` — one of ${valid}. e.g. \`<Chart type="bar" data={{ labels, datasets: [{ data }] }} />\`.`)
   }
-  if (typeof type.value === "string" && !(CHART_TYPES as readonly string[]).includes(type.value)) {
-    throw new SmokeFail(`<Chart type="${type.value}"> is not a valid chart type. Use one of ${valid}.`)
+  // Reject any present, non-nullish type that isn't a valid kind — a string typo AND a
+  // non-string (a number/object from a bad binding), both of which break the renderer. A
+  // nullish resolved value (a dynamic type not yet set) is left alone, like `data` below.
+  if (type.value != null && !(typeof type.value === "string" && (CHART_TYPES as readonly string[]).includes(type.value))) {
+    throw new SmokeFail(`<Chart> \`type\` must be one of ${valid} — got ${JSON.stringify(type.value)}.`)
   }
 
   // `data` is optional (omitted → an empty chart, not a crash); only a PRESENT, non-nullish
@@ -204,11 +203,21 @@ function checkChart(node: ElNode, bound: Record<string, unknown>): void {
     )
   }
   datasets.forEach((ds, i) => {
-    if (ds == null || typeof ds !== "object" || !Array.isArray((ds as Record<string, unknown>).data)) {
+    if (ds == null || typeof ds !== "object" || Array.isArray(ds)) {
+      throw new SmokeFail(`<Chart> dataset ${i} must be an object like \`{ label: "Sales", data: [10, 20, 30] }\`, but it is ${typeName(ds)}.`)
+    }
+    const dsObj = ds as Record<string, unknown>
+    // A MISSING `data` key is the recharts/`{ name, value }` mistake → flag. A present but
+    // nullish `data` (a dynamic binding not yet populated) renders empty → leave it, like
+    // the top-level nullish policy.
+    if (!("data" in dsObj)) {
       throw new SmokeFail(
-        `<Chart> dataset ${i} must be an object with a \`data\` array, e.g. \`{ label: "Sales", data: [10, 20, 30] }\`. ` +
-          `Even pie/doughnut use this — a \`{ name, value }\` per-slice object is the old shape.`,
+        `<Chart> dataset ${i} has no \`data\` array — put the numbers under \`data\`: \`{ data: [10, 20, 30] }\`. ` +
+          `Even pie/doughnut use this; a \`{ name, value }\` per-slice object is the old shape.`,
       )
+    }
+    if (dsObj.data != null && !Array.isArray(dsObj.data)) {
+      throw new SmokeFail(`<Chart> dataset ${i}'s \`data\` must be an array (e.g. \`[10, 20, 30]\`), but it is ${typeName(dsObj.data)}.`)
     }
   })
 }

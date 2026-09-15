@@ -169,8 +169,12 @@ describe("smokeTestApplet — Chart config shape", () => {
     failsWith(`<Widget data={{ nums: [1, 2] }}><Chart data={{ datasets: [{ data: nums }] }} /></Widget>`, "needs a `type`")
   })
 
-  it("flags an invalid type", () => {
-    failsWith(`<Widget data={{ nums: [1, 2] }}><Chart type="piechart" data={{ datasets: [{ data: nums }] }} /></Widget>`, "not a valid chart type")
+  it("flags an invalid (string) type", () => {
+    failsWith(`<Widget data={{ nums: [1, 2] }}><Chart type="piechart" data={{ datasets: [{ data: nums }] }} /></Widget>`, "must be one of")
+  })
+
+  it("flags a non-string type from a bad binding (not just a string typo)", () => {
+    failsWith(`<Widget data={{ t: 5 }}><Chart type={t} data={{ datasets: [{ data: [1] }] }} /></Widget>`, "must be one of")
   })
 
   it("flags data as a top-level array (the old recharts/pie shape)", () => {
@@ -181,8 +185,12 @@ describe("smokeTestApplet — Chart config shape", () => {
     failsWith(`<Widget data={{ nums: [10, 20, 30] }}><Chart type="bar" data={{ data: nums }} /></Widget>`, "needs a `datasets` array")
   })
 
-  it("flags a dataset without a data array (per-slice { name, value })", () => {
-    failsWith(`<Widget data={{ slices: [{ name: "A", value: 10 }] }}><Chart type="pie" data={{ datasets: slices }} /></Widget>`, "must be an object with a `data` array")
+  it("flags a dataset with no data key (per-slice { name, value } — the old shape)", () => {
+    failsWith(`<Widget data={{ slices: [{ name: "A", value: 10 }] }}><Chart type="pie" data={{ datasets: slices }} /></Widget>`, "has no `data` array")
+  })
+
+  it("allows a dataset whose data binding is nullish on the initial state (populated later)", () => {
+    ok(`<Widget state={{ sales: null }}><Chart type="bar" data={{ datasets: [{ label: "Sales", data: sales }] }} /></Widget>`)
   })
 
   it("allows an intentionally-empty datasets array", () => {

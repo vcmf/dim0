@@ -7,14 +7,12 @@
 // produce functions, so callback options (tooltip/tick formatters) aren't expressible
 // (they'd be an author-time error, not a silent no-op).
 
-export type AppletChartType =
-  | "bar"
-  | "line"
-  | "area" // rendered as a filled line
-  | "pie"
-  | "doughnut"
-  | "scatter"
-  | "radar"
+// The single source of truth for the chart kinds. The `AppletChartType` union derives
+// from it, and author-time validation (compile/dry-eval.ts) reads it — so adding a kind
+// here updates both. ("area" renders as a filled line.)
+export const CHART_TYPES = ["bar", "line", "area", "pie", "doughnut", "scatter", "radar"] as const
+
+export type AppletChartType = (typeof CHART_TYPES)[number]
 
 
 /** One dataset. Extra Chart.js dataset keys pass through; colors accept theme tokens
