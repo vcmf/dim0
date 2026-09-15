@@ -8,6 +8,7 @@ import {
 import { RootLayout } from "./root-layout"
 import { ChatScreen } from "@/features/agent/screens/chat-screen"
 import { BoardScreen } from "@/features/board/screens/board-screen"
+import { CaptureSpikePage } from "@/features/dev/capture-spike"
 import { SigninPage } from "@/features/signin/screens/sign-in"
 import { SignupPage } from "@/features/signin/screens/sign-up"
 import { GoogleCallbackPage } from "@/features/signin/screens/google-callback"
@@ -74,6 +75,14 @@ const signinRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/signin",
   component: SigninPage,
+})
+
+// DEV-only spike: snapDOM whole-applet capture on WKWebView (throwaway — PR 0 of the
+// applet canvas migration). Registered only under `import.meta.env.DEV`.
+const captureSpikeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/dev/capture-spike",
+  component: CaptureSpikePage,
 })
 
 const signupRoute = createRoute({
@@ -353,6 +362,7 @@ const routeTree = rootRoute.addChildren([
     localMiniAppRoute,
     localAppletRoute,
   ]),
+  ...(import.meta.env.DEV ? [captureSpikeRoute] : []),
   signinRoute,
   signupRoute,
   googleCallbackRoute,
