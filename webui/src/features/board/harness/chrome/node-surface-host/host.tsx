@@ -1,6 +1,7 @@
 import { memo, useEffect } from "react"
 import { useCanvasStore } from "@canvas-harness/react"
 import { useBoardAppStore } from "../../store/board-app-store"
+import { AppletPanel } from "./applet-panel"
 import { CodeSandboxPanel } from "./code-sandbox-panel"
 import { MiniAppPanel } from "./mini-app-panel"
 import { SheetPanel } from "./sheet-panel"
@@ -66,6 +67,11 @@ export const NodeSurfaceHost = memo(function NodeSurfaceHost() {
         />
       ) : activeNodeSurface.kind === "mini-app" ? (
         <MiniAppPanel
+          nodeId={activeNodeSurface.nodeId}
+          onClose={closeNodeSurface}
+        />
+      ) : activeNodeSurface.kind === "applet" ? (
+        <AppletPanel
           nodeId={activeNodeSurface.nodeId}
           onClose={closeNodeSurface}
         />

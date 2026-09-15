@@ -1,5 +1,7 @@
 import {
+  AppletUrl,
   CodeSandboxUrl,
+  LocalAppletUrl,
   LocalCodeSandboxUrl,
   LocalMiniAppUrl,
   LocalSheetUrl,
@@ -14,8 +16,8 @@ import type { NodeSurfaceKind } from "../harness/store/board-app-store"
 /**
  * Map a node-surface kind to its URL path. The dialog system shares one
  * sub-tree under the board route — only the path segment (`sheets`,
- * `code-sandbox`, `widgets`, `mini-apps`) differs per kind. `local` selects the
- * `/local/$boardId/*` mirror of the synced `/boards/$id/*` routes.
+ * `code-sandbox`, `widgets`, `mini-apps`, `applets`) differs per kind. `local`
+ * selects the `/local/$boardId/*` mirror of the synced `/boards/$id/*` routes.
  */
 export function nodeSurfacePath(kind: NodeSurfaceKind, local = false): string {
   switch (kind) {
@@ -23,6 +25,7 @@ export function nodeSurfacePath(kind: NodeSurfaceKind, local = false): string {
     case "code-sandbox": return local ? LocalCodeSandboxUrl : CodeSandboxUrl
     case "widget": return local ? LocalWidgetUrl : WidgetUrl
     case "mini-app": return local ? LocalMiniAppUrl : MiniAppUrl
+    case "applet": return local ? LocalAppletUrl : AppletUrl
   }
 }
 
@@ -37,5 +40,6 @@ export function nodeSurfaceKindFromPath(pathname: string): NodeSurfaceKind | nul
   if (pathname.includes("/code-sandbox/")) return "code-sandbox"
   if (pathname.includes("/widgets/")) return "widget"
   if (pathname.includes("/mini-apps/")) return "mini-app"
+  if (pathname.includes("/applets/")) return "applet"
   return null
 }

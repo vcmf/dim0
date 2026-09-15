@@ -139,16 +139,57 @@ prompt here — cheap now, expensive after launch.**
 
 ## Phase 4 — Hardening, measurement, ADR
 
-- **Perf** — measure bundle delta + board memory with N applets on one board;
-  validate the one open assumption (inline recharts on the main thread, design §5).
-- **App Store** — confirm the applet path needs no `unsafe-eval`; verify the legacy
-  store-build placeholder; the applet CSP closes FE-F5.
-- **Finalize the deferred smalls** — prop-validation strictness (§14.4), `persist`
-  granularity (§14.10).
-- **Backend** — decide `compile.py`'s fate: client-side parse likely makes the
-  server validator redundant → retire, or keep as a thin online double-check.
-- **ADR-APPLET-001** — promote the durable decisions (new type + frozen legacy,
-  inline/no-eval, JSX-canonical, interpreter-as-boundary).
+- [x] **ADR-APPLET-001** — durable decisions recorded (new type + frozen legacy,
+      inline/no-eval + interpreter-as-boundary, JSX-canonical + local-first state).
+- **App Store — deferred, not yet actionable.** The applet path already needs no
+  `unsafe-eval` (verified — no `eval`/`new Function`). But the "legacy mini-app
+  placeholder on store builds" can't be built yet: **there is no store-build flag**
+  (desktop is notarized Tauri, gated only by `isTauri()`; no iOS/App Store target
+  exists). Gate the legacy `eval` render off *when* a store build lands (ADR-APPLET-001).
+- **Perf — deferred (needs profiling).** The bundle-size win isn't realized while
+  the legacy runtime is kept; the inline-recharts-on-main-thread assumption is
+  unprofiled (LOD + placeholder bound the common case). Profile a busy board later.
+- **Deferred smalls** — per-component prop-validation strictness (§14.4), `persist`
+  granularity (§14.10), auto-grow height.
+- **Backend** — `compile.py` (server mini-app validation) is orthogonal: applets
+  validate client-side and the browser agent authors them; retire with the server
+  agent, not here.
+
+> Net: Phase 4's actionable deliverable is **the ADR**; the App-Store and perf
+> items are documented as future steps gated on surfaces that don't exist yet
+> (a store build; a profiling pass). The applet system is functionally complete
+> and eval-free through Phase 3.
+
+---
+
+## Phase 5 — Inspect surface (read-only expand)
+
+The debuggability gap surfaced in testing: a runtime error card on the canvas gives
+no way to see the source it came from. Restores mini-app parity for *inspecting*.
+
+**Deliverables:**
+- `webui/src/features/board/harness/chrome/node-surface-host/applet-panel.tsx` — a
+  read-only surface: a larger **Preview** (`AppletRenderer`, hydrated from persisted
+  state, ephemeral — not saved back) + the canonical JSX **Source** (highlighted,
+  non-editable) + a `.jsx` download.
+- Surface plumbing for `"applet"`: the `NodeSurfaceKind` member, the
+  synced + local routes (`/…/applets/$noteId`), `nodeSurfacePath` /
+  `nodeSurfaceKindFromPath`, the `host.tsx` branch, and `onExpand` on the node view's
+  green traffic-light.
+- `CodeArea` gains a `readOnly` prop (inspect-only source view).
+
+**Follow-up (tracked, not this phase):** *editable* source + live re-validation — an
+edit buffer, `validateApplet`-on-save with inline `line:col`, and resolving the
+two-writer race between the panel and the on-canvas node's live state.
+
+## Phase 6 — Author-time render smoke-test (close the agent loop)
+
+`write_note` validates applets compile-only (`validateApplet` = parse + grammar), so
+runtime interpreter errors (iterating a non-array, etc.) reach the user but never the
+agent. Close the loop **inside the existing `write_note` result — no new tool:** after
+`compileApplet` succeeds, run a **headless interpret pass** over the tree with the
+declared initial `state`/`data` (the pure interpreter layer, no DOM), catch throws,
+and return the message as an author-time error the agent self-corrects on in-turn.
 
 ---
 
@@ -171,7 +212,11 @@ Phase 0 (interpreter + red-team) ──▶ Phase 1 (transformer) ──▶ Phase
                                           Phase 3 (skill + model test)◀┘
                                                                       │
                                                         Phase 4 (harden + ADR)
+                                                                      │
+                          Phase 5 (inspect surface) ─── Phase 6 (render smoke-test)
 ```
 
 Phase 0 is the long pole and the gate; 1–2 are mechanical once it holds; 3 is where
-we learn if the premise is true; 4 is launch-readiness.
+we learn if the premise is true; 4 is launch-readiness. 5–6 are debuggability
+fast-follows found in testing: 5 lets the *author* see the source behind an error,
+6 lets the *agent* catch runtime errors at author time.

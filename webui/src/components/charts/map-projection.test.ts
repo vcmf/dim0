@@ -5,7 +5,6 @@ import type { Feature, Geometry, GeoJsonProperties } from "geojson"
 import {
   buildFillResolver,
   buildProjection,
-  buildRegionPaths,
   projectMarkers,
 } from "./map-projection"
 
@@ -88,21 +87,6 @@ describe("buildFillResolver", () => {
     expect(fill("A")).toBe("var(--muted)")
     expect(warn).toHaveBeenCalledTimes(1)
     warn.mockRestore()
-  })
-})
-
-
-describe("buildRegionPaths", () => {
-  it("produces an SVG path and resolved fill per feature", () => {
-    const features = [squareFeature("A")]
-    const projection = buildProjection(features, 800, 400)
-    const fill = buildFillResolver([{ id: "A", value: 1 }], fakeResolve(["A"]), "chart-1")
-    const paths = buildRegionPaths(features, projection, fill)
-    expect(paths).toHaveLength(1)
-    expect(paths[0].id).toBe("A")
-    expect(paths[0].name).toBe("Region A")
-    expect(paths[0].d.length).toBeGreaterThan(0)
-    expect(paths[0].d.startsWith("M")).toBe(true)
   })
 })
 

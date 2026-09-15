@@ -248,6 +248,7 @@ const DEFAULT_SIZE: Record<string, { w: number; h: number }> = {
   diamond: { w: 340, h: 340 },
   sheet: { w: 440, h: 440 },
   "mini-app": { w: 720, h: 440 },
+  applet: { w: 720, h: 440 },
   widget: { w: 480, h: 320 },
   "code-sandbox": { w: 560, h: 360 },
 }
@@ -290,7 +291,10 @@ const NODE_TYPE: Record<string, string> = {
   rectangle: "rect",
   rect: "rect",
   sheet: "sheet",
-  "mini-app": "mini-app",
+  // "mini-app" intentionally omitted: the agent can no longer CREATE mini-apps
+  // (frozen — use "applet"); existing mini-app nodes still rewrite because
+  // rewriteNote preserves an existing node's type when note_type is omitted.
+  applet: "applet",
   widget: "widget",
   "code-sandbox": "code-sandbox",
 }

@@ -260,6 +260,25 @@ export default defineConfig({
             if (id.includes("cytoscape-fcose")) return "cytoscape-fcose"
             if (id.includes("/node_modules/mermaid/")) return "mermaid"
             if (id.includes("/node_modules/cytoscape/")) return "cytoscape"
+            // Large deps that were previously falling into the monolithic `index`
+            // chunk (pushing it past the 2 MiB PWA-precache limit). Split each into its
+            // own stable chunk — eager ones just move out of `index` (no single file
+            // over the limit), lazy-only ones (chart.js/snapdom) stay lazy.
+            if (id.includes("/node_modules/@canvas-harness/")) return "canvas-harness"
+            if (id.includes("/node_modules/sucrase/")) return "sucrase"
+            if (id.includes("/node_modules/@tailwindcss/")) return "tailwind-runtime"
+            // NOTE: do NOT force shiki into one chunk — it lazy-loads each language
+            // grammar as its own dynamic chunk (cpp, emacs-lisp, …); consolidating them
+            // produces a ~9.5 MB blob. Leave shiki to rollup's default splitting.
+            if (id.includes("/node_modules/@lottiefiles/")) return "lottie"
+            if (id.includes("/node_modules/openai/")) return "openai"
+            if (id.includes("/node_modules/acorn/") || id.includes("/node_modules/acorn-jsx/")) return "acorn"
+            if (id.includes("/node_modules/@orama/")) return "orama"
+            if (id.includes("/node_modules/chart.js/") || id.includes("/node_modules/@kurkle/")) return "chartjs"
+            if (id.includes("/node_modules/@zumer/snapdom/")) return "snapdom"
+            if (id.includes("/node_modules/html-to-image/")) return "html-to-image"
+            if (id.includes("/node_modules/streamdown/") || id.includes("/node_modules/@streamdown/")) return "streamdown"
+            if (id.includes("/node_modules/world-atlas/") || id.includes("/node_modules/topojson-client/")) return "geo-atlas"
             if (/\/node_modules\/(react|react-dom|scheduler)\//.test(id)) return "react"
           }
         },

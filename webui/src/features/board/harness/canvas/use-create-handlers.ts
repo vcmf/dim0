@@ -42,7 +42,7 @@ const SHAPE_TOOLS = new Set([
   "sheet",
   "code-sandbox",
   "widget",   // legacy — agent + paste can still produce these
-  "mini-app", // default custom-rendered artifact; toolbar creates this
+  "applet",   // the creatable interactive-widget type; toolbar creates this
 ])
 
 
@@ -52,6 +52,7 @@ const isShapeTool = (tool: string): boolean => SHAPE_TOOLS.has(tool)
 /** Friendly labels for limit toasts, keyed by dim0 node type. */
 const CREATE_LABELS: Record<string, string> = {
   "mini-app": "mini-app",
+  applet: "applet",
   "code-sandbox": "code sandbox",
   folder: "sub-board",
   document: "document",

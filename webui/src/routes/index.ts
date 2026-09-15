@@ -8,6 +8,7 @@ import {
 import { RootLayout } from "./root-layout"
 import { ChatScreen } from "@/features/agent/screens/chat-screen"
 import { BoardScreen } from "@/features/board/screens/board-screen"
+import { CaptureSpikePage } from "@/features/dev/capture-spike"
 import { SigninPage } from "@/features/signin/screens/sign-in"
 import { SignupPage } from "@/features/signin/screens/sign-up"
 import { GoogleCallbackPage } from "@/features/signin/screens/google-callback"
@@ -74,6 +75,14 @@ const signinRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/signin",
   component: SigninPage,
+})
+
+// DEV-only spike: snapDOM whole-applet capture on WKWebView (throwaway — PR 0 of the
+// applet canvas migration). Registered only under `import.meta.env.DEV`.
+const captureSpikeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/dev/capture-spike",
+  component: CaptureSpikePage,
 })
 
 const signupRoute = createRoute({
@@ -213,6 +222,15 @@ const miniAppRoute = createRoute({
   component: () => null,
 })
 
+// /boards/:id/applets/:noteId — child of boardRoute. Same shape as
+// miniAppRoute: BoardScreen owns rendering via useActiveSurfaceFromUrl.
+export const AppletUrl = "/boards/$id/applets/$noteId"
+const appletRoute = createRoute({
+  getParentRoute: () => boardRoute,
+  path: "/applets/$noteId",
+  component: () => null,
+})
+
 // /subscriptions (protected)
 export const SubscriptionsUrl = "/subscriptions"
 const subscriptionsRoute = createRoute({
@@ -328,6 +346,13 @@ const localMiniAppRoute = createRoute({
   component: () => null,
 })
 
+export const LocalAppletUrl = "/local/$boardId/applets/$noteId"
+const localAppletRoute = createRoute({
+  getParentRoute: () => localBoardRoute,
+  path: "/applets/$noteId",
+  component: () => null,
+})
+
 const routeTree = rootRoute.addChildren([
   localDashboardRoute,
   localBoardRoute.addChildren([
@@ -335,7 +360,9 @@ const routeTree = rootRoute.addChildren([
     localCodeSandboxRoute,
     localWidgetRoute,
     localMiniAppRoute,
+    localAppletRoute,
   ]),
+  ...(import.meta.env.DEV ? [captureSpikeRoute] : []),
   signinRoute,
   signupRoute,
   googleCallbackRoute,
@@ -347,7 +374,7 @@ const routeTree = rootRoute.addChildren([
   chatsIndexRoute,
   chatRoute,
   dashboardRoute,
-  boardRoute.addChildren([sheetRoute, codeSandboxRoute, widgetRoute, miniAppRoute]),
+  boardRoute.addChildren([sheetRoute, codeSandboxRoute, widgetRoute, miniAppRoute, appletRoute]),
   subscriptionsRoute,
   newsfeedsRoute,
   newsfeedDetailRoute,
