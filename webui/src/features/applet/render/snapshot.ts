@@ -15,11 +15,13 @@ import { snapdom } from "@zumer/snapdom"
  *  not block the capture forever — a slightly-early snap beats none). */
 const CAPTURE_TIMEOUT_MS = 3000
 
-/** Cap the raster scale for LOD snapshots. The cache holds DECODED bitmaps whose memory
- *  is w·h·4·scale² — so capturing at a retina dpr (2–3) would 4–9× the footprint the
- *  perf path is trying to shrink. Snapshots are shown zoomed-out / during motion (small
- *  on screen), where >1.5× adds bytes but no visible detail. */
-const MAX_SNAPSHOT_SCALE = 1.5
+/** Cap the effective raster resolution for LOD snapshots, as a device-pixel multiplier.
+ *  snapDOM rasters at CSS-size × scale × dpr, and its `dpr` DEFAULTS to
+ *  `window.devicePixelRatio` — so to bound the decoded bitmap (memory ≈ w·h·4·mult²) we
+ *  must cap `dpr`, not `scale` (a capped `scale` would still be multiplied by the full
+ *  device dpr, making retina *worse*). Snapshots show small (zoomed-out / motion), where
+ *  >1.5× device pixels adds bytes but no visible detail. */
+const MAX_SNAPSHOT_DPR = 1.5
 
 
 /** Resolve once web fonts are loaded (or immediately if there's no FontFaceSet, as in
@@ -100,9 +102,10 @@ export async function snapshotApplet(
   try {
     await waitForCaptureReady(el, timeoutMs, shouldCancel)
     if (shouldCancel()) return null // aborted (applet went off-screen / unmounted) — skip the raster
-    const dpr = (typeof window !== "undefined" && window.devicePixelRatio) || 1
-    const scale = Math.min(dpr, MAX_SNAPSHOT_SCALE) // bound decoded-bitmap memory on HiDPI
-    const result = await snapdom(el, { scale })
+    const deviceDpr = (typeof window !== "undefined" && window.devicePixelRatio) || 1
+    // Cap DPR (not scale) — snapDOM multiplies scale × dpr, and dpr defaults to the
+    // device value, so bounding memory means bounding the dpr it rasterizes at.
+    const result = await snapdom(el, { dpr: Math.min(deviceDpr, MAX_SNAPSHOT_DPR) })
     const img = await result.toPng()
     // Decode so the <img> is drawable in a synchronous canvas paint (an undecoded image
     // draws nothing). decode() is absent in jsdom — guard it.

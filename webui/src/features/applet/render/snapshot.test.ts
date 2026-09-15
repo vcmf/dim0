@@ -33,6 +33,20 @@ describe("snapshotApplet", () => {
     expect(mockedSnapdom).toHaveBeenCalledOnce()
   })
 
+  it("caps the raster DPR (not scale) so HiDPI memory stays bounded", async () => {
+    const orig = Object.getOwnPropertyDescriptor(window, "devicePixelRatio")
+    Object.defineProperty(window, "devicePixelRatio", { value: 3, configurable: true })
+    const el = document.createElement("div")
+    document.body.appendChild(el)
+    await snapshotApplet(el)
+    const opts = mockedSnapdom.mock.calls[0][1] as Record<string, unknown>
+    expect(opts.dpr).toBe(1.5) // capped, not the device's 3
+    // Must NOT pass `scale` — snapDOM multiplies scale × dpr, so a capped scale would
+    // still be blown up by the full device dpr (the round-2 regression this guards).
+    expect(opts).not.toHaveProperty("scale")
+    if (orig) Object.defineProperty(window, "devicePixelRatio", orig)
+  })
+
   it("returns null (never throws) when snapDOM fails — e.g. a tainted canvas", async () => {
     mockedSnapdom.mockRejectedValueOnce(new Error("tainted canvas"))
     const el = document.createElement("div")
