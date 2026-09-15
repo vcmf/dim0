@@ -72,7 +72,7 @@ export function AppletNodeView({ id }: AppletViewProps) {
   // IndexedDB write, not per keystroke) — so a slider drag re-captures once, on settle.
   const [snapState, setSnapState] = useState<Record<string, unknown> | null>(null)
   useEffect(() => {
-    setSnapState(initialState)
+    setSnapState(initialState ?? null) // initialState is `… | undefined`; state holds `… | null`
   }, [initialState])
 
   // Debounce persistence: a rapidly-updating applet (slider, text field) would
