@@ -14,33 +14,37 @@ function tree(source: string) {
 
 
 describe("smokeTestApplet — array-prop contract", () => {
-  it("passes a Chart whose data binds to an array", () => {
+  // NOTE: `Chart` is no longer array-validated here — the Chart.js applet chart takes
+  // a config object (`data={{ labels, datasets }}`), not a top-level array; its
+  // config-shape validation is a separate follow-up (implementation plan PR 6).
+
+  it("passes a Graph/Map with array props", () => {
     const t = tree(`
-      <Widget data={{ revenue: [120, 132, 145], months: ["Jan", "Feb", "Mar"] }}>
-        <Chart kind="line" labels={months} data={revenue} height={200} />
+      <Widget data={{ nodes: [{ id: "a" }], edges: [], pins: [{ lat: 0, lng: 0 }] }}>
+        <div><Graph nodes={nodes} edges={edges} /><Map markers={pins} /></div>
       </Widget>
     `)
     expect(smokeTestApplet(t)).toEqual({ ok: true })
   })
 
-  it("fails a Chart whose data binds to a non-array (the `e is not iterable` class)", () => {
+  it("fails a Graph whose edges bind to a non-array (the `e is not iterable` class)", () => {
     const t = tree(`
-      <Widget data={{ revenue: 5 }}>
-        <Chart kind="line" data={revenue} />
+      <Widget data={{ nodes: [], e: 5 }}>
+        <Graph nodes={nodes} edges={e} />
       </Widget>
     `)
     const r = smokeTestApplet(t)
     expect(r.ok).toBe(false)
     if (!r.ok) {
-      expect(r.message).toContain("<Chart>")
-      expect(r.message).toContain("`data`")
+      expect(r.message).toContain("<Graph>")
+      expect(r.message).toContain("`edges`")
       expect(r.message).toContain("must be an array")
       expect(r.message).toContain("a number")
     }
   })
 
-  it("fails a Chart with a literal non-array data prop", () => {
-    const t = tree(`<Widget><Chart kind="bar" data={42} /></Widget>`)
+  it("fails a Map with a literal non-array markers prop", () => {
+    const t = tree(`<Widget><Map markers={42} /></Widget>`)
     expect(smokeTestApplet(t).ok).toBe(false)
   })
 
@@ -68,15 +72,15 @@ describe("smokeTestApplet — array-prop contract", () => {
     expect(smokeTestApplet(t).ok).toBe(false)
   })
 
-  it("does not flag a Chart that omits the data prop (component default, not an applet bug)", () => {
-    const t = tree(`<Widget><Chart kind="line" /></Widget>`)
+  it("does not flag a Map that omits its props (component default, not an applet bug)", () => {
+    const t = tree(`<Widget><Map /></Widget>`)
     expect(smokeTestApplet(t)).toEqual({ ok: true })
   })
 
   it("does not flag a nullish binding (left to the component's own handling)", () => {
-    // `series` is null initially — conservative: not our crash to flag (Map/Chart
-    // may default it), so this passes rather than false-positiving.
-    const t = tree(`<Widget state={{ series: null }}><Chart kind="line" data={series} /></Widget>`)
+    // `pins` is null initially — conservative: not our crash to flag (Map defaults
+    // it), so this passes rather than false-positiving.
+    const t = tree(`<Widget state={{ pins: null }}><Map markers={pins} /></Widget>`)
     expect(smokeTestApplet(t)).toEqual({ ok: true })
   })
 })
@@ -96,11 +100,11 @@ describe("smokeTestApplet — walk fidelity", () => {
   })
 
   it("does not walk the untaken cond branch (a guard protects it)", () => {
-    // `sel` is null initially, so the `sel ? <Chart data={sel}/> : …` branch that
-    // would flag a non-array must NOT be evaluated — the guard is the point.
+    // `sel` is null, so the `sel ? <Graph nodes={bad}/> : …` branch — whose non-array
+    // `nodes` WOULD flag if walked — must NOT be evaluated. The guard is the point.
     const t = tree(`
-      <Widget state={{ sel: null }}>
-        <div>{sel ? <Chart data={sel} /> : <span>none</span>}</div>
+      <Widget state={{ sel: null }} data={{ bad: 5 }}>
+        <div>{sel ? <Graph nodes={bad} edges={[]} /> : <span>none</span>}</div>
       </Widget>
     `)
     expect(smokeTestApplet(t)).toEqual({ ok: true })
@@ -129,15 +133,15 @@ describe("smokeTestApplet — walk fidelity", () => {
 
 describe("validateApplet — smoke test folded into the write_note gate", () => {
   it("rejects a compiling-but-throwing applet with the smoke message", () => {
-    const r = validateApplet(`<Widget data={{ revenue: 5 }}><Chart data={revenue} /></Widget>`)
+    const r = validateApplet(`<Widget data={{ n: 5 }}><Graph nodes={n} edges={[]} /></Widget>`)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.message).toContain("must be an array")
   })
 
   it("accepts a valid applet", () => {
     const r = validateApplet(`
-      <Widget data={{ revenue: [1, 2, 3] }}>
-        <Chart kind="line" data={revenue} />
+      <Widget data={{ revenue: [1, 2, 3], labels: ["a", "b", "c"] }}>
+        <Chart type="line" data={{ labels: labels, datasets: [{ data: revenue }] }} />
       </Widget>
     `)
     expect(r).toEqual({ ok: true })
