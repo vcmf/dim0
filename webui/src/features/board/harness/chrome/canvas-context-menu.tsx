@@ -7,7 +7,7 @@ import {
 } from "react"
 import { toast } from "sonner"
 import type { CanvasStore, NodeId, Renderer } from "@canvas-harness/core"
-import { exportSelection, exportSelectionSvg } from "@canvas-harness/core"
+import { exportSelectionImage, exportSelectionSvgWithApplets } from "../export/export-selection-image"
 import {
   Clipboard as ClipboardIcon,
   StackMinus as StackMinusIcon,
@@ -187,12 +187,14 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
   // ---- Export -----------------------------------------------------------
   const handleExportPng = useCallback(async () => {
     try {
-      const blob = await exportSelection(store, {
+      const blob = await exportSelectionImage(store, {
         transparentBackground: exportTransparent,
         // Pass the live renderer's asset cache so image + icon nodes
         // paint from already-decoded bitmaps. Without this, the lib
         // silently skips those node types in the output (back-compat
-        // shape from canvas-harness 0.1.15).
+        // shape from canvas-harness 0.1.15). Applet nodes are composited
+        // from a snapDOM capture of their live render (their `content`
+        // is JSX source, which the base export would draw as text).
         assetCache: rendererRef.current?.getAssetCache(),
       })
       try {
@@ -216,9 +218,11 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
     }
   }, [store, exportTransparent, rendererRef])
 
-  const handleExportSvg = useCallback(() => {
+  const handleExportSvg = useCallback(async () => {
     try {
-      const svg = exportSelectionSvg(store)
+      // Vector SVG for built-ins, with each selected applet's live render embedded as a
+      // raster `<image>` on top (applets have no vector representation — see the compositor).
+      const svg = await exportSelectionSvgWithApplets(store, { transparentBackground: exportTransparent })
       const blob = new Blob([svg], { type: "image/svg+xml" })
       const url = URL.createObjectURL(blob)
       Object.assign(document.createElement("a"), {
@@ -230,7 +234,7 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
       console.error("[context-menu] SVG export failed", err)
       toast.error("Couldn't export selection")
     }
-  }, [store])
+  }, [store, exportTransparent])
 
   // ---- AI / Translate ---------------------------------------------------
   const handleAiAction = useCallback(
@@ -351,7 +355,7 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
         >
           Transparent background
         </DropdownMenuCheckboxItem>
-        <DropdownMenuItem onSelect={() => handleExportSvg()}>
+        <DropdownMenuItem onSelect={() => void handleExportSvg()}>
           <ImagePlaceholderIcon className="size-4" />
           Download as SVG
         </DropdownMenuItem>
