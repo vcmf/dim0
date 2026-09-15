@@ -40,7 +40,7 @@ describe("snapshotApplet", () => {
     document.body.appendChild(el)
     await snapshotApplet(el)
     const opts = mockedSnapdom.mock.calls[0][1] as Record<string, unknown>
-    expect(opts.dpr).toBe(1.5) // capped, not the device's 3
+    expect(opts.dpr).toBe(1) // capped to node-size (MAX_SNAPSHOT_DPR), not the device's 3
     // Must NOT pass `scale` — snapDOM multiplies scale × dpr, so a capped scale would
     // still be blown up by the full device dpr (the round-2 regression this guards).
     expect(opts).not.toHaveProperty("scale")

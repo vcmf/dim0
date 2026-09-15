@@ -19,9 +19,14 @@ const CAPTURE_TIMEOUT_MS = 3000
  *  snapDOM rasters at CSS-size × scale × dpr, and its `dpr` DEFAULTS to
  *  `window.devicePixelRatio` — so to bound the decoded bitmap (memory ≈ w·h·4·mult²) we
  *  must cap `dpr`, not `scale` (a capped `scale` would still be multiplied by the full
- *  device dpr, making retina *worse*). Snapshots show small (zoomed-out / motion), where
- *  >1.5× device pixels adds bytes but no visible detail. */
-const MAX_SNAPSHOT_DPR = 1.5
+ *  device dpr, making retina *worse*).
+ *
+ *  Set to 1 (was 1.5): the canvas-harness core always blits the snapshot into the node's
+ *  OWN box (`drawImage(snap, 0,0, node.w, node.h)`) and does the zoom-downscale itself on
+ *  its cached surface. So a source larger than node-size (1×) is squished on the very
+ *  first draw — wasted pixels that only make each per-rebuild downscale (×N placeholders)
+ *  and the memory heavier. At 1× the blit is ~1:1 and stays crisp when shown small. */
+const MAX_SNAPSHOT_DPR = 1
 
 
 /** Resolve once web fonts are loaded (or immediately if there's no FontFaceSet, as in
