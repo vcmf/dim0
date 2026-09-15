@@ -23,19 +23,21 @@ export type SmokeResult = { ok: true } | { ok: false; message: string }
 
 
 // Props that a component iterates internally and that throw ("e is not iterable")
-// when handed a non-array. Taken from the real component impls: recharts maps over
-// Chart `data`/`datasets`; GraphElement maps `nodes`/`edges` unguarded; MapElement
-// maps `data`/`markers` (defaulting only *undefined* to []). Kept small + explicit;
+// when handed a non-array. From the real component impls: GraphElement maps
+// `nodes`/`edges` unguarded; MapElement maps `data`/`markers`. Kept small + explicit;
 // a general per-component prop schema on the registry would subsume this (§14.4).
+//
+// NOTE: `Chart` is intentionally absent. The Chart.js applet chart takes a config
+// OBJECT (`data={{ labels, datasets: [{ data }] }}`), not a top-level array, so the
+// array-prop heuristic doesn't apply — full Chart config-shape validation is a
+// separate follow-up (implementation plan PR 6).
 //
 // The check is deliberately conservative — see `walkElement`: it flags only a prop
 // that is present AND evaluates to a non-array, non-nullish value. A nullish value
-// is left to the component's own handling (Map defaults it; Chart's translateChart
-// is internal), so we never false-positive on an intentionally-empty binding. The
-// cost is missing the "required prop left undefined" crash (e.g. Graph without
-// edges) — a separate, documented gap.
+// is left to the component's own handling (Map defaults it), so we never
+// false-positive on an intentionally-empty binding. The cost is missing the
+// "required prop left undefined" crash (e.g. Graph without edges) — a documented gap.
 const ARRAY_PROPS: Record<string, readonly string[]> = {
-  Chart: ["data", "datasets"],
   Graph: ["nodes", "edges"],
   Map: ["data", "markers"],
 }
