@@ -1,11 +1,13 @@
+// Read theme CSS custom properties as CONCRETE colors at runtime — the only robust
+// way to concretize this app's oklch / `color-mix` tokens for a `<canvas>` context
+// (canvas `fillStyle` can't resolve `var(--x)`). Shared by the board canvas-harness
+// AND the applet canvas renderers (Chart/Graph/Map); lives in `lib/` so it's not
+// board-coupled. See docs/plans/applet-chartjs-migration.md §5.
+
 /**
  * Read a CSS custom property from `:root`. Returns the trimmed
  * computed value (resolved at call time) or `""` if the property is
  * unset or we're outside a browser context.
- *
- * Used by the theme adapter to pull `--background`, `--muted`,
- * `--muted-foreground`, etc. at runtime so canvas-harness paints the
- * exact same colors the rest of the app uses.
  */
 export const readCssVar = (name: string): string => {
   if (typeof window === "undefined") return ""
