@@ -4,6 +4,7 @@ import {
   clearAppletSnapshots,
   evictAppletSnapshot,
   getAppletSnapshot,
+  getAppletSnapshotForPaint,
   getAppletSnapshotHash,
   setAppletSnapshot,
   snapshotKey,
@@ -102,5 +103,23 @@ describe("snapshot cache", () => {
     setAppletSnapshot("k3", sized("3"), "h") // ~67 MB → evicts the now-oldest (k1)
     expect((getAppletSnapshot("k0") as unknown as { tag: string }).tag).toBe("0-new") // survived
     expect(getAppletSnapshot("k1")).toBeNull()
+  })
+})
+
+
+describe("getAppletSnapshotForPaint (per-pass placeholder cap)", () => {
+  it("blits at most 10 snapshots in one synchronous pass; the rest fall back to glyph (null)", () => {
+    for (let i = 0; i < 15; i++) setAppletSnapshot(`p${i}`, img(`${i}`), "h") // 15 cached
+    const results = Array.from({ length: 15 }, (_, i) => getAppletSnapshotForPaint(`p${i}`))
+    expect(results.filter(Boolean).length).toBe(10) // first 10 get a bitmap
+    expect(results.slice(10).every((r) => r === null)).toBe(true) // 11th+ → glyph
+  })
+
+  it("resets the counter each pass (microtask boundary), so the same node draws next pass", async () => {
+    for (let i = 0; i < 12; i++) setAppletSnapshot(`q${i}`, img(`${i}`), "h")
+    // Pass 1: exhaust the cap so q0 (first) is drawn but q10/q11 are capped out.
+    Array.from({ length: 12 }, (_, i) => getAppletSnapshotForPaint(`q${i}`))
+    await Promise.resolve() // let the reset microtask run → new pass
+    expect(getAppletSnapshotForPaint("q0")).not.toBeNull() // counter reset; draws again
   })
 })
