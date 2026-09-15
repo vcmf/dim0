@@ -107,19 +107,32 @@ describe("snapshot cache", () => {
 })
 
 
-describe("getAppletSnapshotForPaint (per-pass placeholder cap)", () => {
-  it("blits at most 10 snapshots in one synchronous pass; the rest fall back to glyph (null)", () => {
+describe("getAppletSnapshotForPaint (recency-capped placeholder)", () => {
+  it("draws a bitmap only for the 10 most-recently-captured applets; older ones → glyph (null)", () => {
     for (let i = 0; i < 15; i++) setAppletSnapshot(`p${i}`, img(`${i}`), "h") // 15 cached
-    const results = Array.from({ length: 15 }, (_, i) => getAppletSnapshotForPaint(`p${i}`))
-    expect(results.filter(Boolean).length).toBe(10) // first 10 get a bitmap
-    expect(results.slice(10).every((r) => r === null)).toBe(true) // 11th+ → glyph
+    // Total bitmaps bounded to 10 regardless of how many are queried (timing-independent).
+    const drawn = Array.from({ length: 15 }, (_, i) => getAppletSnapshotForPaint(`p${i}`)).filter(Boolean).length
+    expect(drawn).toBe(10)
+    expect(getAppletSnapshotForPaint("p14")).not.toBeNull() // newest → bitmap
+    expect(getAppletSnapshotForPaint("p5")).not.toBeNull() // 10th-newest → bitmap
+    expect(getAppletSnapshotForPaint("p4")).toBeNull() // beyond MRU-10 → glyph
+    expect(getAppletSnapshotForPaint("p0")).toBeNull() // oldest → glyph
   })
 
-  it("resets the counter each pass (microtask boundary), so the same node draws next pass", async () => {
-    for (let i = 0; i < 12; i++) setAppletSnapshot(`q${i}`, img(`${i}`), "h")
-    // Pass 1: exhaust the cap so q0 (first) is drawn but q10/q11 are capped out.
-    Array.from({ length: 12 }, (_, i) => getAppletSnapshotForPaint(`q${i}`))
-    await Promise.resolve() // let the reset microtask run → new pass
-    expect(getAppletSnapshotForPaint("q0")).not.toBeNull() // counter reset; draws again
+  it("a re-capture moves an old applet back into the eligible set (and pushes one out)", () => {
+    for (let i = 0; i < 15; i++) setAppletSnapshot(`q${i}`, img(`${i}`), "h")
+    expect(getAppletSnapshotForPaint("q0")).toBeNull() // too old to be eligible
+    setAppletSnapshot("q0", img("0new"), "h2") // re-capture → now newest
+    expect(getAppletSnapshotForPaint("q0")).not.toBeNull() // eligible again
+    expect(getAppletSnapshotForPaint("q5")).toBeNull() // pushed out of the newest-10
+  })
+
+  it("evict + clear keep the eligible set consistent", () => {
+    for (let i = 0; i < 12; i++) setAppletSnapshot(`e${i}`, img(`${i}`), "h") // eligible: e2..e11
+    evictAppletSnapshot("e11") // drop the newest → e1 slides into the newest-10
+    expect(getAppletSnapshotForPaint("e11")).toBeNull() // gone
+    expect(getAppletSnapshotForPaint("e1")).not.toBeNull() // now within the newest-10
+    clearAppletSnapshots()
+    expect(getAppletSnapshotForPaint("e10")).toBeNull() // nothing eligible after clear
   })
 })
