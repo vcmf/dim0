@@ -80,11 +80,19 @@ describe("snapshot cache", () => {
     expect(getAppletSnapshot("k120")).not.toBeNull() // newest kept
   })
 
-  it("a get() touches recency so the touched entry survives eviction", () => {
+  it("reads do NOT reorder recency (LRU is write-driven, so the paint hot path is pure)", () => {
     for (let i = 0; i < 120; i++) setAppletSnapshot(`k${i}`, img(`${i}`), "h") // fills to cap
-    getAppletSnapshot("k0") // touch the oldest → now most-recent
+    getAppletSnapshot("k0") // a read must NOT rescue the oldest entry
+    setAppletSnapshot("k120", img("120"), "h") // over cap → evicts the oldest (k0)
+    expect(getAppletSnapshot("k0")).toBeNull() // still evicted — the read didn't touch it
+    expect(getAppletSnapshot("k1")).not.toBeNull()
+  })
+
+  it("a re-capture (write) refreshes recency so the rewritten entry survives", () => {
+    for (let i = 0; i < 120; i++) setAppletSnapshot(`k${i}`, img(`${i}`), "h") // fills to cap
+    setAppletSnapshot("k0", img("0-new"), "h2") // re-capture k0 → now most-recent
     setAppletSnapshot("k120", img("120"), "h") // over cap → evicts the now-oldest (k1)
-    expect(getAppletSnapshot("k0")).not.toBeNull() // survived because touched
-    expect(getAppletSnapshot("k1")).toBeNull() // evicted instead
+    expect(getAppletSnapshot("k0")).toEqual({ tag: "0-new" }) // survived via the rewrite
+    expect(getAppletSnapshot("k1")).toBeNull()
   })
 })

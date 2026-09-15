@@ -35,16 +35,30 @@ function allCaptureReady(el: HTMLElement): boolean {
 }
 
 
+/** Resolve on the next animation frame (a one-frame settle). */
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => resolve())
+    else resolve()
+  })
+}
+
+
 /** Wait until fonts are ready AND every capture-ready leaf has committed, or `timeoutMs`
- *  elapses. Polls on animation frames (cheap; only runs during a pending capture). */
-async function waitForCaptureReady(el: HTMLElement, timeoutMs: number): Promise<void> {
+ *  elapses / `shouldCancel` trips. Polls on animation frames (cheap; only runs during a
+ *  pending capture). A one-frame settle first lets a just-mounted canvas leaf register
+ *  its `data-capture-ready="false"` marker before we sample, so we don't mistake
+ *  "marker not set yet" for "ready". */
+async function waitForCaptureReady(el: HTMLElement, timeoutMs: number, shouldCancel: () => boolean): Promise<void> {
   await fontsReady()
-  if (allCaptureReady(el)) return
+  if (shouldCancel()) return
+  await nextFrame()
+  if (allCaptureReady(el) || shouldCancel()) return
   await new Promise<void>((resolve) => {
     const start = typeof performance !== "undefined" ? performance.now() : Date.now()
     const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now())
     const tick = () => {
-      if (allCaptureReady(el) || now() - start > timeoutMs) {
+      if (allCaptureReady(el) || shouldCancel() || now() - start > timeoutMs) {
         resolve()
         return
       }
@@ -65,10 +79,11 @@ async function waitForCaptureReady(el: HTMLElement, timeoutMs: number): Promise<
  */
 export async function snapshotApplet(
   el: HTMLElement,
-  { timeoutMs = CAPTURE_TIMEOUT_MS }: { timeoutMs?: number } = {},
+  { timeoutMs = CAPTURE_TIMEOUT_MS, shouldCancel = () => false }: { timeoutMs?: number; shouldCancel?: () => boolean } = {},
 ): Promise<HTMLImageElement | null> {
   try {
-    await waitForCaptureReady(el, timeoutMs)
+    await waitForCaptureReady(el, timeoutMs, shouldCancel)
+    if (shouldCancel()) return null // aborted (applet went off-screen / unmounted) — skip the raster
     const dpr = (typeof window !== "undefined" && window.devicePixelRatio) || 1
     const result = await snapdom(el, { scale: dpr })
     const img = await result.toPng()

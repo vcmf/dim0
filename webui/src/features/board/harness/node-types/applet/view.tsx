@@ -6,7 +6,7 @@
 // gates pointer events on selection so canvas pan/zoom passes cleanly through
 // unselected applets. State is hydrated from / persisted to the local store.
 
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { ChartLineIcon } from "@phosphor-icons/react"
 import { type NodeId } from "@canvas-harness/core"
@@ -67,12 +67,13 @@ export function AppletNodeView({ id }: AppletViewProps) {
   // inspect surface).
   const { initialState, stateLoaded } = useAppletInitialState(noteId)
 
-  // Live iff mounted-by-the-pool (or selected) and ready to render.
-  const live = (shouldMount || isSelected) && !!source && stateLoaded
-
-  // While live AND actually painted (in view), rasterize into the snapshot cache so the
-  // canvas getSnapshot can blit it when this applet later zooms out / moves off-screen.
-  useAppletSnapshot({ noteId, captureRef, source, state: initialState, active: live && isInView })
+  // The state the snapshot hash reflects: the loaded initial state, then the latest
+  // persisted state after each interaction SETTLES (the same debounced cadence as the
+  // IndexedDB write, not per keystroke) — so a slider drag re-captures once, on settle.
+  const [snapState, setSnapState] = useState<Record<string, unknown> | null>(null)
+  useEffect(() => {
+    setSnapState(initialState)
+  }, [initialState])
 
   // Debounce persistence: a rapidly-updating applet (slider, text field) would
   // otherwise issue an IndexedDB write per keystroke. Coalesce to one write ~300ms
@@ -86,6 +87,7 @@ export function AppletNodeView({ id }: AppletViewProps) {
     }
     if (pendingState.current !== null) {
       void saveAppletState(noteId, pendingState.current)
+      setSnapState(pendingState.current) // refresh the snapshot hash once the change settles
       pendingState.current = null
     }
   }, [noteId])
@@ -98,6 +100,20 @@ export function AppletNodeView({ id }: AppletViewProps) {
     [flushPersist],
   )
   useEffect(() => () => flushPersist(), [flushPersist])
+
+  // Live iff mounted-by-the-pool (or selected) and ready to render.
+  const live = (shouldMount || isSelected) && !!source && stateLoaded
+
+  // Memoize the live renderer element so a snapshot-state re-render (setSnapState) never
+  // re-renders the interpreter — its props (source/initialState/onPersist) are stable.
+  const appletEl = useMemo(
+    () => <AppletRenderer source={source} initialState={initialState} onPersist={onPersist} className="h-full w-full" />,
+    [source, initialState, onPersist],
+  )
+
+  // While live AND actually painted (in view), rasterize into the snapshot cache so the
+  // canvas getSnapshot can blit it when this applet later zooms out / moves off-screen.
+  useAppletSnapshot({ noteId, captureRef, source, state: snapState, active: live && isInView })
 
   if (!node) return null
 
@@ -121,7 +137,7 @@ export function AppletNodeView({ id }: AppletViewProps) {
           )}
         >
           {live ? (
-            <AppletRenderer source={source} initialState={initialState} onPersist={onPersist} className="h-full w-full" />
+            appletEl
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground">
               <ChartLineIcon className="size-5 shrink-0" />

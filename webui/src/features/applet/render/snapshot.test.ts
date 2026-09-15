@@ -58,6 +58,14 @@ describe("snapshotApplet", () => {
     expect(mockedSnapdom).toHaveBeenCalledOnce()
   })
 
+  it("aborts without rasterizing when shouldCancel trips (applet went off-screen)", async () => {
+    const el = document.createElement("div")
+    document.body.appendChild(el)
+    const img = await snapshotApplet(el, { shouldCancel: () => true })
+    expect(img).toBeNull()
+    expect(mockedSnapdom).not.toHaveBeenCalled() // never paid for the raster
+  })
+
   it("snaps anyway once the readiness timeout elapses (a stuck leaf can't block forever)", async () => {
     const el = document.createElement("div")
     const leaf = document.createElement("canvas")
