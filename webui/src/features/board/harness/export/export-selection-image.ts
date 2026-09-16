@@ -115,9 +115,13 @@ export async function exportSelectionImage(store: CanvasStore, opts: ExportImage
       ctx.rotate(n.angle)
       ctx.translate(-(x + n.w / 2), -(y + n.h / 2))
     }
-    // Cover the base layer's JSX-source text under this applet before drawing the (possibly
-    // transparent) raster over it. Skipped in transparent mode, where we want no fill.
-    if (!opts.transparentBackground) {
+    // Clear the base layer's JSX-source text under this applet before drawing the (possibly
+    // transparent) raster over it. In transparent mode, erase to transparency (keeps the
+    // export transparent while removing the bleed-through text); otherwise fill with the
+    // export background.
+    if (opts.transparentBackground) {
+      ctx.clearRect(x, y, n.w, n.h)
+    } else {
       ctx.fillStyle = EXPORT_BG
       ctx.fillRect(x, y, n.w, n.h)
     }
@@ -135,6 +139,12 @@ export async function exportSelectionImage(store: CanvasStore, opts: ExportImage
  * vector export can't represent (their `content` is JSX source), so we overlay a snapDOM PNG
  * at the node's world box. Falls back to the plain vector SVG when nothing capturable is
  * selected. Async (unlike the harness's sync SVG export) because snapDOM capture is async.
+ *
+ * NOTE on transparency: each applet always gets an opaque backing `<rect>`, even in
+ * transparent mode. Unlike the canvas PNG path (which can `clearRect` the base layer's
+ * JSX-source text), an SVG string can't erase the underlying `<text>`, so an opaque backing is
+ * the only way to stop it bleeding through a transparent applet capture. Use PNG for a truly
+ * transparent applet export.
  */
 export async function exportSelectionSvgWithApplets(store: CanvasStore, opts: ExportImageOptions = {}): Promise<string> {
   const svg = exportSelectionSvg(store, {
@@ -151,7 +161,7 @@ export async function exportSelectionSvgWithApplets(store: CanvasStore, opts: Ex
   return injectAppletImages(
     svg,
     shots.map(({ node: n, img }) => ({ x: n.x, y: n.y, w: n.w, h: n.h, angle: n.angle, href: img.src })),
-    opts.transparentBackground ? undefined : EXPORT_BG,
+    EXPORT_BG,
   )
 }
 
@@ -165,12 +175,23 @@ export async function exportSelectionSvgWithApplets(store: CanvasStore, opts: Ex
  * the base layer's JSX-source `<text>` can't show through a transparent applet capture.
  * Returns the SVG unmodified if its shape isn't recognized. Pure/synchronous so it can be
  * unit-tested without a store, DOM, or snapDOM.
+ *
+ * The `translate(...)` match couples to the harness SVG format; it's pinned by our
+ * @canvas-harness/core version and covered by tests, but a lib format change would fail the
+ * match — in which case we warn (dev) and fall back to the plain vector SVG rather than
+ * misplacing overlays.
  */
 export function injectAppletImages(svg: string, placements: SvgAppletPlacement[], backgroundColor?: string): string {
   if (placements.length === 0) return svg
   const m = svg.match(/translate\(\s*(-?[\d.]+)[\s,]+(-?[\d.]+)\s*\)/)
   const closeIdx = svg.lastIndexOf("</svg>")
-  if (!m || closeIdx === -1) return svg // unexpected shape — return the vector export unmodified
+  if (!m || closeIdx === -1) {
+    // Unexpected shape — return the vector export unmodified (applets stay as source text).
+    if (import.meta.env.DEV) {
+      console.warn("[export] harness SVG shape not recognized (no content translate group); applet overlays skipped")
+    }
+    return svg
+  }
 
   const images = placements
     .map((p) => {
@@ -195,6 +216,7 @@ export function injectAppletImages(svg: string, placements: SvgAppletPlacement[]
 /** Snapshot each applet to a decoded image at bounded concurrency, reporting progress and
  *  dropping any that fails to capture. Shared by the PNG + SVG compositors. */
 async function captureAppletShots(nodes: Node[], onProgress?: (done: number, total: number) => void): Promise<AppletShot[]> {
+  onProgress?.(0, nodes.length) // show feedback up front — the first capture may wait seconds
   let done = 0
   const results = await mapWithConcurrency(nodes, CAPTURE_CONCURRENCY, async (node) => {
     const img = await captureApplet(node)
@@ -228,6 +250,15 @@ function findLiveAppletRoot(id: NodeId): HTMLElement | null {
  * Render an applet into an off-screen, node-sized container and snapshot it — the fallback
  * for an applet that isn't live in the overlay. Deterministic regardless of the board's zoom
  * or viewport. Returns null (never throws) so a capture failure degrades to the base render.
+ *
+ * Two caveats specific to this fallback (the live-DOM path has neither):
+ *   - The applet renders under a bare `createRoot`, without the app's context providers.
+ *     Applets are self-contained (the interpreter reads theme via CSS vars on :root, present
+ *     here), so this is fine in practice; a hypothetical provider-dependent applet would throw
+ *     and degrade to the base render.
+ *   - State is hydrated from `fetchAppletState` (persisted), since an unmounted applet has no
+ *     live state to read. An off-screen applet with unsaved interactive state exports its
+ *     last-persisted state.
  */
 async function captureViaHiddenMount(node: Node): Promise<HTMLImageElement | null> {
   if (typeof node.content !== "string" || node.content.length === 0) return null

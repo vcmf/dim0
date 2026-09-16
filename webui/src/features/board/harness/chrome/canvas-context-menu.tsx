@@ -7,7 +7,9 @@ import {
 } from "react"
 import { toast } from "sonner"
 import type { CanvasStore, NodeId, Renderer } from "@canvas-harness/core"
-import { exportSelectionImage, exportSelectionSvgWithApplets } from "../export/export-selection-image"
+// NOTE: the export compositor is loaded lazily (below, inside the handlers) — it pulls
+// snapDOM (~50 KB) via the applet snapshot module, which must stay off the eagerly-loaded
+// board bundle. Do NOT add a static import of "../export/export-selection-image" here.
 import {
   Clipboard as ClipboardIcon,
   StackMinus as StackMinusIcon,
@@ -45,16 +47,19 @@ import type { NoteNode } from "@/features/board/types/flow"
 
 
 /**
- * A sonner progress toast for applet image export. Applet captures can take ~100ms each, so a
- * multi-applet export shows an updating "Rendering applets… n/total" toast; a single applet
- * (or none) stays silent. `done()` dismisses it — call from a `finally`.
+ * A sonner progress toast for applet image export. Applet captures can take ~100ms each (and a
+ * slow one waits out the ~3s capture-readiness timeout), so any applet export shows a toast so
+ * the user isn't left with a dismissed menu and no feedback: a running "Rendering applets…
+ * n/total" for several, "Rendering applet…" for one. `done()` dismisses it — call from a
+ * `finally`.
  */
 function makeExportProgress(): { onProgress: (done: number, total: number) => void; done: () => void } {
   let id: string | number | undefined
   return {
     onProgress: (done, total) => {
-      if (total <= 1) return
-      id = toast.loading(`Rendering applets… ${done}/${total}`, { id })
+      if (total < 1) return
+      const label = total > 1 ? `Rendering applets… ${done}/${total}` : "Rendering applet…"
+      id = toast.loading(label, { id })
     },
     done: () => {
       if (id !== undefined) toast.dismiss(id)
@@ -207,6 +212,7 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
   const handleExportPng = useCallback(async () => {
     const progress = makeExportProgress()
     try {
+      const { exportSelectionImage } = await import("../export/export-selection-image")
       const blob = await exportSelectionImage(store, {
         transparentBackground: exportTransparent,
         // Pass the live renderer's asset cache so image + icon nodes
@@ -246,6 +252,7 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
     try {
       // Vector SVG for built-ins, with each selected applet's real render embedded as a
       // raster `<image>` on top (applets have no vector representation — see the compositor).
+      const { exportSelectionSvgWithApplets } = await import("../export/export-selection-image")
       const svg = await exportSelectionSvgWithApplets(store, {
         transparentBackground: exportTransparent,
         onProgress: progress.onProgress,
