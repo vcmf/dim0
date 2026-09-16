@@ -15,6 +15,7 @@
 // failures (state reached only after an interaction, a bad datum *shape* inside an
 // array) are out of scope and documented as such.
 
+import { CHART_TYPES } from "../render/chart/types"
 import { evalExpr, makeCtx, type Env, type Expr } from "../interpreter"
 import type { AppletTree, ElNode, JsonValue, Node } from "../tree"
 
@@ -27,10 +28,10 @@ export type SmokeResult = { ok: true } | { ok: false; message: string }
 // `nodes`/`edges` unguarded; MapElement maps `data`/`markers`. Kept small + explicit;
 // a general per-component prop schema on the registry would subsume this (§14.4).
 //
-// NOTE: `Chart` is intentionally absent. The Chart.js applet chart takes a config
+// NOTE: `Chart` is intentionally absent HERE. The Chart.js applet chart takes a config
 // OBJECT (`data={{ labels, datasets: [{ data }] }}`), not a top-level array, so the
-// array-prop heuristic doesn't apply — full Chart config-shape validation is a
-// separate follow-up (implementation plan PR 6).
+// array-prop heuristic doesn't apply — it has its own config-shape check (`checkChart`),
+// which catches the silent-blank mistakes (wrong `data` shape, bad `type`).
 //
 // The check is deliberately conservative — see `walkElement`: it flags only a prop
 // that is present AND evaluates to a non-array, non-nullish value. A nullish value
@@ -126,6 +127,8 @@ function walkElement(node: ElNode, env: Env): void {
     }
   }
 
+  if (node.tag === "Chart") checkChart(node, bound)
+
   const arrayProps = ARRAY_PROPS[node.tag]
   if (arrayProps) {
     for (const prop of arrayProps) {
@@ -148,6 +151,80 @@ function walkElement(node: ElNode, env: Env): void {
   }
 
   if (node.children) for (const child of node.children) walk(child, env)
+}
+
+
+/**
+ * Validate a `<Chart>`'s config shape — the silent-blank class the live renderer swallows
+ * (a wrong `data` shape makes Chart.js draw nothing; a bad `type` breaks it) — against the
+ * resolved props on the initial state. Throws a `SmokeFail` with an actionable message.
+ * Conservative like the array-prop check: an absent/nullish `data`, or empty `datasets`,
+ * is left to the renderer (an intentionally-empty chart), never flagged.
+ */
+function checkChart(node: ElNode, bound: Record<string, unknown>): void {
+  // A prop's value if the author set it (as a `{expr}` binding or a literal attr), else absent.
+  const resolve = (name: string): { present: boolean; value: unknown } => {
+    if (node.bind && name in node.bind) return { present: true, value: bound[name] }
+    if (node.props && name in node.props) return { present: true, value: (node.props as Record<string, JsonValue>)[name] }
+    return { present: false, value: undefined }
+  }
+
+  const type = resolve("type")
+  if (!type.present) {
+    throw new SmokeFail(`<Chart> needs a \`type\` — one of ${CHART_TYPES.join(", ")}. e.g. \`<Chart type="bar" data={{ labels, datasets: [{ data }] }} />\`.`)
+  }
+  // Reject any present, non-nullish type that isn't a valid kind — a string typo AND a
+  // non-string (a number/object from a bad binding), both of which break the renderer. A
+  // nullish resolved value (a dynamic type not yet set) is left alone, like `data` below.
+  if (type.value != null && !(typeof type.value === "string" && (CHART_TYPES as readonly string[]).includes(type.value))) {
+    throw new SmokeFail(`<Chart> \`type\` must be one of ${CHART_TYPES.join(", ")} — got ${JSON.stringify(type.value)}.`)
+  }
+
+  // `data` is optional (omitted → an empty chart, not a crash); only a PRESENT, non-nullish
+  // value is shape-checked.
+  const data = resolve("data")
+  if (!data.present || data.value == null) return
+  const d = data.value
+  if (Array.isArray(d)) {
+    throw new SmokeFail(
+      `<Chart> \`data\` must be an object \`{ labels, datasets: [{ data: [...] }] }\`, not a top-level array. ` +
+        `Every type — pie/doughnut included — uses that same shape (no per-slice \`{ name, value }\` objects).`,
+    )
+  }
+  if (typeof d !== "object") {
+    throw new SmokeFail(`<Chart> \`data\` must be an object \`{ labels, datasets: [{ data: [...] }] }\`, but it evaluates to ${typeName(d)}.`)
+  }
+  // A MISSING `datasets` key is the mistake (data put directly on `data`) → flag. A present
+  // but nullish `datasets` (a dynamic binding not yet populated) renders an empty chart —
+  // the renderer does `(data?.datasets ?? []).map(...)` — so leave it, like the top-level and
+  // per-dataset nullish policy.
+  const dObj = d as Record<string, unknown>
+  if (!("datasets" in dObj) || (dObj.datasets != null && !Array.isArray(dObj.datasets))) {
+    throw new SmokeFail(
+      `<Chart> \`data\` needs a \`datasets\` array: \`data={{ labels: [...], datasets: [{ data: [...] }] }}\`. ` +
+        `Put the numbers under \`datasets[].data\`, not directly on \`data\`.`,
+    )
+  }
+  const datasets = dObj.datasets
+  if (datasets == null) return // populated later — an empty chart, not a crash
+  datasets.forEach((ds, i) => {
+    if (ds == null || typeof ds !== "object" || Array.isArray(ds)) {
+      throw new SmokeFail(`<Chart> dataset ${i} must be an object like \`{ label: "Sales", data: [10, 20, 30] }\`, but it is ${typeName(ds)}.`)
+    }
+    const dsObj = ds as Record<string, unknown>
+    // A MISSING `data` key is the recharts/`{ name, value }` mistake → flag. A present but
+    // nullish `data` (a dynamic binding not yet populated) renders empty → leave it, like
+    // the top-level nullish policy.
+    if (!("data" in dsObj)) {
+      throw new SmokeFail(
+        `<Chart> dataset ${i} has no \`data\` array — put the numbers under \`data\`: \`{ data: [10, 20, 30] }\`. ` +
+          `Even pie/doughnut use this; a \`{ name, value }\` per-slice object is the old shape.`,
+      )
+    }
+    if (dsObj.data != null && !Array.isArray(dsObj.data)) {
+      throw new SmokeFail(`<Chart> dataset ${i}'s \`data\` must be an array (e.g. \`[10, 20, 30]\`), but it is ${typeName(dsObj.data)}.`)
+    }
+  })
 }
 
 

@@ -14,9 +14,8 @@ function tree(source: string) {
 
 
 describe("smokeTestApplet — array-prop contract", () => {
-  // NOTE: `Chart` is no longer array-validated here — the Chart.js applet chart takes
-  // a config object (`data={{ labels, datasets }}`), not a top-level array; its
-  // config-shape validation is a separate follow-up (implementation plan PR 6).
+  // NOTE: `Chart` isn't array-validated here (its config is an object, not a top-level
+  // array); it has its own config-shape check — see the "Chart config shape" block below.
 
   it("passes a Graph/Map with array props", () => {
     const t = tree(`
@@ -145,5 +144,60 @@ describe("validateApplet — smoke test folded into the write_note gate", () => 
       </Widget>
     `)
     expect(r).toEqual({ ok: true })
+  })
+})
+
+
+describe("smokeTestApplet — Chart config shape", () => {
+  const ok = (source: string) => expect(validateApplet(source)).toEqual({ ok: true })
+  const failsWith = (source: string, needle: string) => {
+    const r = validateApplet(source)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.message).toContain(needle)
+  }
+
+  it("passes the canonical bar/pie shape (same { labels, datasets } for both)", () => {
+    ok(`<Widget data={{ nums: [10, 20, 30] }}><Chart type="bar" data={{ labels: ["a", "b", "c"], datasets: [{ data: nums }] }} /></Widget>`)
+    ok(`<Widget data={{ nums: [40, 30, 20, 10] }}><Chart type="pie" data={{ labels: ["A", "B", "C", "D"], datasets: [{ data: nums }] }} /></Widget>`)
+  })
+
+  it("passes a Chart with no data (an empty chart, not a crash)", () => {
+    ok(`<Widget data={{}}><Chart type="line" /></Widget>`)
+  })
+
+  it("flags a missing type", () => {
+    failsWith(`<Widget data={{ nums: [1, 2] }}><Chart data={{ datasets: [{ data: nums }] }} /></Widget>`, "needs a `type`")
+  })
+
+  it("flags an invalid (string) type", () => {
+    failsWith(`<Widget data={{ nums: [1, 2] }}><Chart type="piechart" data={{ datasets: [{ data: nums }] }} /></Widget>`, "must be one of")
+  })
+
+  it("flags a non-string type from a bad binding (not just a string typo)", () => {
+    failsWith(`<Widget data={{ t: 5 }}><Chart type={t} data={{ datasets: [{ data: [1] }] }} /></Widget>`, "must be one of")
+  })
+
+  it("flags data as a top-level array (the old recharts/pie shape)", () => {
+    failsWith(`<Widget data={{ rows: [{ name: "A", value: 10 }] }}><Chart type="pie" data={rows} /></Widget>`, "not a top-level array")
+  })
+
+  it("flags a data object with no datasets", () => {
+    failsWith(`<Widget data={{ nums: [10, 20, 30] }}><Chart type="bar" data={{ data: nums }} /></Widget>`, "needs a `datasets` array")
+  })
+
+  it("flags a dataset with no data key (per-slice { name, value } — the old shape)", () => {
+    failsWith(`<Widget data={{ slices: [{ name: "A", value: 10 }] }}><Chart type="pie" data={{ datasets: slices }} /></Widget>`, "has no `data` array")
+  })
+
+  it("allows a dataset whose data binding is nullish on the initial state (populated later)", () => {
+    ok(`<Widget state={{ sales: null }}><Chart type="bar" data={{ datasets: [{ label: "Sales", data: sales }] }} /></Widget>`)
+  })
+
+  it("allows a nullish `datasets` binding on the initial state (fetched/populated later)", () => {
+    ok(`<Widget state={{ rows: null }}><Chart type="bar" data={{ labels: [], datasets: rows }} /></Widget>`)
+  })
+
+  it("allows an intentionally-empty datasets array", () => {
+    ok(`<Widget data={{}}><Chart type="bar" data={{ labels: [], datasets: [] }} /></Widget>`)
   })
 })
