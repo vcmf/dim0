@@ -44,6 +44,25 @@ import { nodeToNote } from "../convert/node-to-note"
 import type { NoteNode } from "@/features/board/types/flow"
 
 
+/**
+ * A sonner progress toast for applet image export. Applet captures can take ~100ms each, so a
+ * multi-applet export shows an updating "Rendering applets… n/total" toast; a single applet
+ * (or none) stays silent. `done()` dismisses it — call from a `finally`.
+ */
+function makeExportProgress(): { onProgress: (done: number, total: number) => void; done: () => void } {
+  let id: string | number | undefined
+  return {
+    onProgress: (done, total) => {
+      if (total <= 1) return
+      id = toast.loading(`Rendering applets… ${done}/${total}`, { id })
+    },
+    done: () => {
+      if (id !== undefined) toast.dismiss(id)
+    },
+  }
+}
+
+
 export type CanvasContextMenuProps = {
   /** Canvas wrap ref — the menu's contextmenu listener attaches here. */
   wrapRef: RefObject<HTMLElement | null>
@@ -186,6 +205,7 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
 
   // ---- Export -----------------------------------------------------------
   const handleExportPng = useCallback(async () => {
+    const progress = makeExportProgress()
     try {
       const blob = await exportSelectionImage(store, {
         transparentBackground: exportTransparent,
@@ -193,9 +213,10 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
         // paint from already-decoded bitmaps. Without this, the lib
         // silently skips those node types in the output (back-compat
         // shape from canvas-harness 0.1.15). Applet nodes are composited
-        // from a snapDOM capture of their live render (their `content`
+        // from a snapDOM capture of their real render (their `content`
         // is JSX source, which the base export would draw as text).
         assetCache: rendererRef.current?.getAssetCache(),
+        onProgress: progress.onProgress,
       })
       try {
         // Try clipboard first (Notion / Figma-style behavior).
@@ -215,14 +236,20 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
     } catch (err) {
       console.error("[context-menu] PNG export failed", err)
       toast.error("Couldn't export selection")
+    } finally {
+      progress.done()
     }
   }, [store, exportTransparent, rendererRef])
 
   const handleExportSvg = useCallback(async () => {
+    const progress = makeExportProgress()
     try {
-      // Vector SVG for built-ins, with each selected applet's live render embedded as a
+      // Vector SVG for built-ins, with each selected applet's real render embedded as a
       // raster `<image>` on top (applets have no vector representation — see the compositor).
-      const svg = await exportSelectionSvgWithApplets(store, { transparentBackground: exportTransparent })
+      const svg = await exportSelectionSvgWithApplets(store, {
+        transparentBackground: exportTransparent,
+        onProgress: progress.onProgress,
+      })
       const blob = new Blob([svg], { type: "image/svg+xml" })
       const url = URL.createObjectURL(blob)
       Object.assign(document.createElement("a"), {
@@ -233,6 +260,8 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
     } catch (err) {
       console.error("[context-menu] SVG export failed", err)
       toast.error("Couldn't export selection")
+    } finally {
+      progress.done()
     }
   }, [store, exportTransparent])
 

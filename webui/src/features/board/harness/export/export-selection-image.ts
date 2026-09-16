@@ -5,11 +5,26 @@
 // images, icons, and each node's text `content` — but an applet's `content` is its JSX
 // SOURCE, so a plain export draws the source text, not the chart/graph/map. Here we run the
 // harness export as a base layer, then composite a snapDOM capture of each selected applet's
-// LIVE DOM on top (selection forces applets live, so their DOM exists). See PR 6a.
+// rendered DOM on top. See PR 6a.
+//
+// Capture is HYBRID: an applet that's currently mounted in the live overlay (zoomed in,
+// on-screen) is snapshotted directly — free. One that isn't (zoomed out below the LOD
+// threshold, or scrolled off-screen) is rendered into a hidden, node-sized container via
+// `AppletRenderer` and snapshotted there — so export never depends on the board's live
+// zoom/viewport, and a selected applet is never silently exported as its JSX source. Captures
+// run at a bounded concurrency so a large selection doesn't spike memory with many React
+// roots + bitmaps at once. Capture resolution is snapDOM's DPR-capped default (1×) — applets
+// read slightly softer than built-in content in the 2× export, a deliberate speed tradeoff.
+
+import { createElement } from "react"
+import { flushSync } from "react-dom"
+import { createRoot } from "react-dom/client"
 
 import { exportSelection, exportSelectionSvg, nodeAABB, unionRects } from "@canvas-harness/core"
 import type { AssetCache, CanvasStore, Node, NodeId } from "@canvas-harness/core"
 
+import { AppletRenderer, type AppletRendererProps } from "@/features/applet/render"
+import { fetchAppletState } from "@/features/applet/render"
 import { snapshotApplet } from "@/features/applet/render/snapshot"
 
 
@@ -17,6 +32,16 @@ import { snapshotApplet } from "@/features/applet/render/snapshot"
 // base layer's coordinate frame.
 const EXPORT_PADDING = 16
 const EXPORT_SCALE = 2
+const EXPORT_BG = "#ffffff"
+
+// How many applet captures run at once. snapDOM rasterization is main-thread/sync, so more
+// than a few in flight spikes memory (React roots + bitmaps) without speeding CPU work.
+const CAPTURE_CONCURRENCY = 3
+
+// Max wait for a hidden-mounted applet's `data-capture-ready` marker to appear before
+// snapshotting. Charts set it within a frame or two; a marker-less pure-DOM applet waits this
+// out (it has nothing async to draw).
+const MARKER_GRACE_MS = 250
 
 // Node types whose real content is a live DOM subtree (captured via snapDOM). iframes
 // (mini-app/widget) are cross-origin → a snapshot would taint the canvas, so they're left
@@ -28,14 +53,30 @@ export interface ExportImageOptions {
   transparentBackground?: boolean
   /** From `renderer.getAssetCache()` — without it, image/icon nodes are skipped. */
   assetCache?: AssetCache
+  /** Called after each applet is captured, for progress UI. */
+  onProgress?: (done: number, total: number) => void
 }
 
 
+/** One rastered applet to lay over the vector SVG, positioned in world coords. */
+export interface SvgAppletPlacement {
+  x: number
+  y: number
+  w: number
+  h: number
+  /** Rotation in radians (harness convention); 0 ⇒ axis-aligned. */
+  angle: number
+  /** The image href — a snapDOM `data:image/png;base64,…` URI. */
+  href: string
+}
+
+
+type AppletShot = { node: Node; img: HTMLImageElement }
+
+
 /**
- * PNG blob of the current selection, compositing each selected applet's real render (via
- * snapDOM) over the harness canvas export. Falls back to the plain harness export when no
- * capturable DOM node is selected. Off-screen/unmounted applets (no live DOM) fall back to
- * the base render for that node — a documented v1 limitation.
+ * PNG blob of the current selection, compositing each selected applet's real render over the
+ * harness canvas export. Falls back to the plain harness export when no applet is selected.
  */
 export async function exportSelectionImage(store: CanvasStore, opts: ExportImageOptions = {}): Promise<Blob> {
   const nodes = selectedNodes(store)
@@ -60,9 +101,10 @@ export async function exportSelectionImage(store: CanvasStore, opts: ExportImage
   ctx.scale(EXPORT_SCALE, EXPORT_SCALE)
 
   const baseImg = await blobToImage(base)
-  if (baseImg) ctx.drawImage(baseImg, 0, 0, cssW, cssH)
+  if (!baseImg) return base // couldn't decode the base — better to ship it whole than drop it
+  ctx.drawImage(baseImg, 0, 0, cssW, cssH)
 
-  for (const { node: n, img } of await captureAppletShots(domNodes)) {
+  for (const { node: n, img } of await captureAppletShots(domNodes, opts.onProgress)) {
     // Node x/y are the PRE-rotation top-left; place at that box (offset into the padded
     // frame) and rotate about the center to match how the harness draws it.
     const x = n.x - bbox.x + EXPORT_PADDING
@@ -72,6 +114,12 @@ export async function exportSelectionImage(store: CanvasStore, opts: ExportImage
       ctx.translate(x + n.w / 2, y + n.h / 2)
       ctx.rotate(n.angle)
       ctx.translate(-(x + n.w / 2), -(y + n.h / 2))
+    }
+    // Cover the base layer's JSX-source text under this applet before drawing the (possibly
+    // transparent) raster over it. Skipped in transparent mode, where we want no fill.
+    if (!opts.transparentBackground) {
+      ctx.fillStyle = EXPORT_BG
+      ctx.fillRect(x, y, n.w, n.h)
     }
     ctx.drawImage(img, x, y, n.w, n.h)
     ctx.restore()
@@ -97,26 +145,14 @@ export async function exportSelectionSvgWithApplets(store: CanvasStore, opts: Ex
   const domNodes = selectedNodes(store).filter((n) => DOM_CAPTURE_TYPES.has(n.type))
   if (domNodes.length === 0) return svg
 
-  const shots = await captureAppletShots(domNodes)
+  const shots = await captureAppletShots(domNodes, opts.onProgress)
   if (shots.length === 0) return svg
 
   return injectAppletImages(
     svg,
     shots.map(({ node: n, img }) => ({ x: n.x, y: n.y, w: n.w, h: n.h, angle: n.angle, href: img.src })),
+    opts.transparentBackground ? undefined : EXPORT_BG,
   )
-}
-
-
-/** One rastered applet to lay over the vector SVG, positioned in world coords. */
-export interface SvgAppletPlacement {
-  x: number
-  y: number
-  w: number
-  h: number
-  /** Rotation in radians (harness convention); 0 ⇒ axis-aligned. */
-  angle: number
-  /** The image href — a snapDOM `data:image/png;base64,…` URI. */
-  href: string
 }
 
 
@@ -125,10 +161,12 @@ export interface SvgAppletPlacement {
  * `<g transform="translate(tx ty)">` where children are drawn at WORLD coords (tx = padding −
  * bbox.x). We append a SIBLING group with the SAME translate holding the applet `<image>`s,
  * also at world coords — last child ⇒ painted on top, and robust to the exact nesting of the
- * base group. Returns the SVG unmodified if its shape isn't recognized. Pure/synchronous so
- * it can be unit-tested without a store, DOM, or snapDOM.
+ * base group. When `backgroundColor` is given, each image gets an opaque backing `<rect>` so
+ * the base layer's JSX-source `<text>` can't show through a transparent applet capture.
+ * Returns the SVG unmodified if its shape isn't recognized. Pure/synchronous so it can be
+ * unit-tested without a store, DOM, or snapDOM.
  */
-export function injectAppletImages(svg: string, placements: SvgAppletPlacement[]): string {
+export function injectAppletImages(svg: string, placements: SvgAppletPlacement[], backgroundColor?: string): string {
   if (placements.length === 0) return svg
   const m = svg.match(/translate\(\s*(-?[\d.]+)[\s,]+(-?[\d.]+)\s*\)/)
   const closeIdx = svg.lastIndexOf("</svg>")
@@ -136,10 +174,14 @@ export function injectAppletImages(svg: string, placements: SvgAppletPlacement[]
 
   const images = placements
     .map((p) => {
+      const backing = backgroundColor
+        ? `<rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" fill="${escapeXmlAttr(backgroundColor)}" />`
+        : ""
       const image = `<image x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" href="${escapeXmlAttr(p.href)}" preserveAspectRatio="none" />`
-      if (!p.angle) return image
+      const body = backing + image
+      if (!p.angle) return body
       const deg = (p.angle * 180) / Math.PI
-      return `<g transform="rotate(${deg} ${p.x + p.w / 2} ${p.y + p.h / 2})">${image}</g>`
+      return `<g transform="rotate(${deg} ${p.x + p.w / 2} ${p.y + p.h / 2})">${body}</g>`
     })
     .join("")
 
@@ -148,25 +190,96 @@ export function injectAppletImages(svg: string, placements: SvgAppletPlacement[]
 }
 
 
-/** Snapshot each node's live applet DOM to a decoded image, dropping any that isn't mounted
- *  or fails to capture. Shared by the PNG + SVG compositors. */
-async function captureAppletShots(nodes: Node[]): Promise<Array<{ node: Node; img: HTMLImageElement }>> {
-  const out: Array<{ node: Node; img: HTMLImageElement }> = []
-  for (const node of nodes) {
-    const el = findNodeElement(node.id)
-    if (!el) continue // off-screen / below the LOD zoom ⇒ no live DOM; base layer covers it
-    const img = await snapshotApplet(el) // waits for fonts + canvas leaves' capture-ready
-    if (img) out.push({ node, img })
+// ---- capture --------------------------------------------------------------
+
+/** Snapshot each applet to a decoded image at bounded concurrency, reporting progress and
+ *  dropping any that fails to capture. Shared by the PNG + SVG compositors. */
+async function captureAppletShots(nodes: Node[], onProgress?: (done: number, total: number) => void): Promise<AppletShot[]> {
+  let done = 0
+  const results = await mapWithConcurrency(nodes, CAPTURE_CONCURRENCY, async (node) => {
+    const img = await captureApplet(node)
+    onProgress?.(++done, nodes.length)
+    return img ? { node, img } : null
+  })
+  return results.filter((r): r is AppletShot => r !== null)
+}
+
+
+/** Capture one applet: reuse its live overlay DOM if it's mounted (free), else render it into
+ *  a hidden container so capture is independent of the board's zoom/viewport. */
+async function captureApplet(node: Node): Promise<HTMLImageElement | null> {
+  const live = findLiveAppletRoot(node.id)
+  if (live) return snapshotApplet(live)
+  return captureViaHiddenMount(node)
+}
+
+
+/** The live applet-body element for a node id (stamped by render-view.tsx), or null if the
+ *  applet isn't currently mounted in the overlay. Prefers `.applet-root` (the applet body,
+ *  no node chrome) and falls back to the wrapper. */
+function findLiveAppletRoot(id: NodeId): HTMLElement | null {
+  const wrapper = document.querySelector<HTMLElement>(`[data-node-id="${cssEscape(String(id))}"]`)
+  if (!wrapper) return null
+  return wrapper.querySelector<HTMLElement>(".applet-root") ?? wrapper
+}
+
+
+/**
+ * Render an applet into an off-screen, node-sized container and snapshot it — the fallback
+ * for an applet that isn't live in the overlay. Deterministic regardless of the board's zoom
+ * or viewport. Returns null (never throws) so a capture failure degrades to the base render.
+ */
+async function captureViaHiddenMount(node: Node): Promise<HTMLImageElement | null> {
+  if (typeof node.content !== "string" || node.content.length === 0) return null
+  const initialState = await fetchAppletInitialState(node.id)
+
+  const container = document.createElement("div")
+  container.setAttribute("data-applet-export", "")
+  Object.assign(container.style, {
+    position: "fixed",
+    left: "-100000px",
+    top: "0px",
+    width: `${node.w}px`,
+    height: `${node.h}px`,
+    overflow: "hidden",
+    pointerEvents: "none",
+    background: "transparent",
+  })
+  document.body.appendChild(container)
+
+  const root = createRoot(container)
+  try {
+    // flushSync commits the initial DOM synchronously. A canvas leaf's `data-capture-ready`
+    // marker is written in a POST-commit effect, so we then wait for that marker to appear
+    // before snapshotting — otherwise snapshotApplet would see no `="false"` marker on a
+    // still-blank chart and capture it empty. Marker-less applets (pure DOM, no canvas) never
+    // set one, so a short grace bounds the wait for them.
+    flushSync(() => root.render(createElement(AppletRenderer, { source: node.content as string, initialState })))
+    await waitForCaptureMarkers(container, MARKER_GRACE_MS)
+    const el = container.querySelector<HTMLElement>(".applet-root") ?? container
+    return await snapshotApplet(el) // then waits for the marker to flip true (chart drawn)
+  } catch {
+    return null
+  } finally {
+    root.unmount()
+    container.remove()
   }
-  return out
 }
 
 
-/** Escape a string for use inside a double-quoted XML attribute (the snapDOM data URI). */
-function escapeXmlAttr(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+/** Read an applet's persisted state for a standalone render, shaped for `AppletRenderer`.
+ *  Any failure (no row, store error) → undefined, so the applet renders its declared defaults. */
+async function fetchAppletInitialState(id: NodeId): Promise<AppletRendererProps["initialState"]> {
+  try {
+    const state = await fetchAppletState(String(id))
+    return state && typeof state === "object" ? (state as AppletRendererProps["initialState"]) : undefined
+  } catch {
+    return undefined
+  }
 }
 
+
+// ---- helpers --------------------------------------------------------------
 
 /** The selection's node objects (edge ids resolve to undefined via getNode → filtered out). */
 function selectedNodes(store: CanvasStore): Node[] {
@@ -179,12 +292,52 @@ function selectedNodes(store: CanvasStore): Node[] {
 }
 
 
-/** The live DOM element for a node id (stamped by render-view.tsx), or null if it isn't
- *  currently mounted in the overlay (off-screen / below the LOD zoom). */
-function findNodeElement(id: NodeId): HTMLElement | null {
-  const raw = String(id)
-  const sel = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(raw) : raw.replace(/["\\]/g, "\\$&")
-  return document.querySelector<HTMLElement>(`[data-node-id="${sel}"]`)
+/** Map `fn` over `items` with at most `limit` promises in flight, preserving input order. */
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const i = next++
+      results[i] = await fn(items[i])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return results
+}
+
+
+/** Resolve once a `data-capture-ready` marker appears anywhere under `el` (a canvas leaf's
+ *  post-commit effect has run) or `graceMs` elapses (a marker-less pure-DOM applet). Bounds
+ *  the cold-start race where a just-mounted chart reads as ready while still blank. */
+function waitForCaptureMarkers(el: HTMLElement, graceMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    const start = now()
+    const check = () => {
+      if (el.querySelector("[data-capture-ready]") || now() - start >= graceMs) return resolve()
+      if (typeof requestAnimationFrame === "function") requestAnimationFrame(check)
+      else setTimeout(check, 16)
+    }
+    check()
+  })
+}
+
+
+/** Monotonic-ish clock (falls back to Date.now where performance is absent). */
+function now(): number {
+  return typeof performance !== "undefined" ? performance.now() : Date.now()
+}
+
+
+/** Escape a raw id for a CSS attribute selector (`CSS.escape` when available). */
+function cssEscape(raw: string): string {
+  return typeof CSS !== "undefined" && CSS.escape ? CSS.escape(raw) : raw.replace(/["\\]/g, "\\$&")
+}
+
+
+/** Escape a string for use inside a double-quoted XML attribute (the snapDOM data URI). */
+function escapeXmlAttr(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
 }
 
 

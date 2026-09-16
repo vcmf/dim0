@@ -49,4 +49,17 @@ describe("injectAppletImages", () => {
     const weird = `<svg><rect /></svg>`
     expect(injectAppletImages(weird, [{ x: 0, y: 0, w: 1, h: 1, angle: 0, href: HREF }])).toBe(weird)
   })
+
+  it("emits an opaque backing rect before the image when a background color is given", () => {
+    const p: SvgAppletPlacement = { x: 10, y: 20, w: 30, h: 40, angle: 0, href: HREF }
+    const out = injectAppletImages(BASE_SVG, [p], "#ffffff")
+    // rect precedes image (painted under it), same box, given fill.
+    expect(out).toContain(`<rect x="10" y="20" width="30" height="40" fill="#ffffff" /><image x="10" y="20"`)
+  })
+
+  it("omits the backing rect when no background color is given (transparent export)", () => {
+    const out = injectAppletImages(BASE_SVG, [{ x: 0, y: 0, w: 1, h: 1, angle: 0, href: HREF }])
+    // The overlay group opens straight into the <image> — no backing rect before it.
+    expect(out).toContain(`<g transform="translate(-84 -34)"><image x="0" y="0"`)
+  })
 })
