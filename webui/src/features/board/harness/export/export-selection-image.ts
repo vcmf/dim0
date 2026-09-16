@@ -27,6 +27,8 @@ import { AppletRenderer, type AppletRendererProps } from "@/features/applet/rend
 import { fetchAppletState } from "@/features/applet/render"
 import { snapshotApplet } from "@/features/applet/render/snapshot"
 
+import { blobToImage, canvasToBlob } from "../canvas/canvas-blob"
+
 
 // Must match what we pass to `exportSelection`, so the composited overlay lines up with the
 // base layer's coordinate frame.
@@ -80,16 +82,19 @@ type AppletShot = { node: Node; img: HTMLImageElement }
  */
 export async function exportSelectionImage(store: CanvasStore, opts: ExportImageOptions = {}): Promise<Blob> {
   const nodes = selectedNodes(store)
-  const base = await exportSelection(store, {
+  const domNodes = nodes.filter((n) => DOM_CAPTURE_TYPES.has(n.type))
+  const bbox = unionRects(nodes.map(nodeAABB))
+
+  // Base raster and applet captures are independent — run them concurrently.
+  const basePromise = exportSelection(store, {
     padding: EXPORT_PADDING,
     scale: EXPORT_SCALE,
     transparentBackground: opts.transparentBackground,
     assetCache: opts.assetCache,
   })
-
-  const domNodes = nodes.filter((n) => DOM_CAPTURE_TYPES.has(n.type))
-  const bbox = unionRects(nodes.map(nodeAABB))
-  if (domNodes.length === 0 || !bbox) return base // nothing to composite
+  const shotsPromise = domNodes.length > 0 && bbox ? captureAppletShots(domNodes, opts.onProgress) : Promise.resolve<AppletShot[]>([])
+  const [base, shots] = await Promise.all([basePromise, shotsPromise])
+  if (shots.length === 0 || !bbox) return base // nothing to composite
 
   const cssW = bbox.w + EXPORT_PADDING * 2
   const cssH = bbox.h + EXPORT_PADDING * 2
@@ -104,7 +109,7 @@ export async function exportSelectionImage(store: CanvasStore, opts: ExportImage
   if (!baseImg) return base // couldn't decode the base — better to ship it whole than drop it
   ctx.drawImage(baseImg, 0, 0, cssW, cssH)
 
-  for (const { node: n, img } of await captureAppletShots(domNodes, opts.onProgress)) {
+  for (const { node: n, img } of shots) {
     // Node x/y are the PRE-rotation top-left; place at that box (offset into the padded
     // frame) and rotate about the center to match how the harness draws it.
     const x = n.x - bbox.x + EXPORT_PADDING
@@ -125,7 +130,10 @@ export async function exportSelectionImage(store: CanvasStore, opts: ExportImage
       ctx.fillStyle = EXPORT_BG
       ctx.fillRect(x, y, n.w, n.h)
     }
-    ctx.drawImage(img, x, y, n.w, n.h)
+    // Aspect-fit (contain) the capture into the node box — the captured `.applet-root` is
+    // inset by the card chrome, so stretching it to the full box would distort it.
+    const fit = containRect(img.width, img.height, n.w, n.h)
+    ctx.drawImage(img, x + fit.dx, y + fit.dy, fit.dw, fit.dh)
     ctx.restore()
   }
 
@@ -198,7 +206,9 @@ export function injectAppletImages(svg: string, placements: SvgAppletPlacement[]
       const backing = backgroundColor
         ? `<rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" fill="${escapeXmlAttr(backgroundColor)}" />`
         : ""
-      const image = `<image x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" href="${escapeXmlAttr(p.href)}" preserveAspectRatio="none" />`
+      // `meet` aspect-fits the capture into the node box (the captured `.applet-root` is inset
+      // by card chrome, so a `none` stretch would distort it); the backing rect covers the box.
+      const image = `<image x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" href="${escapeXmlAttr(p.href)}" preserveAspectRatio="xMidYMid meet" />`
       const body = backing + image
       if (!p.angle) return body
       const deg = (p.angle * 180) / Math.PI
@@ -285,7 +295,9 @@ async function captureViaHiddenMount(node: Node): Promise<HTMLImageElement | nul
     // before snapshotting — otherwise snapshotApplet would see no `="false"` marker on a
     // still-blank chart and capture it empty. Marker-less applets (pure DOM, no canvas) never
     // set one, so a short grace bounds the wait for them.
-    flushSync(() => root.render(createElement(AppletRenderer, { source: node.content as string, initialState })))
+    flushSync(() =>
+      root.render(createElement(AppletRenderer, { source: node.content as string, initialState, className: "h-full w-full" })),
+    )
     await waitForCaptureMarkers(container, MARKER_GRACE_MS)
     const el = container.querySelector<HTMLElement>(".applet-root") ?? container
     return await snapshotApplet(el) // then waits for the marker to flip true (chart drawn)
@@ -340,23 +352,37 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T)
 
 /** Resolve once a `data-capture-ready` marker appears anywhere under `el` (a canvas leaf's
  *  post-commit effect has run) or `graceMs` elapses (a marker-less pure-DOM applet). Bounds
- *  the cold-start race where a just-mounted chart reads as ready while still blank. */
+ *  the cold-start race where a just-mounted chart reads as ready while still blank. A
+ *  setTimeout backstop guarantees resolution even if rAF is paused (backgrounded tab). */
 function waitForCaptureMarkers(el: HTMLElement, graceMs: number): Promise<void> {
   return new Promise((resolve) => {
-    const start = now()
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve()
+    }
+    const timer = setTimeout(finish, graceMs) // wall-clock cap, independent of rAF
     const check = () => {
-      if (el.querySelector("[data-capture-ready]") || now() - start >= graceMs) return resolve()
+      if (settled) return
+      if (el.querySelector("[data-capture-ready]")) return finish()
       if (typeof requestAnimationFrame === "function") requestAnimationFrame(check)
-      else setTimeout(check, 16)
+      // else: the setTimeout backstop is the only path — that's fine.
     }
     check()
   })
 }
 
 
-/** Monotonic-ish clock (falls back to Date.now where performance is absent). */
-function now(): number {
-  return typeof performance !== "undefined" ? performance.now() : Date.now()
+/** Aspect-fit (contain) an `imgW×imgH` image into a `boxW×boxH` box, centered — the offset and
+ *  size to draw at so the image keeps its aspect ratio with no cropping. Exported for tests. */
+export function containRect(imgW: number, imgH: number, boxW: number, boxH: number): { dx: number; dy: number; dw: number; dh: number } {
+  if (imgW <= 0 || imgH <= 0) return { dx: 0, dy: 0, dw: boxW, dh: boxH }
+  const scale = Math.min(boxW / imgW, boxH / imgH)
+  const dw = imgW * scale
+  const dh = imgH * scale
+  return { dx: (boxW - dw) / 2, dy: (boxH - dh) / 2, dw, dh }
 }
 
 
@@ -372,27 +398,3 @@ function escapeXmlAttr(value: string): string {
 }
 
 
-/** Decode a PNG blob to a drawable image (null on failure). */
-function blobToImage(blob: Blob): Promise<HTMLImageElement | null> {
-  return new Promise((resolve) => {
-    const url = URL.createObjectURL(blob)
-    const img = new Image()
-    img.onload = () => {
-      URL.revokeObjectURL(url)
-      resolve(img)
-    }
-    img.onerror = () => {
-      URL.revokeObjectURL(url)
-      resolve(null)
-    }
-    img.src = url
-  })
-}
-
-
-/** Canvas → PNG blob (rejects if the browser returns null, e.g. a tainted canvas). */
-function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("canvas.toBlob returned null (tainted or blocked)"))), "image/png")
-  })
-}

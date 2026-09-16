@@ -108,7 +108,10 @@ export function AppletNodeView({ id }: AppletViewProps) {
   const label = data.label?.markdown
 
   return (
-    <div ref={wrapRef} className="pointer-events-none relative h-full w-full select-none">
+    // `data-node-id` marks this applet's live DOM so image export can locate it and snapDOM
+    // the `.applet-root` inside (see harness/export/export-selection-image.ts). Stamped here,
+    // on the applet view only, rather than on the shared node-view wrapper.
+    <div ref={wrapRef} data-node-id={noteId} className="pointer-events-none relative h-full w-full select-none">
       <div
         className="absolute inset-0 flex flex-col overflow-hidden rounded-2xl border border-border bg-background px-2 pb-2 pt-10"
         // Retained-but-off-screen: keep the live tree mounted (no re-interpret) but skip

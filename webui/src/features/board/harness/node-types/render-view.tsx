@@ -44,16 +44,10 @@ export const useRenderCustomNodeView = (): ((id: NodeId) => ReactNode) => {
       // Per-node error boundary: one bad render shouldn't blank the
       // whole canvas. Keyed on id so a node that switches type (rare)
       // resets its error state rather than carrying it across.
-      //
-      // `data-node-id` marks this node's live DOM so image export can locate + snapDOM
-      // its rendered content (see harness/export/export-selection-image.ts); the wrapper
-      // fills the overlay box so its bounds == the node box.
       return (
-        <div data-node-id={String(id)} style={{ width: "100%", height: "100%" }}>
-          <NodeErrorBoundary key={id} nodeId={id} nodeType={node.type}>
-            <View id={id} />
-          </NodeErrorBoundary>
-        </div>
+        <NodeErrorBoundary key={id} nodeId={id} nodeType={node.type}>
+          <View id={id} />
+        </NodeErrorBoundary>
       )
     },
     [store],

@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react"
 import { renderMinimapContent, sceneBounds, type CanvasStore } from "@canvas-harness/core"
 import { saveThumbnail } from "@/features/board/api/save-thumbnail"
 import type { MinimapColors } from "../theme/tokens"
+import { canvasToBlob } from "./canvas-blob"
 
 
 /** Where a captured thumbnail goes — the backend API, or a local sink. */
@@ -50,19 +51,6 @@ const scheduleIdle = (
     },
   }
 }
-
-
-/**
- * Encode a canvas to a PNG `Blob`. Rejects if `toBlob` returns null
- * (some browsers do under privacy/quota pressure).
- */
-const canvasToBlob = (canvas: HTMLCanvasElement): Promise<Blob> =>
-  new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (b) => (b ? resolve(b) : reject(new Error("toBlob returned null"))),
-      "image/png",
-    )
-  })
 
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { injectAppletImages, type SvgAppletPlacement } from "./export-selection-image"
+import { containRect, injectAppletImages, type SvgAppletPlacement } from "./export-selection-image"
 
 
 // A harness SVG export has the shape the compositor keys off: an outer
@@ -61,5 +61,32 @@ describe("injectAppletImages", () => {
     const out = injectAppletImages(BASE_SVG, [{ x: 0, y: 0, w: 1, h: 1, angle: 0, href: HREF }])
     // The overlay group opens straight into the <image> — no backing rect before it.
     expect(out).toContain(`<g transform="translate(-84 -34)"><image x="0" y="0"`)
+  })
+
+  it("aspect-fits the image (meet), not stretch (none)", () => {
+    const out = injectAppletImages(BASE_SVG, [{ x: 0, y: 0, w: 1, h: 1, angle: 0, href: HREF }])
+    expect(out).toContain(`preserveAspectRatio="xMidYMid meet"`)
+    expect(out).not.toContain(`preserveAspectRatio="none"`)
+  })
+})
+
+
+describe("containRect", () => {
+  it("fills exactly when aspect ratios match", () => {
+    expect(containRect(200, 100, 400, 200)).toEqual({ dx: 0, dy: 0, dw: 400, dh: 200 })
+  })
+
+  it("letterboxes (pillarbox) a wider image, centered", () => {
+    // 2:1 image into a 1:1 box → width-limited, vertical bars.
+    expect(containRect(200, 100, 100, 100)).toEqual({ dx: 0, dy: 25, dw: 100, dh: 50 })
+  })
+
+  it("letterboxes a taller image, centered", () => {
+    // 1:2 image into a 1:1 box → height-limited, horizontal bars.
+    expect(containRect(100, 200, 100, 100)).toEqual({ dx: 25, dy: 0, dw: 50, dh: 100 })
+  })
+
+  it("degrades to the full box for a zero-sized image", () => {
+    expect(containRect(0, 0, 100, 80)).toEqual({ dx: 0, dy: 0, dw: 100, dh: 80 })
   })
 })
