@@ -55,13 +55,15 @@ export function AppletNodeView({ id }: AppletViewProps) {
   const wrapRef = useRef<HTMLDivElement>(null) // outer box → drives in-view / retention
   const bodyRef = useRef<HTMLDivElement>(null) // interactive body → stops canvas gesture capture
 
-  // Stop `pointerdown` on the applet body from bubbling to the canvas gesture hook, which
-  // would otherwise grab pointer capture (to select/drag the node) and steal the click — so
-  // a button/slider inside the applet never fires. A native listener is required (React's
-  // delegated onPointerDown runs after the canvas has already captured); see the sheet view,
-  // which does the same. Harmless while unselected: the body is `pointer-events-none` then,
-  // so the listener never fires and clicks pass through to select the node.
-  useStopCanvasGesture(bodyRef)
+  // While SELECTED, stop `pointerdown` on the applet body from bubbling to the canvas gesture
+  // hook, which would otherwise grab pointer capture (to select/drag the node) and steal the
+  // click — so a button/slider inside the applet never fires. A native listener is required
+  // (React's delegated onPointerDown runs after the canvas has already captured); see the
+  // sheet view. Gated on `isSelected` (not on the body's pointer-events) so that while
+  // unselected a click always reaches the canvas to select the node — even over an applet
+  // child that sets its own `pointer-events: auto` (a chart canvas, an author's element),
+  // which would still bubble a pointerdown up to this listener.
+  useStopCanvasGesture(bodyRef, isSelected)
 
   // Deferred mount: bound how many applets run live at once. `isSelected` overrides so
   // an interacting applet always hydrates immediately regardless of the pool.
