@@ -12,17 +12,25 @@ import { useEffect, type RefObject } from "react"
  * the React root level (event delegation), which is ABOVE the
  * canvas-harness wrap div in the DOM, so by the time React's handler
  * fires the wrap's native listener has already captured the pointer.
+ *
+ * `enabled` (default true) gates the listener. Pass a flag for an element
+ * that is only sometimes interactive (e.g. an applet body that should pass
+ * clicks through to SELECT the node when unselected, and only trap them
+ * once selected) — gating here is robust regardless of what `pointer-events`
+ * its (author-controlled) descendants set, since a `pointer-events:auto`
+ * child would otherwise still bubble a `pointerdown` up to this listener.
  */
 export const useStopCanvasGesture = (
   ref: RefObject<HTMLElement | null>,
+  enabled = true,
 ): void => {
   useEffect(() => {
     const el = ref.current
-    if (!el) return
+    if (!el || !enabled) return
     const stop = (e: PointerEvent): void => e.stopPropagation()
     el.addEventListener("pointerdown", stop)
     return () => el.removeEventListener("pointerdown", stop)
-  }, [ref])
+  }, [ref, enabled])
 }
 
 

@@ -21,7 +21,7 @@ import { removeNodeSubtree } from "@/features/board/harness/graph/subtree"
 import { cn } from "@/lib/utils"
 
 import type { NoteNodeData } from "../../convert/note-to-node"
-import { createDeferredMount, NodeTitleCaption, NodeTrafficLights } from "../../shared-views"
+import { createDeferredMount, NodeTitleCaption, NodeTrafficLights, useStopCanvasGesture } from "../../shared-views"
 import { useBoardAppStore } from "../../store/board-app-store"
 
 
@@ -53,6 +53,17 @@ export function AppletNodeView({ id }: AppletViewProps) {
   const source = node?.content ?? ""
 
   const wrapRef = useRef<HTMLDivElement>(null) // outer box → drives in-view / retention
+  const bodyRef = useRef<HTMLDivElement>(null) // interactive body → stops canvas gesture capture
+
+  // While SELECTED, stop `pointerdown` on the applet body from bubbling to the canvas gesture
+  // hook, which would otherwise grab pointer capture (to select/drag the node) and steal the
+  // click — so a button/slider inside the applet never fires. A native listener is required
+  // (React's delegated onPointerDown runs after the canvas has already captured); see the
+  // sheet view. Gated on `isSelected` (not on the body's pointer-events) so that while
+  // unselected a click always reaches the canvas to select the node — even over an applet
+  // child that sets its own `pointer-events: auto` (a chart canvas, an author's element),
+  // which would still bubble a pointerdown up to this listener.
+  useStopCanvasGesture(bodyRef, isSelected)
 
   // Deferred mount: bound how many applets run live at once. `isSelected` overrides so
   // an interacting applet always hydrates immediately regardless of the pool.
@@ -120,6 +131,7 @@ export function AppletNodeView({ id }: AppletViewProps) {
         style={{ contentVisibility: shouldMount && !isInView && !isSelected ? "hidden" : undefined }}
       >
         <div
+          ref={bodyRef}
           className={cn(
             "scrollbar-thin relative h-full w-full overflow-auto rounded-xl border border-border/50 bg-background",
             isSelected ? "pointer-events-auto" : "pointer-events-none",
