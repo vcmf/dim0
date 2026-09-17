@@ -21,7 +21,7 @@ import { removeNodeSubtree } from "@/features/board/harness/graph/subtree"
 import { cn } from "@/lib/utils"
 
 import type { NoteNodeData } from "../../convert/note-to-node"
-import { createDeferredMount, NodeTitleCaption, NodeTrafficLights } from "../../shared-views"
+import { createDeferredMount, NodeTitleCaption, NodeTrafficLights, useStopCanvasGesture } from "../../shared-views"
 import { useBoardAppStore } from "../../store/board-app-store"
 
 
@@ -53,6 +53,15 @@ export function AppletNodeView({ id }: AppletViewProps) {
   const source = node?.content ?? ""
 
   const wrapRef = useRef<HTMLDivElement>(null) // outer box → drives in-view / retention
+  const bodyRef = useRef<HTMLDivElement>(null) // interactive body → stops canvas gesture capture
+
+  // Stop `pointerdown` on the applet body from bubbling to the canvas gesture hook, which
+  // would otherwise grab pointer capture (to select/drag the node) and steal the click — so
+  // a button/slider inside the applet never fires. A native listener is required (React's
+  // delegated onPointerDown runs after the canvas has already captured); see the sheet view,
+  // which does the same. Harmless while unselected: the body is `pointer-events-none` then,
+  // so the listener never fires and clicks pass through to select the node.
+  useStopCanvasGesture(bodyRef)
 
   // Deferred mount: bound how many applets run live at once. `isSelected` overrides so
   // an interacting applet always hydrates immediately regardless of the pool.
@@ -120,6 +129,7 @@ export function AppletNodeView({ id }: AppletViewProps) {
         style={{ contentVisibility: shouldMount && !isInView && !isSelected ? "hidden" : undefined }}
       >
         <div
+          ref={bodyRef}
           className={cn(
             "scrollbar-thin relative h-full w-full overflow-auto rounded-xl border border-border/50 bg-background",
             isSelected ? "pointer-events-auto" : "pointer-events-none",
