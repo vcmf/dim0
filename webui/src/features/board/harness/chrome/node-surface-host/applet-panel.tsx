@@ -127,7 +127,12 @@ export const AppletPanel = memo(function AppletPanel({
           <div className={activeTab === "preview" ? "flex h-full flex-col overflow-auto scrollbar-thin p-4" : "hidden h-full"}>
             {source ? (
               stateLoaded ? (
-                <AppletRenderer source={source} initialState={initialState} className="h-full w-full" />
+                // Natural height (not h-full): each applet visual carries a definite height
+                // (chart 220px; graph/map definiteHeight), so letting the content flow lets the
+                // `overflow-auto` container above scroll. h-full pinned it to the viewport and
+                // the applet-root's `contain: paint` then clipped the overflow, making the bottom
+                // (e.g. the step table) unreachable.
+                <AppletRenderer source={source} initialState={initialState} className="w-full" />
               ) : (
                 <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">Loading…</div>
               )
