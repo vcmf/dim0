@@ -13,36 +13,37 @@
 
 import { resolveCssColor } from "@/lib/theme/resolve-token"
 
+import {
+  LABEL_HALO_PAD_X,
+  LABEL_HALO_PAD_Y,
+  NODE_LABEL_CY,
+  NODE_LABEL_FONT_SIZE,
+  NODE_RADIUS,
+  SUBLABEL_CY,
+  SUBLABEL_FONT_SIZE,
+} from "./graph-geometry"
 import type { LaidOutGraph, PositionedEdge, PositionedNode } from "./graph-types"
 
 
-// Visual constants (viewBox units). Bold aesthetic: big filled circles (no ring),
-// mono labels stacked below, edges standing off the node with a large arrowhead.
-const NODE_RADIUS = 20
-const NODE_LABEL_FONT_SIZE = 13
+// Draw-only visual constants (viewBox units); node-footprint dims live in graph-geometry so
+// the layout can size the viewBox from the same numbers. Bold aesthetic: big filled circles
+// (no ring), mono labels stacked below, edges standing off the node with a large arrowhead.
 const NODE_LABEL_FONT_WEIGHT = 600
-const NODE_LABEL_CY = NODE_RADIUS + 15 // label CENTER, just below the circle
-const SUBLABEL_FONT_SIZE = 11
-const SUBLABEL_CY = NODE_RADIUS + 33 // sublabel center, stacked below the label
 const EDGE_STROKE_WIDTH = 3
 const EDGE_LABEL_FONT_SIZE = 12
 // Gap (viewBox units) between the node border and the edge tip / arrowhead, so the
 // line stands off the circle instead of touching it.
 const EDGE_GAP = 6
-// Arrowhead: a filled triangle ARROW_SIZE long, 2·ARROW_HALF_BASE wide at the base.
+// Arrowhead: a filled triangle up to ARROW_SIZE long (capped to the edge on short edges),
+// with a base ARROW_BASE_RATIO of its length to each side → a slightly narrow, sharp head.
 const ARROW_SIZE = 17
-const ARROW_HALF_BASE = ARROW_SIZE * 0.42 // slightly narrow → sharper head
+const ARROW_BASE_RATIO = 0.42
 // Labels sit over edges, so each gets an OPAQUE rounded "halo" (not transparent) with a
 // little padding — an empty space that keeps them readable. The color must match the
 // surface the graph is drawn on so the halo only reads as a cutout over edges: the applet
 // renders on `--background` (the applet card), so use that, not `--card`.
 const LABEL_HALO_BG = "var(--background)"
-const LABEL_HALO_PAD_X = 5
-const LABEL_HALO_PAD_Y = 3
 const LABEL_HALO_RADIUS = 4
-// Rough advance width of a mono glyph as a fraction of the em — lets `nodeDrawExtent`
-// estimate a label's halo width without a canvas (the layout has no 2D context).
-const MONO_CHAR_W = 0.6
 // Monospace family for all graph labels (design request). The app defines no
 // `--font-mono` token, so use a standard system-mono stack.
 const MONO_FAMILY = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace'
@@ -82,27 +83,6 @@ export function definiteHeight(height: number | string | undefined): string | un
     return trimmed === "" || trimmed === "auto" ? undefined : trimmed
   }
   return undefined
-}
-
-
-/**
- * How far a node's drawing reaches past its CENTER on each side (viewBox units): the circle
- * radius, plus the mono label/sublabel halos stacked below and their estimated widths to the
- * sides. The layout uses this to size the auto-viewBox so nothing clips — captions extend
- * downward and halos extend sideways by (estimated) text width, so a single symmetric pad
- * can't model it. Widths are estimated (`MONO_CHAR_W`) since the layout has no canvas.
- */
-export function nodeDrawExtent(node: PositionedNode): { left: number; right: number; top: number; bottom: number } {
-  const haloHalfW = (text: string, size: number): number =>
-    text ? (text.length * size * MONO_CHAR_W + LABEL_HALO_PAD_X * 2) / 2 : 0
-  const haloHalfH = (size: number): number => size / 2 + LABEL_HALO_PAD_Y
-  const half = Math.max(NODE_RADIUS, haloHalfW(node.label, NODE_LABEL_FONT_SIZE), node.sublabel ? haloHalfW(node.sublabel, SUBLABEL_FONT_SIZE) : 0)
-  const bottom = node.sublabel
-    ? SUBLABEL_CY + haloHalfH(SUBLABEL_FONT_SIZE)
-    : node.label
-      ? NODE_LABEL_CY + haloHalfH(NODE_LABEL_FONT_SIZE)
-      : NODE_RADIUS
-  return { left: half, right: half, top: NODE_RADIUS, bottom }
 }
 
 
@@ -182,18 +162,21 @@ function traceRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: 
 }
 
 
-/** Fill a triangular arrowhead whose tip sits at the trimmed edge end, pointing along
- *  the edge (base ARROW_SIZE behind the tip). Mirrors the SVG `markerEnd` triangle. */
+/** Fill a triangular arrowhead whose tip sits at the trimmed edge end, pointing along the
+ *  edge. The head is ARROW_SIZE long, but capped to the trimmed segment so it never
+ *  overshoots the start (and into the source node) on a short edge. */
 function drawArrowhead(ctx: CanvasRenderingContext2D, seg: { x1: number; y1: number; x2: number; y2: number }, color: string): void {
   const dx = seg.x2 - seg.x1
   const dy = seg.y2 - seg.y1
   const len = Math.hypot(dx, dy) || 1
   const ux = dx / len
   const uy = dy / len
-  const backX = seg.x2 - ux * ARROW_SIZE
-  const backY = seg.y2 - uy * ARROW_SIZE
-  const px = -uy * ARROW_HALF_BASE // perpendicular half-base
-  const py = ux * ARROW_HALF_BASE
+  const size = Math.min(ARROW_SIZE, len) // don't overshoot a short trimmed segment
+  const halfBase = size * ARROW_BASE_RATIO
+  const backX = seg.x2 - ux * size
+  const backY = seg.y2 - uy * size
+  const px = -uy * halfBase // perpendicular half-base
+  const py = ux * halfBase
   ctx.fillStyle = color
   ctx.beginPath()
   ctx.moveTo(seg.x2, seg.y2) // tip

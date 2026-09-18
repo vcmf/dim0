@@ -10,7 +10,7 @@
 // Locked-down contract — test suite is the source of truth.
 
 import { defaultPaletteColor, resolveColor } from "./color-token"
-import { nodeDrawExtent } from "./graph-draw"
+import { nodeDrawExtent } from "./graph-geometry"
 import { forceLayout } from "./graph-layout-force"
 import { treeLayout } from "./graph-layout-tree"
 import type {
