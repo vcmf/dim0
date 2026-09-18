@@ -172,7 +172,7 @@ describe("layoutGraph — edge endpoints", () => {
 
 
 describe("layoutGraph — viewBox", () => {
-  it("auto-computes viewBox from node extent with 30px padding", () => {
+  it("auto-computes viewBox from each node's drawn extent + margin", () => {
     const g = layoutGraph({
       nodes: [
         { id: "A", x: 0, y: 0 },
@@ -180,9 +180,11 @@ describe("layoutGraph — viewBox", () => {
       ],
       edges: [],
     })
-    // extent: x ∈ [0, 100], y ∈ [0, 60]; padding=30
-    // → "(-30) (-30) (100 + 60) (60 + 60)" = "-30 -30 160 120"
-    expect(g.viewBox).toBe("-30 -30 160 120")
+    // Each node (label = its id, no sublabel) reaches radius 20 up/left/right and
+    // NODE_LABEL_CY(35) + label-halo-half-height(9.5) = 44.5 down. + VIEWBOX_MARGIN(10):
+    //   x: [0-20, 100+20] → -20..120 ; y: [0-20, 60+44.5] → -20..104.5
+    //   → "(-20-10) (-20-10) (140+20) (124.5+20)" = "-30 -30 160 144.5"
+    expect(g.viewBox).toBe("-30 -30 160 144.5")
   })
 
 
@@ -202,13 +204,14 @@ describe("layoutGraph — viewBox", () => {
   })
 
 
-  it("single-node viewBox still applies padding", () => {
+  it("single-node viewBox from drawn extent + margin", () => {
     const g = layoutGraph({
       nodes: [{ id: "A", x: 50, y: 50 }],
       edges: [],
     })
-    // extent: x=50, y=50; padding=30 → "20 20 60 60"
-    expect(g.viewBox).toBe("20 20 60 60")
+    // Node at (50,50), label "A", no sublabel: reaches 20 up/left/right, 44.5 down.
+    // + VIEWBOX_MARGIN(10): x 30..70, y 30..94.5 → "20 20 60 84.5"
+    expect(g.viewBox).toBe("20 20 60 84.5")
   })
 })
 

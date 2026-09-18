@@ -32,12 +32,17 @@ const EDGE_GAP = 6
 // Arrowhead: a filled triangle ARROW_SIZE long, 2·ARROW_HALF_BASE wide at the base.
 const ARROW_SIZE = 17
 const ARROW_HALF_BASE = ARROW_SIZE * 0.42 // slightly narrow → sharper head
-// Labels sit over edges, so each gets an OPAQUE rounded "halo" in the surface bg color
-// (not transparent) with a little padding — an empty space that keeps them readable.
-const LABEL_HALO_BG = "var(--card)"
+// Labels sit over edges, so each gets an OPAQUE rounded "halo" (not transparent) with a
+// little padding — an empty space that keeps them readable. The color must match the
+// surface the graph is drawn on so the halo only reads as a cutout over edges: the applet
+// renders on `--background` (the applet card), so use that, not `--card`.
+const LABEL_HALO_BG = "var(--background)"
 const LABEL_HALO_PAD_X = 5
 const LABEL_HALO_PAD_Y = 3
 const LABEL_HALO_RADIUS = 4
+// Rough advance width of a mono glyph as a fraction of the em — lets `nodeDrawExtent`
+// estimate a label's halo width without a canvas (the layout has no 2D context).
+const MONO_CHAR_W = 0.6
 // Monospace family for all graph labels (design request). The app defines no
 // `--font-mono` token, so use a standard system-mono stack.
 const MONO_FAMILY = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace'
@@ -81,6 +86,27 @@ export function definiteHeight(height: number | string | undefined): string | un
 
 
 /**
+ * How far a node's drawing reaches past its CENTER on each side (viewBox units): the circle
+ * radius, plus the mono label/sublabel halos stacked below and their estimated widths to the
+ * sides. The layout uses this to size the auto-viewBox so nothing clips — captions extend
+ * downward and halos extend sideways by (estimated) text width, so a single symmetric pad
+ * can't model it. Widths are estimated (`MONO_CHAR_W`) since the layout has no canvas.
+ */
+export function nodeDrawExtent(node: PositionedNode): { left: number; right: number; top: number; bottom: number } {
+  const haloHalfW = (text: string, size: number): number =>
+    text ? (text.length * size * MONO_CHAR_W + LABEL_HALO_PAD_X * 2) / 2 : 0
+  const haloHalfH = (size: number): number => size / 2 + LABEL_HALO_PAD_Y
+  const half = Math.max(NODE_RADIUS, haloHalfW(node.label, NODE_LABEL_FONT_SIZE), node.sublabel ? haloHalfW(node.sublabel, SUBLABEL_FONT_SIZE) : 0)
+  const bottom = node.sublabel
+    ? SUBLABEL_CY + haloHalfH(SUBLABEL_FONT_SIZE)
+    : node.label
+      ? NODE_LABEL_CY + haloHalfH(NODE_LABEL_FONT_SIZE)
+      : NODE_RADIUS
+  return { left: half, right: half, top: NODE_RADIUS, bottom }
+}
+
+
+/**
  * Inset both endpoints toward the node centers so the line (and arrowhead) stops a little
  * short of the circle boundary — `NODE_RADIUS + EDGE_GAP` — leaving a gap between the node
  * and the edge tip. Insetting both ends equally keeps the midpoint (and edge label) fixed.
@@ -91,7 +117,10 @@ function trimToBoundary(edge: PositionedEdge): { x1: number; y1: number; x2: num
   const len = Math.hypot(dx, dy) || 1
   const ux = dx / len
   const uy = dy / len
-  const inset = NODE_RADIUS + EDGE_GAP
+  // Clamp the inset so the two ends can't cross on a short edge (centers closer than
+  // 2·inset) — otherwise the trimmed segment reverses and the arrowhead points backward.
+  // On such edges the line just meets the nodes with little/no gap, which is fine.
+  const inset = Math.min(NODE_RADIUS + EDGE_GAP, Math.max(0, len / 2 - 1))
   return {
     x1: edge.x1 + ux * inset,
     y1: edge.y1 + uy * inset,
@@ -101,8 +130,7 @@ function trimToBoundary(edge: PositionedEdge): { x1: number; y1: number; x2: num
 }
 
 
-/** The font shorthand for canvas text, using the document's body font-family so labels
- *  match surrounding UI text (falls back to a system stack outside a browser). */
+/** The canvas `ctx.font` shorthand for the given family/size/weight. */
 function fontOf(family: string, size: number, weight?: number): string {
   return `${weight ? `${weight} ` : ""}${size}px ${family}`
 }

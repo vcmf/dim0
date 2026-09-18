@@ -10,6 +10,7 @@
 // Locked-down contract — test suite is the source of truth.
 
 import { defaultPaletteColor, resolveColor } from "./color-token"
+import { nodeDrawExtent } from "./graph-draw"
 import { forceLayout } from "./graph-layout-force"
 import { treeLayout } from "./graph-layout-tree"
 import type {
@@ -25,19 +26,18 @@ import type {
 const DEFAULT_NODE_FILL = "card"
 const DEFAULT_NODE_TEXT = "foreground"
 
-// 50%-opacity foreground stroke, shared by the node border ring and the
-// default edge color. Keeping one source for both so the dot ring and
-// connecting edges always read with matching weight; --border was too
-// washed-out for either role.
+// 50%-opacity foreground stroke — the default edge color (--border read too washed-out).
+// `node.border` still resolves through this for API stability, but the renderer no longer
+// draws a node ring, so it currently has no visual effect.
 const STROKE_FG_50 = "color-mix(in srgb, var(--foreground) 50%, transparent)"
 const DEFAULT_NODE_BORDER = STROKE_FG_50
 const DEFAULT_EDGE_COLOR = STROKE_FG_50
 
 
-// Padding (in viewBox units) added around node extent when auto-computing the viewBox.
-// Covers the drawn extent past a node CENTER — the bigger radius (20) plus a label/sublabel
-// stacked below (~53) — so nodes and their captions don't clip against the box edge.
-const AUTO_VIEWBOX_PADDING = 48
+// A small breathing margin (viewBox units) added around the true drawn extent when
+// auto-computing the viewBox. The per-node drawn extent (circle + captions + halo widths)
+// comes from `nodeDrawExtent`; this is just the gap between that and the box edge.
+const VIEWBOX_MARGIN = 10
 
 
 type Point = { x: number; y: number }
@@ -178,15 +178,12 @@ function autoViewBox(nodes: PositionedNode[]): string {
   let maxX = -Infinity
   let maxY = -Infinity
   for (const n of nodes) {
-    if (n.x < minX) minX = n.x
-    if (n.y < minY) minY = n.y
-    if (n.x > maxX) maxX = n.x
-    if (n.y > maxY) maxY = n.y
+    const e = nodeDrawExtent(n)
+    if (n.x - e.left < minX) minX = n.x - e.left
+    if (n.y - e.top < minY) minY = n.y - e.top
+    if (n.x + e.right > maxX) maxX = n.x + e.right
+    if (n.y + e.bottom > maxY) maxY = n.y + e.bottom
   }
-  const pad = AUTO_VIEWBOX_PADDING
-  const x = minX - pad
-  const y = minY - pad
-  const w = maxX - minX + pad * 2
-  const h = maxY - minY + pad * 2
-  return `${x} ${y} ${w} ${h}`
+  const m = VIEWBOX_MARGIN
+  return `${minX - m} ${minY - m} ${maxX - minX + m * 2} ${maxY - minY + m * 2}`
 }

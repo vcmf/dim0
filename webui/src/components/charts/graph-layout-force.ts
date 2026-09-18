@@ -20,15 +20,15 @@ import {
 import type { SimulationLinkDatum, SimulationNodeDatum } from "d3-force"
 
 
-// Sized for the dot-with-caption chrome (NODE_RADIUS 12, sublabel sitting
-// R+28 below center). LINK_DISTANCE leaves the edge-label chip (22×18) at
-// the midpoint with clear space to either dot. COLLIDE_RADIUS guarantees
-// no two nodes sit close enough for one's caption to collide with the
-// other's circle. CHARGE_STRENGTH keeps dense clusters from collapsing
-// without spreading sparse graphs to the corners.
-const LINK_DISTANCE = 140
+// Sized for the big-circle-with-caption chrome (NODE_RADIUS 20, sublabel sitting
+// R+33 below center). LINK_DISTANCE leaves the edge label at the midpoint with clear
+// space to either circle. COLLIDE_RADIUS guarantees no two nodes sit close enough for
+// one's caption to collide with the other's circle (bumped with the larger radius).
+// CHARGE_STRENGTH keeps dense clusters from collapsing without spreading sparse graphs
+// to the corners.
+const LINK_DISTANCE = 150
 const CHARGE_STRENGTH = -320
-const COLLIDE_RADIUS = 40
+const COLLIDE_RADIUS = 52
 const TICKS = 300
 
 
