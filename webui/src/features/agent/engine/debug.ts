@@ -18,10 +18,12 @@ let enabled = false
 try {
   const env = import.meta.env
   const isTest = Boolean(env?.VITEST) || env?.MODE === "test"
+  // Any non-empty, non-falsey value enables it — so `=true`, `=1`, `=yes` all work rather
+  // than only the exact string "true".
+  const v = env?.VITE_AGENT_DEBUG
+  const envOn = typeof v === "string" && v !== "" && v !== "false" && v !== "0"
   // On by default in dev; off in tests; else opt in via the build env var or localStorage.
-  enabled =
-    !isTest &&
-    (Boolean(env?.DEV) || env?.VITE_AGENT_DEBUG === "true" || localStorage.getItem("dim0.debug.agent") === "1")
+  enabled = !isTest && (Boolean(env?.DEV) || envOn || localStorage.getItem("dim0.debug.agent") === "1")
 } catch {
   // storage unavailable — stays off
 }
@@ -104,7 +106,9 @@ export const agentLog = {
 
   reasoning(text: string): void {
     if (!text) return
-    record("reasoning", text)
+    // Chain-of-thought is the largest payload here; cap what we keep in the always-on ring
+    // buffer so a session that never enables debug doesn't accumulate multi-KB CoT blobs.
+    record("reasoning", short(text))
     if (enabled) console.log("%c[agent] 🧠 reasoning", "color:#a855f7", short(text, 2000))
   },
 
