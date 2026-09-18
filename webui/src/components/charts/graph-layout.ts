@@ -34,9 +34,10 @@ const DEFAULT_NODE_BORDER = STROKE_FG_50
 const DEFAULT_EDGE_COLOR = STROKE_FG_50
 
 
-// Padding (in viewBox units) added around node extent when auto-computing
-// the viewBox. Matches the visual feel of hand-laid examples like Dijkstra.
-const AUTO_VIEWBOX_PADDING = 30
+// Padding (in viewBox units) added around node extent when auto-computing the viewBox.
+// Covers the drawn extent past a node CENTER — the bigger radius (20) plus a label/sublabel
+// stacked below (~53) — so nodes and their captions don't clip against the box edge.
+const AUTO_VIEWBOX_PADDING = 48
 
 
 type Point = { x: number; y: number }

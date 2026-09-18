@@ -27,6 +27,7 @@ function mockCtx() {
     fill: vi.fn(),
     stroke: vi.fn(),
     fillText: vi.fn(),
+    measureText: vi.fn(() => ({ width: 10 })),
     strokeStyle: "",
     fillStyle: "",
     lineWidth: 0,
@@ -78,13 +79,15 @@ describe("drawGraph", () => {
   it("strokes each edge line", () => {
     const ctx = mockCtx()
     drawGraph(ctx, graph, SIZE)
-    // The edge (20,20)→(80,80) is inset by NODE_RADIUS (12) at each end before the
-    // moveTo — 12·(1/√2) ≈ 8.49 along a 45° edge → start ≈ (28.49, 28.49). Coords stay
-    // in viewBox space (the fit transform is a recorded scale/translate, not applied to
-    // args by the mock).
-    const start = (ctx.moveTo as ReturnType<typeof vi.fn>).mock.calls.find((c) => Math.abs(c[0] - 28.49) < 0.1)
+    // The edge (20,20)→(80,80) is inset by NODE_RADIUS + EDGE_GAP (20 + 6 = 26) at each
+    // end before the moveTo — 26·(1/√2) ≈ 18.38 along a 45° edge → start ≈ (38.38, 38.38).
+    // Coords stay in viewBox space (the fit transform is a recorded scale/translate, not
+    // applied to args by the mock).
+    const start = (ctx.moveTo as ReturnType<typeof vi.fn>).mock.calls.find((c) => Math.abs(c[0] - 38.38) < 0.1)
     expect(start).toBeDefined()
-    expect((ctx.stroke as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(3) // 1 edge + 2 rings + chip
+    // Only edges stroke now — the node ring and the edge-label chip were dropped in favor
+    // of ring-less circles and opaque label halos (fills, not strokes).
+    expect((ctx.stroke as ReturnType<typeof vi.fn>).mock.calls.length).toBe(graph.edges.length)
   })
 
   it("renders node labels, the sublabel, and the edge label as text", () => {
