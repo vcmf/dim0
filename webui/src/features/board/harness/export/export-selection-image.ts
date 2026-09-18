@@ -163,14 +163,60 @@ export async function exportSelectionSvgWithApplets(store: CanvasStore, opts: Ex
   const domNodes = selectedNodes(store).filter((n) => DOM_CAPTURE_TYPES.has(n.type))
   if (domNodes.length === 0) return svg
 
+  // The harness renders each applet's `content` (its JSX SOURCE) as a `<text>` block; with
+  // auto-fit off it can be taller than the node box and overflow it, leaking source text
+  // above/below the composited image. Strip those blocks so nothing can leak, then overlay.
+  const cleaned = stripAppletSourceText(svg, domNodes.map((n) => n.content ?? ""))
+
   const shots = await captureAppletShots(domNodes, opts.onProgress)
-  if (shots.length === 0) return svg
+  if (shots.length === 0) return cleaned
 
   return injectAppletImages(
-    svg,
+    cleaned,
     shots.map(({ node: n, img }) => ({ x: n.x, y: n.y, w: n.w, h: n.h, angle: n.angle, href: img.src })),
     EXPORT_BG,
   )
+}
+
+
+// Shortest collapsed text we'll treat as an applet-source match — avoids stripping small,
+// legitimate text (a "40%" legend value) that happens to prefix a source.
+const MIN_SOURCE_MATCH_LEN = 16
+
+
+/** Collapse all whitespace, so wrapping/indentation differences don't affect a match. */
+function collapseWs(s: string): string {
+  return s.replace(/\s+/g, "")
+}
+
+
+/** Unescape the XML entities the harness emits in `<text>` back to raw characters. */
+function unescapeXml(s: string): string {
+  return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&")
+}
+
+
+/**
+ * Remove the harness base SVG's `<text>` block(s) whose content is an applet node's JSX source.
+ * Matched by TEXT (whitespace-insensitive, since the harness wraps long lines), not coordinates
+ * — a block matches if its rendered text and an applet's `content` share one as a prefix of the
+ * other (covers a full render or a truncated one). Exported for tests.
+ */
+export function stripAppletSourceText(svg: string, appletContents: string[]): string {
+  const wanted = appletContents.map(collapseWs).filter((s) => s.length >= MIN_SOURCE_MATCH_LEN)
+  if (wanted.length === 0) return svg
+  return svg.replace(/<text\b[^>]*>[\s\S]*?<\/text>/g, (block) => {
+    const rendered = collapseWs(unescapeXml(block.replace(/<[^>]+>/g, "")))
+    if (rendered.length < MIN_SOURCE_MATCH_LEN) return block
+    const isApplet = wanted.some((w) => w === rendered || w.startsWith(rendered) || rendered.startsWith(w))
+    return isApplet ? "" : block
+  })
 }
 
 
