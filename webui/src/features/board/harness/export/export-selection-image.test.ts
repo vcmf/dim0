@@ -121,3 +121,13 @@ describe("stripAppletSourceText", () => {
     expect(stripAppletSourceText(svg, [source])).toContain("&lt;Widget")
   })
 })
+
+
+describe("stripAppletSourceText — entity decoding", () => {
+  it("decodes numeric char refs (é) so a source using them still matches", () => {
+    const source = "const café = 'strong-coffee-variable-name'"
+    // harness emits é as a numeric char ref — the old 6-entity unescape would miss it
+    const block = `<text><tspan x="0" y="0">const caf&#233; = &#39;strong-coffee-variable-name&#39;</tspan></text>`
+    expect(stripAppletSourceText(`<svg>${block}</svg>`, [source])).toBe("<svg></svg>")
+  })
+})
