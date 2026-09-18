@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { containRect, injectAppletImages, type SvgAppletPlacement } from "./export-selection-image"
+import { containRect, injectAppletImages, stripAppletSourceText, type SvgAppletPlacement } from "./export-selection-image"
 
 
 // A harness SVG export has the shape the compositor keys off: an outer
@@ -88,5 +88,46 @@ describe("containRect", () => {
 
   it("degrades to the full box for a zero-sized image", () => {
     expect(containRect(0, 0, 100, 80)).toEqual({ dx: 0, dy: 0, dw: 100, dh: 80 })
+  })
+})
+
+
+describe("stripAppletSourceText", () => {
+  // The applet's JSX source; the harness renders it as a <text> with escaped, wrapped tspans.
+  const source = '<Widget data={{ rows: [1, 2, 3] }}>\n  <span className="bg-chart-5"></span>\n</Widget>'
+  const sourceText =
+    '<text fill="#1f2937" text-anchor="middle">' +
+    '<tspan x="200" y="20">&lt;Widget data={{ rows: [1, 2, 3] }}&gt;</tspan>' +
+    '<tspan x="200" y="40">  &lt;span className=&quot;bg-chart-5&quot;&gt;&lt;/span&gt;</tspan>' +
+    '<tspan x="200" y="60">&lt;/Widget&gt;</tspan>' +
+    "</text>"
+  const legendText = '<text x="10" y="10">40%</text>'
+
+  it("removes the applet-source <text> block (whitespace/entity-insensitive) but keeps other text", () => {
+    const svg = `<svg>${legendText}${sourceText}</svg>`
+    const out = stripAppletSourceText(svg, [source])
+    expect(out).not.toContain("&lt;Widget")
+    expect(out).not.toContain("bg-chart-5")
+    expect(out).toContain(legendText) // legend value untouched
+  })
+
+  it("leaves the SVG unchanged when no applet content is given", () => {
+    const svg = `<svg>${sourceText}</svg>`
+    expect(stripAppletSourceText(svg, [])).toBe(svg)
+  })
+
+  it("does not strip a short text block that merely prefixes a source", () => {
+    const svg = `<svg><text x="0" y="0">&lt;Widget</text></svg>` // "<Widget" is < MIN_SOURCE_MATCH_LEN
+    expect(stripAppletSourceText(svg, [source])).toContain("&lt;Widget")
+  })
+})
+
+
+describe("stripAppletSourceText — entity decoding", () => {
+  it("decodes numeric char refs (é) so a source using them still matches", () => {
+    const source = "const café = 'strong-coffee-variable-name'"
+    // harness emits é as a numeric char ref — the old 6-entity unescape would miss it
+    const block = `<text><tspan x="0" y="0">const caf&#233; = &#39;strong-coffee-variable-name&#39;</tspan></text>`
+    expect(stripAppletSourceText(`<svg>${block}</svg>`, [source])).toBe("<svg></svg>")
   })
 })

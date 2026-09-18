@@ -163,14 +163,64 @@ export async function exportSelectionSvgWithApplets(store: CanvasStore, opts: Ex
   const domNodes = selectedNodes(store).filter((n) => DOM_CAPTURE_TYPES.has(n.type))
   if (domNodes.length === 0) return svg
 
+  // The harness renders each applet's `content` (its JSX SOURCE) as a `<text>` block; with
+  // auto-fit off it can be taller than the node box and overflow it, leaking source text
+  // above/below the composited image. Strip those blocks so nothing can leak, then overlay.
+  const cleaned = stripAppletSourceText(svg, domNodes.map((n) => n.content ?? ""))
+
   const shots = await captureAppletShots(domNodes, opts.onProgress)
-  if (shots.length === 0) return svg
+  if (shots.length === 0) return cleaned
 
   return injectAppletImages(
-    svg,
+    cleaned,
     shots.map(({ node: n, img }) => ({ x: n.x, y: n.y, w: n.w, h: n.h, angle: n.angle, href: img.src })),
     EXPORT_BG,
   )
+}
+
+
+// Ignore trivially-short blocks so an equality match can't fire on something tiny.
+const MIN_SOURCE_MATCH_LEN = 8
+
+
+/** Collapse all whitespace, so the harness's line-wrapping/indentation doesn't affect a match. */
+function collapseWs(s: string): string {
+  return s.replace(/\s+/g, "")
+}
+
+
+/** Decode the XML/HTML entities the harness emits in `<text>` back to raw characters. Uses the
+ *  DOM (handles every entity — named, numeric, hex), with a best-effort fallback off-DOM. */
+function decodeEntities(s: string): string {
+  if (typeof document !== "undefined") {
+    const el = document.createElement("textarea")
+    el.innerHTML = s
+    return el.value
+  }
+  return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+}
+
+
+/**
+ * Remove the harness base SVG's `<text>` block(s) whose content is an applet node's JSX source
+ * (the source the harness renders as text and which overflows the node box). Matched by an
+ * EXACT whitespace-collapsed, entity-decoded equality against the applet's `content` — the
+ * harness renders the full source (only re-wrapping whitespace, which collapses away), so
+ * equality strips exactly the source blocks and can't delete an unrelated node's text that
+ * merely shares a prefix. Exported for tests.
+ */
+export function stripAppletSourceText(svg: string, appletContents: string[]): string {
+  const wanted = new Set(appletContents.map(collapseWs).filter((s) => s.length >= MIN_SOURCE_MATCH_LEN))
+  if (wanted.size === 0) return svg
+  return svg.replace(/<text\b[^>]*>[\s\S]*?<\/text>/g, (block) => {
+    const rendered = collapseWs(decodeEntities(block.replace(/<[^>]+>/g, "")))
+    return wanted.has(rendered) ? "" : block
+  })
 }
 
 
