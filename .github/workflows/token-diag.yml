@@ -1,0 +1,49 @@
+name: Token Diag
+
+# Temporary, dispatch-only diagnostic: reports the identity behind RELEASE_TOKEN so we
+# can see why the release push is rejected by main's ruleset (GH013). It performs NO push
+# and NO release — it only reads. The token value is never printed; only its owner login,
+# type, and whether that identity is allowed to bypass the ruleset. Delete once the release
+# push works.
+on:
+  workflow_dispatch:
+
+
+permissions:
+  contents: read
+
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report RELEASE_TOKEN identity (no secret exposed)
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          if [ -z "$RELEASE_TOKEN" ]; then
+            echo "RELEASE_TOKEN is EMPTY — the secret is not set."
+            exit 1
+          fi
+
+          echo "=== owner ==="
+          hdrs="$(curl -sS -D - -o /dev/null -H "Authorization: Bearer $RELEASE_TOKEN" https://api.github.com/user)"
+          curl -sS -H "Authorization: Bearer $RELEASE_TOKEN" https://api.github.com/user \
+            | python3 -c 'import sys,json; d=json.load(sys.stdin); print("owner_login:", d.get("login","<unauthorized>"))'
+
+          echo "=== token type ==="
+          # Classic PATs return an X-OAuth-Scopes header; fine-grained PATs and App tokens do not.
+          if echo "$hdrs" | grep -qi '^x-oauth-scopes:'; then
+            echo "type: CLASSIC PAT"
+            echo "$hdrs" | grep -i '^x-oauth-scopes:'
+          else
+            echo "type: FINE-GRAINED PAT or App token (no X-OAuth-Scopes header)"
+          fi
+
+          echo "=== can THIS token's identity bypass main's ruleset? ==="
+          # current_user_can_bypass is evaluated for the caller — i.e. this exact token.
+          curl -sS -H "Authorization: Bearer $RELEASE_TOKEN" \
+            https://api.github.com/repos/${{ github.repository }}/rulesets/22823041 \
+            | python3 -c 'import sys,json
+d=json.load(sys.stdin)
+print("ruleset:", d.get("name"), "| current_user_can_bypass:", d.get("current_user_can_bypass"))'
