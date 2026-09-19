@@ -31,16 +31,16 @@ export const learnGenerateDiagram = skillTool(
 )
 
 
-export const learnGenerateMiniApp = skillTool(
-  "learn_generate_mini_app",
-  'REQUIRED before authoring a sandboxed interactive React mini-app (the default custom-rendered artifact): call this first, then write one with write_note(note_type="mini-app").',
+export const learnGenerateApplet = skillTool(
+  "learn_generate_applet",
+  'REQUIRED before authoring an applet (the default custom-rendered artifact — chart, dashboard, diagram, flashcard, interactive control): call this first, then write one with write_note(note_type="applet").',
 )
 
 
 export const learnGenerateHtmlWidget = skillTool(
   "learn_generate_html_widget",
-  'REQUIRED before authoring a legacy raw-HTML widget: call this first, then write one with write_note(note_type="widget") (legacy — prefer learn_generate_mini_app).',
+  'REQUIRED before authoring a legacy raw-HTML widget: call this first, then write one with write_note(note_type="widget") (legacy — prefer learn_generate_applet).',
 )
 
 
-export const skillTools: Tool[] = [learnGenerateDiagram, learnGenerateMiniApp, learnGenerateHtmlWidget]
+export const skillTools: Tool[] = [learnGenerateDiagram, learnGenerateApplet, learnGenerateHtmlWidget]

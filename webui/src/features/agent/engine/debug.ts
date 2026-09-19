@@ -8,7 +8,8 @@
  *   __agentDebug(true)            // enable verbose logging
  *   __agentLog()                  // dump the recent trace
  *   __agentLog.clear()            // reset
- * Enabled by default in dev; persisted via localStorage otherwise.
+ * Enabled by default in dev; via the `VITE_AGENT_DEBUG=true` build env var (e.g. to test a
+ * production-like build); or per-session via localStorage. Off in tests.
  */
 import type { LlmMessage, LlmToolDef, LlmTurn } from "./types"
 
@@ -17,8 +18,12 @@ let enabled = false
 try {
   const env = import.meta.env
   const isTest = Boolean(env?.VITEST) || env?.MODE === "test"
-  // On by default in dev; off in tests; opt-in elsewhere via localStorage.
-  enabled = !isTest && (Boolean(env?.DEV) || localStorage.getItem("dim0.debug.agent") === "1")
+  // Any non-empty, non-falsey value enables it — so `=true`, `=1`, `=yes` all work rather
+  // than only the exact string "true".
+  const v = env?.VITE_AGENT_DEBUG
+  const envOn = typeof v === "string" && v !== "" && v !== "false" && v !== "0"
+  // On by default in dev; off in tests; else opt in via the build env var or localStorage.
+  enabled = !isTest && (Boolean(env?.DEV) || envOn || localStorage.getItem("dim0.debug.agent") === "1")
 } catch {
   // storage unavailable — stays off
 }
@@ -97,6 +102,14 @@ export const agentLog = {
     } else {
       console.log("%c[agent] ← text", "color:#8b5cf6", short(turn.text, 500))
     }
+  },
+
+  reasoning(text: string): void {
+    if (!text) return
+    // Chain-of-thought is the largest payload here; cap what we keep in the always-on ring
+    // buffer so a session that never enables debug doesn't accumulate multi-KB CoT blobs.
+    record("reasoning", short(text))
+    if (enabled) console.log("%c[agent] 🧠 reasoning", "color:#a855f7", short(text, 2000))
   },
 
   tool(name: string, args: unknown, result: unknown): void {

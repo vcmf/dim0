@@ -9,6 +9,7 @@
  */
 import type { ChatCompletionMessage } from "openai/resources/chat/completions"
 import { fromOpenAiMessage, toOpenAiMessages, toOpenAiTools } from "./byok-client"
+import { agentLog } from "./debug"
 import { runIdHeaders } from "./services/run"
 import { servicesPost, servicesStream } from "./services/transport"
 import type { LlmClient, LlmMessage, LlmStreamEvent, LlmToolDef, LlmTurn } from "./types"
@@ -65,19 +66,33 @@ export class ManagedLlmClient implements LlmClient {
   }
 
   async complete(messages: LlmMessage[], tools: LlmToolDef[]): Promise<LlmTurn> {
-    const result = await this.post(this.body(messages, tools))
-    return fromOpenAiMessage(result.choices[0]?.message)
+    agentLog.llmRequest(this.model, messages, tools)
+    try {
+      const result = await this.post(this.body(messages, tools))
+      const turn = fromOpenAiMessage(result.choices[0]?.message)
+      agentLog.llmResponse(turn)
+      return turn
+    } catch (err) {
+      agentLog.error(`llm.complete(${this.model})`, err)
+      throw err
+    }
   }
 
   async *completeStream(
     messages: LlmMessage[],
     tools: LlmToolDef[],
   ): AsyncGenerator<LlmStreamEvent> {
-    for await (const line of this.streamPost(this.body(messages, tools))) {
-      if (line.type === "delta") yield { kind: "delta", text: line.text }
-      else if (line.type === "reasoning") yield { kind: "reasoning", text: line.text }
-      else if (line.type === "tool_start") yield { kind: "tool_start", name: line.name, id: line.id }
-      else yield { kind: "final", turn: fromOpenAiMessage(line.message) }
+    agentLog.llmRequest(this.model, messages, tools)
+    try {
+      for await (const line of this.streamPost(this.body(messages, tools))) {
+        if (line.type === "delta") yield { kind: "delta", text: line.text }
+        else if (line.type === "reasoning") yield { kind: "reasoning", text: line.text }
+        else if (line.type === "tool_start") yield { kind: "tool_start", name: line.name, id: line.id }
+        else yield { kind: "final", turn: fromOpenAiMessage(line.message) }
+      }
+    } catch (err) {
+      agentLog.error(`llm.completeStream(${this.model})`, err)
+      throw err
     }
   }
 }

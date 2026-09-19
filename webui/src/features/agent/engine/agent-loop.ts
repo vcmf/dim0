@@ -221,6 +221,12 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
         }
       }
       result = final ?? { kind: "text", text: acc }
+      // The streaming clients log the request but not the assembled turn/reasoning (they
+      // stream events); log them here, the single place that sees the whole streamed turn.
+      // (On a non-streaming completer — tests only — `complete()` also logs the response; a
+      // harmless duplicate never hit with a real streaming provider.)
+      if (reasoningAcc) agentLog.reasoning(reasoningAcc)
+      agentLog.llmResponse(result)
     } else {
       result = await opts.llm.complete(modelMessages, defs)
     }

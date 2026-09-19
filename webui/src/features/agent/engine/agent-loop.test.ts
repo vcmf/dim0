@@ -14,7 +14,7 @@ import { resolveConfirmDecision } from "./tool-confirm-store"
 import { defineTool } from "./types"
 import type { AgentEvent, LlmClient, LlmMessage, Tool, ToolContext } from "./types"
 import { createNote, editNote, getNote, linkNotes, listBoards, localTools, searchNotes, updateNote, writeNote } from "./tools"
-import { learnGenerateMiniApp, skillTools } from "./skills"
+import { learnGenerateApplet, skillTools } from "./skills"
 
 
 const drain = async (gen: AsyncGenerator<AgentEvent>): Promise<AgentEvent[]> => {
@@ -301,14 +301,14 @@ describe("tools", () => {
   })
 
 
-  it("write_note creates a typed node (mini-app)", async () => {
+  it("write_note creates a typed node (applet)", async () => {
     const store = freshStore("c")
     const { id } = (await writeNote.run(
-      { note_id: "m1", label: "Chart", content: "function Widget() { return null }", note_type: "mini-app" },
+      { note_id: "m1", label: "Chart", content: "<Widget><div>hi</div></Widget>", note_type: "applet" },
       { store },
     )) as { id: string }
     const node = store.getNode(asNodeId(id))
-    expect(node?.type).toBe("mini-app")
+    expect(node?.type).toBe("applet")
     expect(titleOf(node?.data)).toBe("Chart")
     // Custom types must be born with grow-to-fit OFF (mirrors note_to_wire).
     expect(node?.style?.autoFit).toBe(false)
@@ -344,10 +344,10 @@ describe("tools", () => {
   })
 
 
-  it("write_note rejects a malformed mini-app without creating a node", async () => {
+  it("write_note rejects a malformed applet without creating a node", async () => {
     const store = freshStore("c")
-    const res = await writeNote.run({ note_id: "bad", content: "const x = 1", note_type: "mini-app" }, { store })
-    expect(res).toMatchObject({ error: expect.stringContaining("mini-app invalid") })
+    const res = await writeNote.run({ note_id: "bad", content: "const x = 1", note_type: "applet" }, { store })
+    expect(res).toMatchObject({ error: expect.stringContaining("applet invalid") })
     expect(store.getNode(asNodeId("bad"))).toBeUndefined()
   })
 
@@ -386,16 +386,16 @@ describe("tools", () => {
 
 describe("skills", () => {
   it("learn_generate_* tools return their guidance text", async () => {
-    const out = (await learnGenerateMiniApp.run({}, { store: freshStore("c") })) as string
+    const out = (await learnGenerateApplet.run({}, { store: freshStore("c") })) as string
     expect(typeof out).toBe("string")
     expect(out.length).toBeGreaterThan(200)
   })
 
   it("exposes the three skill loaders", () => {
     expect(skillTools.map((t) => t.name).sort()).toEqual([
+      "learn_generate_applet",
       "learn_generate_diagram",
       "learn_generate_html_widget",
-      "learn_generate_mini_app",
     ])
   })
 })

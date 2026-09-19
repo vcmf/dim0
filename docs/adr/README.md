@@ -15,3 +15,4 @@ by ID from other docs instead of restating the decision (each fact lives once).
 | [ADR-DESKTOP-002](./ADR-DESKTOP-002-byok-relay-and-remote-path.md) | Desktop: BYOK goes direct via plugin-http (offline); managed + synced ride a build-time server URL (`API_URL` from `VITE_API_URL`). |
 | [ADR-DESKTOP-003](./ADR-DESKTOP-003-distribution-and-unsigned-install.md) | Desktop distribution: tagged GitHub Release; terminal install is prompt-free even unsigned (ad-hoc signed, no quarantine/MOTW). |
 | [ADR-BILLING-001](./ADR-BILLING-001-oss-mode-when-billing-inactive.md) | Billing-inactive deploys run full-OSS (plan `plus`, no limits); one plan resolver, consumed by the frontend. |
+| [ADR-APPLET-001](./ADR-APPLET-001-declarative-inline-eval-free.md) | Applets are declarative, inline-rendered, eval-free widgets; the bounded interpreter is the sandbox. Legacy mini-app frozen, no migration. |

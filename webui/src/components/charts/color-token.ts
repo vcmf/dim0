@@ -14,33 +14,14 @@
 // Shared by <chart> and <graph>.
 
 
-const TOKEN_NAMES: ReadonlySet<string> = new Set([
-  "chart-1",
-  "chart-2",
-  "chart-3",
-  "chart-4",
-  "chart-5",
-  "primary",
-  "primary-foreground",
-  "secondary",
-  "secondary-foreground",
-  "destructive",
-  "destructive-foreground",
-  "accent",
-  "accent-foreground",
-  "muted",
-  "muted-foreground",
-  "foreground",
-  "background",
-  "border",
-  "card",
-  "card-foreground",
-])
+// The canonical theme-token set lives in lib/theme/resolve-token.ts (shared with the
+// canvas renderers); import it here so the SVG and canvas paths can't drift.
+import { THEME_TOKEN_NAMES } from "@/lib/theme/resolve-token"
 
 
 export function resolveColor(input: string | undefined): string {
   if (input == null || input === "") return defaultPaletteColor(0)
-  return TOKEN_NAMES.has(input) ? `var(--${input})` : input
+  return THEME_TOKEN_NAMES.has(input) ? `var(--${input})` : input
 }
 
 
