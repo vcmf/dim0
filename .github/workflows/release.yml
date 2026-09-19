@@ -54,9 +54,20 @@ jobs:
           python3 scripts/sync_version.py --check
 
       - name: Push release commit and tag
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           VERSION="$(cat VERSION)"
-          git push origin HEAD:main
+          # Push the version-bump commit to main with an ADMIN token so it bypasses main's
+          # required-status-checks ruleset. A fresh release commit has never run the PR checks,
+          # and GITHUB_TOKEN (github-actions[bot]) can't be a ruleset bypass actor — so the
+          # default push is rejected (GH013). RELEASE_TOKEN is a fine-grained PAT owned by a
+          # repo admin (contents: write) whose identity IS in the ruleset's "Repository admin"
+          # bypass. The secret is auto-masked in logs.
+          git push "https://x-access-token:${RELEASE_TOKEN}@github.com/${{ github.repository }}.git" HEAD:main
+          # Tag push stays on GITHUB_TOKEN on purpose: a GITHUB_TOKEN-pushed tag does NOT fire
+          # `push: tags`, so desktop-release runs only via the ordered workflow_call below (no
+          # double build, no race with "Create GitHub release").
           git push origin "v${VERSION}"
 
       - name: Create GitHub release
