@@ -35,6 +35,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # Do NOT persist the GITHUB_TOKEN credential. Checkout otherwise writes an
+          # http.extraheader for github.com that every later `git push` sends, and that
+          # header OVERRIDES the token embedded in a push URL — so the release push would
+          # silently authenticate as github-actions[bot] (which can't bypass the ruleset)
+          # instead of the admin PAT, giving GH013. With this off, each push below carries
+          # its own explicit credential.
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -62,23 +69,31 @@ jobs:
       - name: Push release commit and tag
         env:
           RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_ACTIONS_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$RELEASE_TOKEN" ]; then
             echo "::error::RELEASE_TOKEN secret is not set — needed to push the release commit to main (bypasses the branch ruleset). See .github/workflows/release.yml." >&2
             exit 1
           fi
           VERSION="$(cat VERSION)"
-          # Push the version-bump commit to main with an ADMIN token so it bypasses main's
+          REPO="${{ github.repository }}"
+          # Push the version-bump commit to main with an ADMIN PAT so it bypasses main's
           # required-status-checks ruleset. A fresh release commit has never run the PR checks,
-          # and GITHUB_TOKEN (github-actions[bot]) can't be a ruleset bypass actor — so the
-          # default push is rejected (GH013). RELEASE_TOKEN is a fine-grained PAT owned by a
-          # repo admin (contents: write) whose identity IS in the ruleset's "Repository admin"
-          # bypass. The secret is auto-masked in logs.
-          git push "https://x-access-token:${RELEASE_TOKEN}@github.com/${{ github.repository }}.git" HEAD:main
+          # and GITHUB_TOKEN (github-actions[bot]) can't be a ruleset bypass actor — so its
+          # push is rejected (GH013). RELEASE_TOKEN is a CLASSIC PAT (scope `repo`) owned by a
+          # repo+org admin whose identity IS in the ruleset's admin bypass.
+          #
+          # The PAT goes in the USERNAME slot (not `x-access-token:`). `x-access-token` is
+          # GitHub's reserved username for App installation tokens; using it makes the git
+          # backend resolve the pusher as an App/bot actor, which does NOT match the ruleset's
+          # user-role bypass — so the admin bypass would silently not apply. As the username,
+          # the PAT resolves to its owning user and the bypass applies. Secrets are auto-masked.
+          git push "https://${RELEASE_TOKEN}@github.com/${REPO}.git" HEAD:main
           # Tag push stays on GITHUB_TOKEN on purpose: a GITHUB_TOKEN-pushed tag does NOT fire
           # `push: tags`, so desktop-release runs only via the ordered workflow_call below (no
-          # double build, no race with "Create GitHub release").
-          git push origin "v${VERSION}"
+          # double build, no race with "Create GitHub release"). `x-access-token` is the correct
+          # username for GITHUB_TOKEN. Explicit URL because persist-credentials is off.
+          git push "https://x-access-token:${GH_ACTIONS_TOKEN}@github.com/${REPO}.git" "v${VERSION}"
 
       - name: Create GitHub release
         env:
