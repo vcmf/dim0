@@ -19,6 +19,12 @@ permissions:
   pull-requests: read
 
 
+# Serialize release runs so two dispatches can't race to bump/tag/push main at once.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+
 jobs:
   release:
     if: github.ref == 'refs/heads/main'
@@ -57,6 +63,10 @@ jobs:
         env:
           RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
+          if [ -z "$RELEASE_TOKEN" ]; then
+            echo "::error::RELEASE_TOKEN secret is not set — needed to push the release commit to main (bypasses the branch ruleset). See .github/workflows/release.yml." >&2
+            exit 1
+          fi
           VERSION="$(cat VERSION)"
           # Push the version-bump commit to main with an ADMIN token so it bypasses main's
           # required-status-checks ruleset. A fresh release commit has never run the PR checks,
