@@ -59,6 +59,25 @@ jobs:
           # (e.g. sync_version.py grew a manifest that version_files didn't).
           python3 scripts/sync_version.py --check
 
+      - name: Diagnose RELEASE_TOKEN identity (no secret exposed)
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          # Prints ONLY the token's owner login and type so we can confirm it is an
+          # admin's token that can bypass the ruleset. The token value is never echoed;
+          # response headers/login are not secret. Remove this step once the push works.
+          hdrs="$(curl -sS -D - -o /dev/null -H "Authorization: Bearer $RELEASE_TOKEN" https://api.github.com/user)"
+          login="$(curl -sS -H "Authorization: Bearer $RELEASE_TOKEN" https://api.github.com/user \
+            | python3 -c 'import sys,json;print(json.load(sys.stdin).get("login","<unauthorized>"))')"
+          echo "RELEASE_TOKEN owner login: $login"
+          if echo "$hdrs" | grep -qi '^x-oauth-scopes:'; then
+            echo "Token type: CLASSIC PAT (acts fully as the user; CAN bypass ruleset)"
+            echo "$hdrs" | grep -i '^x-oauth-scopes:'
+          else
+            echo "Token type: FINE-GRAINED PAT or App token (no X-OAuth-Scopes header)"
+            echo "  ^ fine-grained PATs do NOT exercise the owner's ruleset bypass — this is the likely cause."
+          fi
+
       - name: Push release commit and tag
         env:
           RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
