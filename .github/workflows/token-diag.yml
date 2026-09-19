@@ -44,6 +44,4 @@ jobs:
           # current_user_can_bypass is evaluated for the caller — i.e. this exact token.
           curl -sS -H "Authorization: Bearer $RELEASE_TOKEN" \
             https://api.github.com/repos/${{ github.repository }}/rulesets/22823041 \
-            | python3 -c 'import sys,json
-d=json.load(sys.stdin)
-print("ruleset:", d.get("name"), "| current_user_can_bypass:", d.get("current_user_can_bypass"))'
+            | python3 -c 'import sys,json; d=json.load(sys.stdin); print("ruleset:", d.get("name"), "| current_user_can_bypass:", d.get("current_user_can_bypass"))'
