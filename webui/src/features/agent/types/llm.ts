@@ -4,7 +4,6 @@ import {
   DeepSeekBrandIcon,
   Dim0Icon,
   GeminiBrandIcon,
-  MinimaxBrandIcon,
   MistralBrandIcon,
   MoonshotBrandIcon,
   OpenAIBrandIcon,
@@ -35,7 +34,6 @@ export const LlmFamilyIcon: Record<string, AppIconComponent> = {
   "z-ai": ZAiBrandIcon,
   qwen: QwenBrandIcon,
   moonshotai: MoonshotBrandIcon,
-  minimax: MinimaxBrandIcon,
 }
 
 
@@ -50,7 +48,6 @@ export const LlmFamilyLabel: Record<string, string> = {
   "z-ai": "Z.ai",
   qwen: "Qwen",
   moonshotai: "Moonshot",
-  minimax: "MiniMax",
 }
 
 

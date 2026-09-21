@@ -53,7 +53,7 @@ def test_openai_only_routes_native(clean_keys):
 
     # OpenRouter-only models (z-ai/qwen/deepseek/...) are not reachable.
     ids = {m.id for m in llms}
-    assert "glm-5.2" not in ids
+    assert "glm-5.3-flashx" not in ids
     assert "gpt-5.4" in ids
 
     assert catalog.resolve_code("gpt-5.4") == "openai/gpt-5.4"
@@ -81,8 +81,8 @@ def test_openrouter_only_routes_via_openrouter(clean_keys):
     # So is Claude, with no native Anthropic key.
     assert catalog.resolve_code("claude-opus-4.8") == "openrouter/anthropic/claude-opus-4.8"
     # Non-OpenAI/Anthropic models carry the :nitro throughput variant.
-    assert catalog.resolve_code("glm-5.2") == "openrouter/z-ai/glm-5.2:nitro"
-    assert catalog.resolve_code("minimax-m2.7") == "openrouter/minimax/minimax-m2.7:nitro"
+    assert catalog.resolve_code("glm-5.3-flashx") == "openrouter/z-ai/glm-5.3-flashx:nitro"
+    assert catalog.resolve_code("kimi-k3") == "openrouter/moonshotai/kimi-k3:nitro"
 
     # Embeddings work through OpenRouter (no OpenAI key required).
     emb = catalog.available_embedding()
@@ -100,9 +100,9 @@ def test_nitro_only_on_non_openai_anthropic_routes(clean_keys):
     # OpenAI + Anthropic via OpenRouter: no :nitro.
     assert ":nitro" not in by_id["gpt-5.4"].call
     assert ":nitro" not in by_id["claude-opus-4.8"].call
-    # Everyone else via OpenRouter: :nitro — including gpt-oss (open-weight,
-    # multi-provider) despite its vendor-branded openai/ slug.
-    for mid in ("glm-5.2", "gemma-4-31b", "qwen3.6-plus", "deepseek-v4-pro", "kimi-k2.6", "minimax-m2.7", "gpt-oss-120b"):
+    # Everyone else via OpenRouter: :nitro. (gpt-oss is internal → excluded from
+    # available_llms; its :nitro route is asserted via resolved_by_id below.)
+    for mid in ("glm-5.3-flashx", "glm-5.3-flash", "gemma-4-31b", "qwen3.6-plus", "kimi-k3"):
         assert by_id[mid].call.endswith(":nitro"), mid
 
 
@@ -110,7 +110,12 @@ def test_retired_models_are_gone(clean_keys):
     """Models dropped in the revamp no longer resolve."""
     clean_keys.setenv("OPENROUTER_API_KEY", "or-x")
     ids = {m.id for m in catalog.available_llms()}
-    for retired in ("gpt-4.1", "gpt-4o", "gemini-2.5-pro", "glm-4.7", "kimi-k2.5", "deepseek-v3.2"):
+    for retired in (
+        "gpt-4.1", "gpt-4o", "gemini-2.5-pro", "glm-4.7", "kimi-k2.5", "deepseek-v3.2",
+        # dropped/renamed in the image-capable catalog refresh (PR S)
+        "minimax-m2.7", "deepseek-v4-pro", "mistral-large",
+        "glm-5.2", "glm-5.1", "kimi-k2.6", "deepseek-v4-flash",
+    ):
         assert retired not in ids
 
 
@@ -124,7 +129,7 @@ def test_native_route_preferred_over_openrouter(clean_keys):
     assert catalog.resolve_code("gpt-5.4") == "openai/gpt-5.4"
     assert catalog.resolve_code("claude-opus-4.8") == "anthropic/claude-opus-4-8"
     # A model with no native key still falls back to OpenRouter.
-    assert catalog.resolve_code("kimi-k2.6") == "openrouter/moonshotai/kimi-k2.6:nitro"
+    assert catalog.resolve_code("kimi-k3") == "openrouter/moonshotai/kimi-k3:nitro"
 
 
 def test_default_model_code_by_tier(clean_keys):
@@ -204,18 +209,37 @@ def test_openai_compatible_client_only_for_openai_apis(clean_keys):
     assert str(client.base_url).rstrip("/").endswith("openrouter.ai/api/v1")
 
 
-def test_public_catalog_exposes_vision_flag():
-    """Every public entry carries a `vision` flag.
+def test_public_catalog_is_all_vision_and_hides_internal():
+    """Every user-facing model is image-capable; the classifier is hidden.
 
-    Frontier families are true; text-only ones false (drives client image gating).
+    After the refresh the text-only classifier (`gpt-oss-120b`, internal) is
+    excluded from the picker, and every remaining model accepts image input.
     """
     by_id = {m["id"]: m for m in catalog.public_llm_catalog()}
     assert by_id  # catalog is non-empty
-    assert all("vision" in m for m in by_id.values())
-    # Confidently multimodal: the whole GPT-5.x line (minis included) + Claude.
-    assert by_id["gpt-5.5"]["vision"] is True
-    assert by_id["gpt-5.4-mini"]["vision"] is True
-    assert by_id["gpt-5.4-nano"]["vision"] is True
-    assert by_id["claude-opus-4.8"]["vision"] is True
-    # Text-only — must stay false so the client never sends an image.
-    assert by_id["gpt-oss-120b"]["vision"] is False
+    # gpt-oss-120b is internal (classifier only) → never in the public picker.
+    assert "gpt-oss-120b" not in by_id
+    # Every user-facing model accepts image input.
+    assert all(m["vision"] is True for m in by_id.values())
+    # (gpt-oss-120b stays resolvable by id for the classifier — see
+    # test_resolved_by_id — it's just hidden from this public list.)
+
+
+def test_internal_model_hidden_from_selection_but_resolvable(clean_keys):
+    """`internal` models are hidden from every user-facing path but resolvable.
+
+    The classifier (`gpt-oss-120b`) is excluded from listing, selection, and the
+    default pick, yet stays resolvable by id.
+    """
+    clean_keys.setenv("OPENROUTER_API_KEY", "or-x")
+    # Not in the user-facing reachable list.
+    assert "gpt-oss-120b" not in {m.id for m in catalog.available_llms()}
+    # Cannot be selected as a chat model (resolve/allow both flow through available_llms).
+    assert catalog.resolve_code("gpt-oss-120b") is None
+    assert catalog.is_model_allowed("gpt-oss-120b", {"lite"}) is False
+    # Never chosen as a default.
+    assert catalog.default_resolved("lite").id != "gpt-oss-120b"
+    assert catalog.default_resolved().id != "gpt-oss-120b"
+    # But the classifier resolves it directly.
+    r = catalog.resolved_by_id("gpt-oss-120b")
+    assert r is not None and r.internal is True
