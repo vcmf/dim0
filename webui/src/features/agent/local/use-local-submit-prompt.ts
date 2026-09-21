@@ -29,7 +29,7 @@ import type { AgentEvent, LlmImage } from "@/features/agent/engine/types"
 import { planSystemPrompt } from "@/features/agent/prompts"
 import { useByokStore } from "@/features/agent/byok/byok-store"
 import { useChatStore } from "@/features/agent/store/chat-store"
-import { byokModelForId } from "@/features/agent/types/model-catalog"
+import { byokModelForId, type PublicModel } from "@/features/agent/types/model-catalog"
 import { useBoardAppStore } from "@/features/board/harness/store/board-app-store"
 import { useLocalMessagesStore } from "@/features/agent/store/local-messages-store"
 import { putChatTranscript } from "@/features/agent/api/chat-transcript"
@@ -92,6 +92,33 @@ const buildBoardBlock = async (store: CanvasStore, rootId: string | null, boardI
   } catch (e) {
     agentLog.error("buildBoardBlock", e)
     return ""
+  }
+}
+
+
+/**
+ * Optional board-viewport screenshot for a vision turn (flagged, off by default). Gated +
+ * best-effort: returns undefined when the flag is off, the resolved model can't accept images,
+ * the board is empty, or the capture fails — a failed capture must NEVER block the turn. The
+ * caller kicks this off up front so it overlaps the board/memory/conversation blocks instead of
+ * adding serial latency to time-to-first-token; the capture time is logged for canary tuning.
+ */
+const captureBoardImage = async (
+  store: CanvasStore,
+  llmCatalog: PublicModel[],
+  llmModel: string,
+): Promise<LlmImage[] | undefined> => {
+  if (!shouldAttachBoardImage(store, llmCatalog, llmModel)) return undefined
+  try {
+    const t0 = performance.now()
+    const blob = await getBoardCaptureRef()?.()
+    if (!blob) return undefined
+    const url = await blobToDataUri(blob)
+    agentLog.capture(Math.round(performance.now() - t0), blob.size)
+    return [{ url }]
+  } catch (e) {
+    agentLog.error("board viewport capture", e)
+    return undefined
   }
 }
 
@@ -289,6 +316,13 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
       let turnErrored = false
       try {
         const system = planSystemPrompt(new Date().toLocaleString())
+        // Multimodal board context (flagged, off by default): a PNG of the current
+        // viewport for a vision model. Kicked off up front so it overlaps the board/
+        // memory/conversation blocks below rather than adding serial latency; awaited
+        // just before the user message is built. Transient — set only on this live
+        // turn's message (never the persisted ChatMessage or history). Best-effort:
+        // a failed capture yields undefined and never blocks the turn.
+        const imagesPromise = captureBoardImage(store, llmCatalog, llmModel)
         // Deterministic board awareness (no LLM), injected as a standing section.
         const boardBlock = await buildBoardBlock(store, rootId, boardId)
         const systemWithBoard = boardBlock ? `${system}\n\n## BOARD\n${boardBlock}` : system
@@ -298,20 +332,7 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
         const systemWithMemory = memoryBlock
           ? `${systemWithBoard}\n\n## MEMORY\n<memory>\n${memoryBlock}\n</memory>`
           : systemWithBoard
-        // Multimodal board context (flagged): attach a PNG of the current
-        // viewport when the model can see images. Transient — set only on this
-        // live turn's message below, never on the persisted ChatMessage (which
-        // stays text) or in history. Best-effort: a failed capture never blocks
-        // the turn. See docs/plans/multimodal-board-context.md.
-        let images: LlmImage[] | undefined
-        if (shouldAttachBoardImage(store, llmCatalog, llmModel)) {
-          try {
-            const blob = await getBoardCaptureRef()?.()
-            if (blob) images = [{ url: await blobToDataUri(blob) }]
-          } catch {
-            // best-effort — a failed capture must never block the turn
-          }
-        }
+        const images = await imagesPromise
         const userMessageForAgent = wrapWithMessageContext(
           images
             ? `${prompt}\n\nA screenshot of the current board viewport is attached.`

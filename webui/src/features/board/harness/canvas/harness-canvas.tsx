@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { LocalBoardUrl } from "@/routes"
 import { isTauri } from "@/platform"
 import { useQueryClient } from "@tanstack/react-query"
-import { exportViewport, hitTestAny, viewportWorldRect, type CanvasStore, type NodeId, type Renderer } from "@canvas-harness/core"
+import { hitTestAny, viewportWorldRect, type CanvasStore, type NodeId, type Renderer } from "@canvas-harness/core"
 import { createDefaultNote } from "@/features/board/types/note"
 import { noteToNode } from "../convert/note-to-node"
 import { applyStyleMemory } from "./use-create-handlers"
@@ -13,6 +13,7 @@ import { applyLinkOutput, applyNoteOutput } from "../agent/apply-tool-output"
 import { useHarnessApplyMindMap } from "../agent/use-harness-apply-mindmap"
 import { setCanvasStoreRef } from "../canvas-store-ref"
 import { setBoardCaptureRef, type BoardCapture } from "../board-capture-ref"
+import { exportViewportImage } from "../export/export-viewport-image"
 import {
   Canvas,
   CanvasProvider,
@@ -102,6 +103,9 @@ import { HarnessWrapRefProvider } from "./wrap-ref-provider"
 // Longest-side cap for the on-demand viewport screenshot fed to a vision model
 // (standard-tier limit; keeps the data URL small and within provider limits).
 const MAX_VIEWPORT_CAPTURE_DIM = 1568
+// Inflate the captured world rect past the exact viewport so edge nodes aren't clipped and the
+// model gets a little peripheral context (fraction of the longest side).
+const VIEWPORT_CAPTURE_MARGIN = 0.12
 
 
 export function HarnessCanvas({ local = false }: { local?: boolean } = {}) {
@@ -185,23 +189,28 @@ export function HarnessCanvas({ local = false }: { local?: boolean } = {}) {
         // space): a background-only image would contradict the text BOARD block and
         // the "screenshot attached" label. Null → the submit path attaches nothing.
         if (store.querySpatial({ rect: vp }).nodes.length === 0) return null
-        // Target the on-screen resolution, capped: output long side =
-        // min(screenLongPx, MAX). This keeps the capture as crisp as what the user
-        // sees at any zoom (no under-sampling when zoomed in) while a zoomed-OUT
-        // viewport (huge world rect) can't exceed the browser's max canvas size.
-        // One raster, no downscale pass.
+        // Capture a slightly larger zone than the exact viewport so edge nodes come
+        // in whole and the model gets peripheral context. Inflate PROPORTIONALLY
+        // (per-axis) so the aspect ratio is preserved.
+        const m = VIEWPORT_CAPTURE_MARGIN
+        const padded = { x: vp.x - (vp.w * m) / 2, y: vp.y - (vp.h * m) / 2, w: vp.w * (1 + m), h: vp.h * (1 + m) }
+        // Scale = the on-screen density (screenLong / vpLong), so in-view content is
+        // rendered as crisp as the user sees it, capped so the padded output long
+        // side can't exceed MAX (no oversized canvas at any zoom). One raster.
         const screenLong = Math.max(rect.width, rect.height)
-        const worldLong = Math.max(vp.w, vp.h)
-        const scale = worldLong > 0 ? Math.min(screenLong, MAX_VIEWPORT_CAPTURE_DIM) / worldLong : 1
-        return await exportViewport(store, vp, {
+        const vpLong = Math.max(vp.w, vp.h)
+        const paddedLong = Math.max(padded.w, padded.h)
+        const scale = vpLong > 0 ? Math.min(screenLong / vpLong, MAX_VIEWPORT_CAPTURE_DIM / paddedLong) : 1
+        // exportViewportImage renders the viewport AND composites real applet content
+        // (an applet's `content` is JSX source, which a plain export would draw as text).
+        return await exportViewportImage(store, padded, {
+          scale,
           // Without the asset cache, image/icon nodes are skipped in the render.
           assetCache: renderer.getAssetCache(),
           theme: themeRef.current.resolver,
           // Match the user's board background (dark theme → dark ground, not the
           // default white, which would make dark-theme content unreadable).
           backgroundColor: themeRef.current.background.color,
-          scale,
-          padding: 0,
         })
       } catch {
         return null
