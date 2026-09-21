@@ -28,6 +28,7 @@ export type NodeType =
   | "widget"
   | "mini-app"
   | "applet"
+  | "ink"
 
 /**
  * Stroke style for the node.
@@ -347,6 +348,20 @@ export const createDefaultStyle = ({
         backgroundColor: ROSE_PINE_LIGHT,
         strokeColor: TRANSPARENT_HEX,
         opacity: 100,
+      } as Style
+    case "ink":
+      // Ink strokes are painted by the engine from `data.ink`; the only
+      // style fields it reads are strokeColor (the ink color) and opacity.
+      // The pen tool sets the color per stroke — this is just a sane default.
+      return {
+        ...defaultOptions,
+        roughness: 0,
+        roundness: 0,
+        fontFamily: "handwriting",
+        fontSize: "M",
+        textAlign: "left",
+        backgroundColor: TRANSPARENT_HEX,
+        strokeColor: STONE_800,
       } as Style
   }
 }

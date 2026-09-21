@@ -299,6 +299,17 @@ def _node_patch_to_note_data(patch: dict[str, Any]) -> dict[str, Any]:  # noqa: 
                 if snake_key in {"node_position", "node_size", "node_z_index"}:
                     continue
                 properties[snake_key] = value
+        # Ink geometry rides at top-level `data.ink` (InkStrokeData), where the
+        # engine writes it on a freshly-drawn stroke — never under
+        # `data.properties`. Lift it onto `ink_data` so the Note persists it;
+        # its camelCase inner keys validate against InkProperty's aliases.
+        # Gated on the ink type (node.add carries `type`; a restyle carries
+        # `data.styleType`) so a stray `data.ink` never attaches geometry to a
+        # non-ink note — symmetric with the client convert layer's gate.
+        wire_ink = wire_data_for_props.get("ink")
+        is_ink = patch.get("type") == "ink" or wire_data_for_props.get("styleType") == "ink"
+        if isinstance(wire_ink, dict) and is_ink:
+            properties["ink_data"] = wire_ink
 
     data: dict[str, Any] = {}
     if properties:

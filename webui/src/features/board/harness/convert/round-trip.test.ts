@@ -236,6 +236,74 @@ describe("note ↔ node round-trip", () => {
 })
 
 
+describe("ink node round-trip", () => {
+  // A synthetic committed stroke — the shape canvas-harness stores at
+  // node.data.ink (InkStrokeData). Geometry only; color rides on style.
+  const inkGeometry = {
+    type: "ink" as const,
+    version: 1 as const,
+    size: 6,
+    points: [
+      [0, 0, 0.4],
+      [12, 8, 0.7],
+      [30, 20, 0.55],
+    ] as Array<[number, number, number]>,
+    intrinsicWidth: 30,
+    intrinsicHeight: 20,
+    thinning: 0.68,
+  }
+
+  it("maps Dim0 'ink' ↔ canvas-harness 'ink'", () => {
+    const note = createDefaultNote({ boardId: BOARD_ID, nodeType: "ink" })
+    const node = noteToNode(note)
+    expect(node.type).toBe("ink")
+    expect(nodeToNote(node).style.type).toBe("ink")
+  })
+
+  it("lifts inkData → node.data.ink and restores it on save", () => {
+    const note = createDefaultNote({ boardId: BOARD_ID, nodeType: "ink" })
+    note.properties.inkData = inkGeometry
+
+    const node = noteToNode(note)
+    // Engine reads geometry off node.data.ink, not off a Note property.
+    expect((node.data as { ink?: unknown }).ink).toEqual(inkGeometry)
+    // Geometry is carried once: not duplicated in the data.properties bag.
+    const props = (node.data as { properties?: { inkData?: unknown } }).properties
+    expect(props?.inkData).toBeUndefined()
+
+    const back = nodeToNote(node)
+    expect(back.properties.inkData).toEqual(inkGeometry)
+  })
+
+  it("does not attach inkData to a non-ink node carrying stray data.ink", () => {
+    // A rect that (e.g. via a type change or malformed op) still has a
+    // data.ink blob must not persist ink geometry onto a non-ink Note.
+    const note = createDefaultNote({ boardId: BOARD_ID, nodeType: "rectangle" })
+    const node = noteToNode(note)
+    const stray = { ...node, data: { ...(node.data as object), ink: inkGeometry } } as Node
+
+    const back = nodeToNote(stray)
+    expect(back.style.type).toBe("rectangle")
+    expect(back.properties.inkData).toBeUndefined()
+  })
+
+  it("carries stroke color/opacity via style, not geometry", () => {
+    const note = createDefaultNote({ boardId: BOARD_ID, nodeType: "ink" })
+    note.properties.inkData = inkGeometry
+    note.style.strokeColor = "#7c3aed"
+    note.style.opacity = 70
+
+    const node = noteToNode(note)
+    expect(node.style?.strokeColor).toBe("#7c3aed")
+    expect(node.style?.opacity).toBe(70)
+
+    const back = nodeToNote(node)
+    expect(back.style.strokeColor).toBe("#7c3aed")
+    expect(back.style.opacity).toBeCloseTo(70)
+  })
+})
+
+
 describe("link ↔ edge round-trip", () => {
   const makeNodes = (): Map<string, Node> => {
     const noteA = positionedNote("node-a", 100, 100, 200, 100)

@@ -48,6 +48,8 @@ _DIM0_TO_CANVAS_TYPE: dict[str, str] = {
     "code-sandbox": "code-sandbox",
     "widget": "widget",
     "mini-app": "mini-app",
+    # Identity — built-in in canvas-harness 0.2.0.
+    "ink": "ink",
 }
 
 # Inverse map for the inbound persistence fallback (apply_ops.py). Auto-
@@ -63,7 +65,7 @@ _CANVAS_TO_DIM0_TYPE: dict[str, str] = {v: k for k, v in _DIM0_TO_CANVAS_TYPE.it
 # IMPORTANT: keep in sync with webui/.../convert/note-to-node.ts
 # (`AUTOFIT_DISABLED_TYPES`).
 _AUTOFIT_DISABLED_CANVAS_TYPES: frozenset[str] = frozenset({
-    "folder", "sheet", "code-sandbox", "widget", "mini-app", "document",
+    "folder", "sheet", "code-sandbox", "widget", "mini-app", "document", "ink",
 })
 
 
@@ -145,6 +147,20 @@ def note_to_wire_node(note: Note) -> dict[str, Any]:
     stored = _note_stored_colors(note)
     if stored:
         data["_storedColors"] = stored
+
+    # Lift ink geometry to top-level `data.ink` (camelCase, via by_alias) so
+    # the receiver's engine paints it directly — same top-level slot the
+    # client convert layer uses. Strip the snake echo from `data.properties`
+    # so the (potentially large) points array only ships once.
+    if note.properties.ink_data is not None:
+        # JSON mode so `points` land as arrays (not Python tuples) and match
+        # the exact InkStrokeData shape the engine reads off the wire.
+        data["ink"] = note.properties.ink_data.model_dump(
+            by_alias=True, exclude_none=True, mode="json",
+        )
+        props_block = data.get("properties")
+        if isinstance(props_block, dict):
+            props_block.pop("ink_data", None)
 
     return {
         "id": note.id,
