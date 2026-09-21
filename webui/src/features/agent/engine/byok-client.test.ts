@@ -54,6 +54,37 @@ describe("byok mapping", () => {
   })
 
 
+  it("expands a user message with images to OpenAI content-parts", () => {
+    const out = toOpenAiMessages([
+      { role: "user", content: "what is this?", images: [{ url: "data:image/png;base64,AAA" }] },
+    ])
+    expect(out[0]).toEqual({
+      role: "user",
+      content: [
+        { type: "text", text: "what is this?" },
+        { type: "image_url", image_url: { url: "data:image/png;base64,AAA" } },
+      ],
+    })
+  })
+
+
+  it("keeps a user message a plain string when it has no images", () => {
+    const withEmpty = toOpenAiMessages([{ role: "user", content: "u", images: [] }])
+    expect(withEmpty[0]).toEqual({ role: "user", content: "u" })
+    const without = toOpenAiMessages([{ role: "user", content: "u" }])
+    expect(without[0]).toEqual({ role: "user", content: "u" })
+  })
+
+
+  it("omits the text part when the message content is empty (image-only)", () => {
+    const out = toOpenAiMessages([{ role: "user", content: "", images: [{ url: "data:image/png;base64,AAA" }] }])
+    expect(out[0]).toEqual({
+      role: "user",
+      content: [{ type: "image_url", image_url: { url: "data:image/png;base64,AAA" } }],
+    })
+  })
+
+
   it("maps tool defs to OpenAI function tools", () => {
     const out = toOpenAiTools([{ name: "create_note", description: "d", parameters: { type: "object" } }])
     expect(out[0]).toEqual({ type: "function", function: { name: "create_note", description: "d", parameters: { type: "object" } } })

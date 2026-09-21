@@ -50,6 +50,7 @@ class CatalogModel(BaseModel):
     family: str
     tier: str | None = None    # "pro" | "lite" (llm only)
     dim: int | None = None     # vector size (embedding only)
+    vision: bool = False       # accepts image input (llm only); defaults false (text-only)
     routes: list[Route]
 
 
@@ -160,6 +161,7 @@ def public_llm_catalog() -> list[dict]:
             "label": m.label,
             "family": m.family,
             "tier": m.tier,
+            "vision": m.vision,
             "routes": [{"via": r.via, "model": r.model} for r in m.routes],
         }
         for m in llms

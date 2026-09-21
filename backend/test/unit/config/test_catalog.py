@@ -202,3 +202,20 @@ def test_openai_compatible_client_only_for_openai_apis(clean_keys):
     client = catalog.openai_compatible_client(emb)
     assert client is not None
     assert str(client.base_url).rstrip("/").endswith("openrouter.ai/api/v1")
+
+
+def test_public_catalog_exposes_vision_flag():
+    """Every public entry carries a `vision` flag.
+
+    Frontier families are true; text-only ones false (drives client image gating).
+    """
+    by_id = {m["id"]: m for m in catalog.public_llm_catalog()}
+    assert by_id  # catalog is non-empty
+    assert all("vision" in m for m in by_id.values())
+    # Confidently multimodal: the whole GPT-5.x line (minis included) + Claude.
+    assert by_id["gpt-5.5"]["vision"] is True
+    assert by_id["gpt-5.4-mini"]["vision"] is True
+    assert by_id["gpt-5.4-nano"]["vision"] is True
+    assert by_id["claude-opus-4.8"]["vision"] is True
+    # Text-only — must stay false so the client never sends an image.
+    assert by_id["gpt-oss-120b"]["vision"] is False
