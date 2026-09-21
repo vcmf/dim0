@@ -12,7 +12,24 @@ export type PublicModel = {
   label: string
   family: string
   tier?: string | null
+  /** Whether the model accepts image input (sent by the backend catalog). */
+  vision?: boolean
   routes: ModelRoute[]
+}
+
+
+/**
+ * Whether the model that will actually serve this turn accepts image input.
+ *
+ * For an explicit catalog id (managed or BYOK) it's that model's `vision` flag.
+ * For `"auto"` the SERVER resolves the concrete model, so the client can't know
+ * which one — it's safe only while EVERY catalog model is vision-capable, which
+ * holds today (the picker catalog is all-vision). If a text-only model is ever
+ * added, `"auto"` correctly turns non-vision here.
+ */
+export const modelSupportsVision = (models: PublicModel[], id: string): boolean => {
+  if (id === "auto") return models.length > 0 && models.every((m) => m.vision === true)
+  return models.find((m) => m.id === id)?.vision === true
 }
 
 

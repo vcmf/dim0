@@ -5,7 +5,7 @@
  */
 import { z } from "zod"
 import { CONFIRM_TOOL_NAMES } from "./types"
-import type { AgentEvent, LlmClient, LlmMessage, LlmToolDef, LlmTurn, Tool, ToolContext } from "./types"
+import type { AgentEvent, LlmClient, LlmImage, LlmMessage, LlmToolDef, LlmTurn, Tool, ToolContext } from "./types"
 import { isToolSoftError, toolRejected, toolThrew, unknownTool, userDeclined } from "./tool-result"
 import { buildModelMessages, emptyResultText, type ToolMsgMeta } from "./tool-result-view"
 import { agentLog } from "./debug"
@@ -160,6 +160,12 @@ export type RunAgentOptions = {
   system?: string
   /** Prior conversation turns, prepended so the agent remembers the chat. */
   history?: LlmMessage[]
+  /**
+   * Images attached to THIS turn's user message (e.g. a board screenshot).
+   * Transient by construction: set only on the live user message here, never on
+   * `history` or the persisted transcript — see docs/plans/multimodal-board-context.md §4.1.
+   */
+  images?: LlmImage[]
   maxTurns?: number
 }
 
@@ -171,7 +177,11 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
   const messages: LlmMessage[] = []
   if (opts.system) messages.push({ role: "system", content: opts.system })
   if (opts.history) messages.push(...opts.history)
-  messages.push({ role: "user", content: opts.userMessage })
+  messages.push({
+    role: "user",
+    content: opts.userMessage,
+    ...(opts.images && opts.images.length > 0 ? { images: opts.images } : {}),
+  })
 
   // Per-run confirm memory (declined + approved). Spans all turns, so a retry
   // or a follow-up call in a later round respects the earlier decision.

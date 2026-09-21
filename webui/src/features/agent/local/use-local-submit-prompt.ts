@@ -25,7 +25,7 @@ import { getBoardPersistenceRef } from "@/features/board/persist/local/board-per
 import { makeDocSearchTool } from "@/features/agent/engine/doc-search"
 import { resolveConfirmDecision, useToolConfirm, type ToolConfirmDecision } from "@/features/agent/engine/tool-confirm-store"
 import { useToolTrustStore } from "@/features/agent/settings/tool-trust-store"
-import type { AgentEvent } from "@/features/agent/engine/types"
+import type { AgentEvent, LlmImage } from "@/features/agent/engine/types"
 import { planSystemPrompt } from "@/features/agent/prompts"
 import { useByokStore } from "@/features/agent/byok/byok-store"
 import { useChatStore } from "@/features/agent/store/chat-store"
@@ -36,6 +36,9 @@ import { putChatTranscript } from "@/features/agent/api/chat-transcript"
 import type { ChatMessage } from "@/features/agent/types/chat"
 import { agentLog } from "@/features/agent/engine/debug"
 import type { CanvasStore } from "@canvas-harness/core"
+import { blobToDataUri } from "@canvas-harness/core"
+import { getBoardCaptureRef } from "@/features/board/harness/board-capture-ref"
+import { shouldAttachBoardImage } from "./board-image-gate"
 import { latestAssistantText, stepsFromEvents } from "./agent-event-to-step"
 import { COMPACT_TAIL_MESSAGES, compactHistory, isOverCompactionBudget, toLlmHistory } from "./chat-history"
 import { maybeAutoLabelBoard, maybeDeriveBoardPurpose } from "./describe-board"
@@ -295,7 +298,26 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
         const systemWithMemory = memoryBlock
           ? `${systemWithBoard}\n\n## MEMORY\n<memory>\n${memoryBlock}\n</memory>`
           : systemWithBoard
-        const userMessageForAgent = wrapWithMessageContext(prompt, messageContext)
+        // Multimodal board context (flagged): attach a PNG of the current
+        // viewport when the model can see images. Transient — set only on this
+        // live turn's message below, never on the persisted ChatMessage (which
+        // stays text) or in history. Best-effort: a failed capture never blocks
+        // the turn. See docs/plans/multimodal-board-context.md.
+        let images: LlmImage[] | undefined
+        if (shouldAttachBoardImage(store, llmCatalog, llmModel)) {
+          try {
+            const blob = await getBoardCaptureRef()?.()
+            if (blob) images = [{ url: await blobToDataUri(blob) }]
+          } catch {
+            // best-effort — a failed capture must never block the turn
+          }
+        }
+        const userMessageForAgent = wrapWithMessageContext(
+          images
+            ? `${prompt}\n\nA screenshot of the current board viewport is attached.`
+            : prompt,
+          messageContext,
+        )
         // Rolling thread summary (already self-fenced as `## CONVERSATION`), built up
         // front so it counts toward the compaction estimate and stands in for the
         // trimmed turns after compaction.
@@ -392,7 +414,7 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
           liveNodes: new Map<string, { parentId: string | null; type: string }>(),
           sessions: new Map<string, HeadlessMutator>(),
         }
-        for await (const ev of runAgent({ system: systemWithDocs, userMessage: userMessageForAgent, history, tools, llm, ctx })) {
+        for await (const ev of runAgent({ system: systemWithDocs, userMessage: userMessageForAgent, history, tools, llm, ctx, images })) {
           // Streaming yields cumulative assistant_text / reasoning per token —
           // replace the previous snapshot in place instead of appending one event
           // per token. (assistant_text renders live; reasoning is shown at turn-end.)
