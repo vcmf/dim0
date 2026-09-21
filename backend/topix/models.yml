@@ -33,10 +33,15 @@ providers:
 
 llm:
   # --- OpenAI (native preferred, OpenRouter fallback without :nitro) ---
+  # `vision: true` marks models that accept image input (multimodal). Set it
+  # CONSERVATIVELY — only where the family is confidently multimodal — because an
+  # image sent to a text-only model errors; unset (false) just means the client
+  # won't attach a board image for that model. Add flags as capability is confirmed.
   - id: gpt-5.5
     label: GPT-5.5
     family: openai
     tier: pro
+    vision: true
     routes:
       - { via: openai,     model: gpt-5.5 }
       - { via: openrouter, model: openai/gpt-5.5 }
@@ -44,6 +49,7 @@ llm:
     label: GPT-5.5 Pro
     family: openai
     tier: pro
+    vision: true
     routes:
       - { via: openai,     model: gpt-5.5-pro }
       - { via: openrouter, model: openai/gpt-5.5-pro }
@@ -51,6 +57,7 @@ llm:
     label: GPT-5.4
     family: openai
     tier: pro
+    vision: true
     routes:
       - { via: openai,     model: gpt-5.4 }
       - { via: openrouter, model: openai/gpt-5.4 }
@@ -78,10 +85,13 @@ llm:
     routes:
       - { via: openrouter, model: openai/gpt-oss-120b:nitro }
 
+  # mini/nano inherit the GPT line's multimodality (the whole GPT-4o/4.1/5 family,
+  # minis included, accepts image input).
   - id: gpt-5.4-mini
     label: GPT-5.4 Mini
     family: openai
     tier: lite
+    vision: true
     routes:
       - { via: openai,     model: gpt-5.4-mini }
       - { via: openrouter, model: openai/gpt-5.4-mini }
@@ -89,6 +99,7 @@ llm:
     label: GPT-5.4 Nano
     family: openai
     tier: lite
+    vision: true
     routes:
       - { via: openai,     model: gpt-5.4-nano }
       - { via: openrouter, model: openai/gpt-5.4-nano }
@@ -98,6 +109,7 @@ llm:
     label: Claude Opus 4.8
     family: anthropic
     tier: pro
+    vision: true
     routes:
       - { via: anthropic,  model: claude-opus-4-8 }
       - { via: openrouter, model: anthropic/claude-opus-4.8 }
@@ -105,6 +117,7 @@ llm:
     label: Claude Sonnet 4.6
     family: anthropic
     tier: pro
+    vision: true
     routes:
       - { via: anthropic,  model: claude-sonnet-4-6 }
       - { via: openrouter, model: anthropic/claude-sonnet-4.6 }
@@ -112,6 +125,7 @@ llm:
     label: Claude Haiku 4.5
     family: anthropic
     tier: lite
+    vision: true
     routes:
       - { via: anthropic,  model: claude-haiku-4-5 }
       - { via: openrouter, model: anthropic/claude-haiku-4.5 }

@@ -12,6 +12,7 @@ import OpenAI from "openai"
 import type {
   ChatCompletion,
   ChatCompletionChunk,
+  ChatCompletionContentPart,
   ChatCompletionCreateParamsNonStreaming,
   ChatCompletionCreateParamsStreaming,
   ChatCompletionMessage,
@@ -57,7 +58,16 @@ const BASE_URLS: Record<ByokProvider, string> = {
 export const toOpenAiMessages = (messages: LlmMessage[]): ChatCompletionMessageParam[] =>
   messages.map((m): ChatCompletionMessageParam => {
     if (m.role === "system") return { role: "system", content: m.content }
-    if (m.role === "user") return { role: "user", content: m.content }
+    if (m.role === "user") {
+      // With images, expand to OpenAI content-parts (text first, then each image);
+      // otherwise keep the plain string. `images` is only ever set on the live
+      // turn (never in history), so this branch is a no-op for replayed turns.
+      if (!m.images?.length) return { role: "user", content: m.content }
+      const parts: ChatCompletionContentPart[] = []
+      if (m.content) parts.push({ type: "text", text: m.content })
+      for (const img of m.images) parts.push({ type: "image_url", image_url: { url: img.url } })
+      return { role: "user", content: parts }
+    }
     if (m.role === "tool") return { role: "tool", tool_call_id: m.toolCallId, content: m.content }
     return {
       role: "assistant",

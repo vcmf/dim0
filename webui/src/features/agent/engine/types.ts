@@ -37,9 +37,19 @@ export type ToolConfirmDecision = "deny" | "once" | "always"
 export type LlmToolCall = { id: string; name: string; arguments: string }
 
 
+/**
+ * An image attached to a user turn — a `data:` URL (or a remote URL). Transient by
+ * design: only ever set on the live turn's user message, never written to the
+ * persisted transcript or replayed through history (see
+ * docs/plans/multimodal-board-context.md §4.1). Expanded to OpenAI content-parts
+ * only at the wire boundary (`toOpenAiMessages`).
+ */
+export type LlmImage = { url: string }
+
+
 export type LlmMessage =
   | { role: "system"; content: string }
-  | { role: "user"; content: string }
+  | { role: "user"; content: string; images?: LlmImage[] }
   | { role: "assistant"; content: string; toolCalls?: LlmToolCall[] }
   // `toolName` lets the loop resolve per-tool policy (elide old bulky results, keep
   // skills whole) when deriving the model-facing view; optional so prior-history
