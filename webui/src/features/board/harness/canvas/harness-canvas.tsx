@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { LocalBoardUrl } from "@/routes"
 import { isTauri } from "@/platform"
 import { useQueryClient } from "@tanstack/react-query"
-import { hitTestAny, type CanvasStore, type NodeId, type Renderer } from "@canvas-harness/core"
+import { exportViewport, hitTestAny, viewportWorldRect, type CanvasStore, type NodeId, type Renderer } from "@canvas-harness/core"
 import { createDefaultNote } from "@/features/board/types/note"
 import { noteToNode } from "../convert/note-to-node"
 import { applyStyleMemory } from "./use-create-handlers"
@@ -12,6 +12,7 @@ import { setAgentBridge } from "../agent/agent-bridge"
 import { applyLinkOutput, applyNoteOutput } from "../agent/apply-tool-output"
 import { useHarnessApplyMindMap } from "../agent/use-harness-apply-mindmap"
 import { setCanvasStoreRef } from "../canvas-store-ref"
+import { setBoardCaptureRef, type BoardCapture } from "../board-capture-ref"
 import {
   Canvas,
   CanvasProvider,
@@ -98,6 +99,11 @@ import { HarnessWrapRefProvider } from "./wrap-ref-provider"
  * Tool state, top-bar wiring, keyboard shortcuts land in subsequent
  * phase-4 commits.
  */
+// Longest-side cap for the on-demand viewport screenshot fed to a vision model
+// (standard-tier limit; keeps the data URL small and within provider limits).
+const MAX_VIEWPORT_CAPTURE_DIM = 1568
+
+
 export function HarnessCanvas({ local = false }: { local?: boolean } = {}) {
   const boardId = useBoardAppStore((s) => s.boardId)
   const rootId = useBoardAppStore((s) => s.rootId)
@@ -156,6 +162,53 @@ export function HarnessCanvas({ local = false }: { local?: boolean } = {}) {
   useEffect(() => {
     setCanvasStoreRef(store)
     return () => setCanvasStoreRef(null)
+  }, [store])
+
+  // Read theme through a ref so the capture closure below always uses the
+  // current theme without re-registering on every theme change.
+  const themeRef = useRef(theme)
+  themeRef.current = theme
+
+  // Module-level capture ref — lets the agent submit path grab a PNG of the
+  // CURRENT viewport (real node content, not the minimap) on demand. Best-effort:
+  // resolves null when a capture isn't possible so a failure never aborts a turn.
+  useEffect(() => {
+    const capture: BoardCapture = async () => {
+      const renderer = rendererRef.current
+      const wrap = wrapRef.current
+      if (!renderer || !wrap) return null
+      const rect = wrap.getBoundingClientRect()
+      if (rect.width < 1 || rect.height < 1) return null
+      try {
+        const vp = viewportWorldRect(store.getCamera(), rect.width, rect.height)
+        // Skip a blank viewport (nodes exist but the user panned/zoomed to empty
+        // space): a background-only image would contradict the text BOARD block and
+        // the "screenshot attached" label. Null → the submit path attaches nothing.
+        if (store.querySpatial({ rect: vp }).nodes.length === 0) return null
+        // Target the on-screen resolution, capped: output long side =
+        // min(screenLongPx, MAX). This keeps the capture as crisp as what the user
+        // sees at any zoom (no under-sampling when zoomed in) while a zoomed-OUT
+        // viewport (huge world rect) can't exceed the browser's max canvas size.
+        // One raster, no downscale pass.
+        const screenLong = Math.max(rect.width, rect.height)
+        const worldLong = Math.max(vp.w, vp.h)
+        const scale = worldLong > 0 ? Math.min(screenLong, MAX_VIEWPORT_CAPTURE_DIM) / worldLong : 1
+        return await exportViewport(store, vp, {
+          // Without the asset cache, image/icon nodes are skipped in the render.
+          assetCache: renderer.getAssetCache(),
+          theme: themeRef.current.resolver,
+          // Match the user's board background (dark theme → dark ground, not the
+          // default white, which would make dark-theme content unreadable).
+          backgroundColor: themeRef.current.background.color,
+          scale,
+          padding: 0,
+        })
+      } catch {
+        return null
+      }
+    }
+    setBoardCaptureRef(capture)
+    return () => setBoardCaptureRef(null)
   }, [store])
 
   // First change subscriber: give undo/redo batches fresh ids so redo isn't
