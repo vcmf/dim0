@@ -126,6 +126,11 @@ export const agentLog = {
     record("turn_done", { chatUid, persistedCount })
     if (enabled) console.log(`%c[agent] ✓ turn done · persisted ${persistedCount} msgs · chat ${chatUid ?? "(none)"}`, "color:#22c55e")
   },
+
+  capture(ms: number, bytes: number): void {
+    record("capture", { ms, bytes })
+    if (enabled) console.log(`%c[agent] 📸 board capture · ${ms}ms · ${(bytes / 1024).toFixed(0)}KB`, "color:#14b8a6")
+  },
 }
 
 

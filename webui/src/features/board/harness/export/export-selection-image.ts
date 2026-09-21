@@ -48,7 +48,7 @@ const MARKER_GRACE_MS = 250
 // Node types whose real content is a live DOM subtree (captured via snapDOM). iframes
 // (mini-app/widget) are cross-origin → a snapshot would taint the canvas, so they're left
 // to the harness render.
-const DOM_CAPTURE_TYPES: ReadonlySet<string> = new Set(["applet"])
+export const DOM_CAPTURE_TYPES: ReadonlySet<string> = new Set(["applet"])
 
 
 export interface ExportImageOptions {
@@ -73,7 +73,7 @@ export interface SvgAppletPlacement {
 }
 
 
-type AppletShot = { node: Node; img: HTMLImageElement }
+export type AppletShot = { node: Node; img: HTMLImageElement }
 
 
 /**
@@ -96,39 +96,69 @@ export async function exportSelectionImage(store: CanvasStore, opts: ExportImage
   const [base, shots] = await Promise.all([basePromise, shotsPromise])
   if (shots.length === 0 || !bbox) return base // nothing to composite
 
-  const cssW = bbox.w + EXPORT_PADDING * 2
-  const cssH = bbox.h + EXPORT_PADDING * 2
+  // The base's canvas top-left maps to world (bbox - padding); fill under each applet with the
+  // export background (or clear, in transparent mode) to hide the base's JSX-source text.
+  return compositeAppletsOverBase(base, shots, {
+    originX: bbox.x - EXPORT_PADDING,
+    originY: bbox.y - EXPORT_PADDING,
+    cssW: bbox.w + EXPORT_PADDING * 2,
+    cssH: bbox.h + EXPORT_PADDING * 2,
+    scale: EXPORT_SCALE,
+    backgroundColor: opts.transparentBackground ? undefined : EXPORT_BG,
+  })
+}
+
+
+/** The base's world→canvas mapping for {@link compositeAppletsOverBase}. */
+export interface CompositeFrame {
+  /** World coord at the base canvas's top-left (x). */
+  originX: number
+  /** World coord at the base canvas's top-left (y). */
+  originY: number
+  /** Base CSS width / height (before `scale`). */
+  cssW: number
+  cssH: number
+  /** Bitmap multiplier the base was rendered at. */
+  scale: number
+  /** Fill under each applet box (hides the base's source text). Omit ⇒ clear to transparent. */
+  backgroundColor?: string
+}
+
+
+/**
+ * Composite applet snapshots onto a base raster, aspect-fit into each node's box. Shared by the
+ * selection export (this file) and the on-demand viewport capture (export-viewport-image.ts):
+ * the only differences between the two are the base's world→canvas mapping and the fill color,
+ * both carried in `frame`. Falls back to the base blob if the canvas / base decode fails.
+ */
+export async function compositeAppletsOverBase(base: Blob, shots: AppletShot[], frame: CompositeFrame): Promise<Blob> {
   const canvas = document.createElement("canvas")
-  canvas.width = Math.max(1, Math.ceil(cssW * EXPORT_SCALE))
-  canvas.height = Math.max(1, Math.ceil(cssH * EXPORT_SCALE))
+  canvas.width = Math.max(1, Math.ceil(frame.cssW * frame.scale))
+  canvas.height = Math.max(1, Math.ceil(frame.cssH * frame.scale))
   const ctx = canvas.getContext("2d")
   if (!ctx) return base
-  ctx.scale(EXPORT_SCALE, EXPORT_SCALE)
+  ctx.scale(frame.scale, frame.scale)
 
   const baseImg = await blobToImage(base)
   if (!baseImg) return base // couldn't decode the base — better to ship it whole than drop it
-  ctx.drawImage(baseImg, 0, 0, cssW, cssH)
+  ctx.drawImage(baseImg, 0, 0, frame.cssW, frame.cssH)
 
   for (const { node: n, img } of shots) {
-    // Node x/y are the PRE-rotation top-left; place at that box (offset into the padded
-    // frame) and rotate about the center to match how the harness draws it.
-    const x = n.x - bbox.x + EXPORT_PADDING
-    const y = n.y - bbox.y + EXPORT_PADDING
+    // Node x/y are the PRE-rotation top-left, in world coords; place relative to the frame
+    // origin and rotate about the center to match how the harness draws it.
+    const x = n.x - frame.originX
+    const y = n.y - frame.originY
     ctx.save()
     if (n.angle) {
       ctx.translate(x + n.w / 2, y + n.h / 2)
       ctx.rotate(n.angle)
       ctx.translate(-(x + n.w / 2), -(y + n.h / 2))
     }
-    // Clear the base layer's JSX-source text under this applet before drawing the (possibly
-    // transparent) raster over it. In transparent mode, erase to transparency (keeps the
-    // export transparent while removing the bleed-through text); otherwise fill with the
-    // export background.
-    if (opts.transparentBackground) {
-      ctx.clearRect(x, y, n.w, n.h)
-    } else {
-      ctx.fillStyle = EXPORT_BG
+    if (frame.backgroundColor) {
+      ctx.fillStyle = frame.backgroundColor
       ctx.fillRect(x, y, n.w, n.h)
+    } else {
+      ctx.clearRect(x, y, n.w, n.h)
     }
     // Aspect-fit (contain) the capture into the node box — the captured `.applet-root` is
     // inset by the card chrome, so stretching it to the full box would distort it.
@@ -274,8 +304,9 @@ export function injectAppletImages(svg: string, placements: SvgAppletPlacement[]
 // ---- capture --------------------------------------------------------------
 
 /** Snapshot each applet to a decoded image at bounded concurrency, reporting progress and
- *  dropping any that fails to capture. Shared by the PNG + SVG compositors. */
-async function captureAppletShots(nodes: Node[], onProgress?: (done: number, total: number) => void): Promise<AppletShot[]> {
+ *  dropping any that fails to capture. Shared by the PNG + SVG compositors and the on-demand
+ *  viewport capture (export-viewport-image.ts). */
+export async function captureAppletShots(nodes: Node[], onProgress?: (done: number, total: number) => void): Promise<AppletShot[]> {
   onProgress?.(0, nodes.length) // show feedback up front — the first capture may wait seconds
   let done = 0
   const results = await mapWithConcurrency(nodes, CAPTURE_CONCURRENCY, async (node) => {
