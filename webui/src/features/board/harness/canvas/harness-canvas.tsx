@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { LocalBoardUrl } from "@/routes"
 import { isTauri } from "@/platform"
 import { useQueryClient } from "@tanstack/react-query"
-import { hitTestAny, type CanvasStore, type NodeId, type Renderer } from "@canvas-harness/core"
+import { hitTestAny, viewportWorldRect, type CanvasStore, type NodeId, type Renderer } from "@canvas-harness/core"
 import { createDefaultNote } from "@/features/board/types/note"
 import { noteToNode } from "../convert/note-to-node"
 import { applyStyleMemory } from "./use-create-handlers"
@@ -12,6 +12,8 @@ import { setAgentBridge } from "../agent/agent-bridge"
 import { applyLinkOutput, applyNoteOutput } from "../agent/apply-tool-output"
 import { useHarnessApplyMindMap } from "../agent/use-harness-apply-mindmap"
 import { setCanvasStoreRef } from "../canvas-store-ref"
+import { setBoardCaptureRef, type BoardCapture } from "../board-capture-ref"
+import { exportViewportImage } from "../export/export-viewport-image"
 import {
   Canvas,
   CanvasProvider,
@@ -98,6 +100,14 @@ import { HarnessWrapRefProvider } from "./wrap-ref-provider"
  * Tool state, top-bar wiring, keyboard shortcuts land in subsequent
  * phase-4 commits.
  */
+// Longest-side cap for the on-demand viewport screenshot fed to a vision model
+// (standard-tier limit; keeps the data URL small and within provider limits).
+const MAX_VIEWPORT_CAPTURE_DIM = 1568
+// Inflate the captured world rect past the exact viewport so edge nodes aren't clipped and the
+// model gets a little peripheral context (fraction of the longest side).
+const VIEWPORT_CAPTURE_MARGIN = 0.12
+
+
 export function HarnessCanvas({ local = false }: { local?: boolean } = {}) {
   const boardId = useBoardAppStore((s) => s.boardId)
   const rootId = useBoardAppStore((s) => s.rootId)
@@ -156,6 +166,58 @@ export function HarnessCanvas({ local = false }: { local?: boolean } = {}) {
   useEffect(() => {
     setCanvasStoreRef(store)
     return () => setCanvasStoreRef(null)
+  }, [store])
+
+  // Read theme through a ref so the capture closure below always uses the
+  // current theme without re-registering on every theme change.
+  const themeRef = useRef(theme)
+  themeRef.current = theme
+
+  // Module-level capture ref — lets the agent submit path grab a PNG of the
+  // CURRENT viewport (real node content, not the minimap) on demand. Best-effort:
+  // resolves null when a capture isn't possible so a failure never aborts a turn.
+  useEffect(() => {
+    const capture: BoardCapture = async () => {
+      const renderer = rendererRef.current
+      const wrap = wrapRef.current
+      if (!renderer || !wrap) return null
+      const rect = wrap.getBoundingClientRect()
+      if (rect.width < 1 || rect.height < 1) return null
+      try {
+        const vp = viewportWorldRect(store.getCamera(), rect.width, rect.height)
+        // Skip a blank viewport (nodes exist but the user panned/zoomed to empty
+        // space): a background-only image would contradict the text BOARD block and
+        // the "screenshot attached" label. Null → the submit path attaches nothing.
+        if (store.querySpatial({ rect: vp }).nodes.length === 0) return null
+        // Capture a slightly larger zone than the exact viewport so edge nodes come
+        // in whole and the model gets peripheral context. Inflate PROPORTIONALLY
+        // (per-axis) so the aspect ratio is preserved.
+        const m = VIEWPORT_CAPTURE_MARGIN
+        const padded = { x: vp.x - (vp.w * m) / 2, y: vp.y - (vp.h * m) / 2, w: vp.w * (1 + m), h: vp.h * (1 + m) }
+        // Scale = the on-screen density (screenLong / vpLong), so in-view content is
+        // rendered as crisp as the user sees it, capped so the padded output long
+        // side can't exceed MAX (no oversized canvas at any zoom). One raster.
+        const screenLong = Math.max(rect.width, rect.height)
+        const vpLong = Math.max(vp.w, vp.h)
+        const paddedLong = Math.max(padded.w, padded.h)
+        const scale = vpLong > 0 ? Math.min(screenLong / vpLong, MAX_VIEWPORT_CAPTURE_DIM / paddedLong) : 1
+        // exportViewportImage renders the viewport AND composites real applet content
+        // (an applet's `content` is JSX source, which a plain export would draw as text).
+        return await exportViewportImage(store, padded, {
+          scale,
+          // Without the asset cache, image/icon nodes are skipped in the render.
+          assetCache: renderer.getAssetCache(),
+          theme: themeRef.current.resolver,
+          // Match the user's board background (dark theme → dark ground, not the
+          // default white, which would make dark-theme content unreadable).
+          backgroundColor: themeRef.current.background.color,
+        })
+      } catch {
+        return null
+      }
+    }
+    setBoardCaptureRef(capture)
+    return () => setBoardCaptureRef(null)
   }, [store])
 
   // First change subscriber: give undo/redo batches fresh ids so redo isn't

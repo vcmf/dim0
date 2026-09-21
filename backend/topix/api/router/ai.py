@@ -188,6 +188,24 @@ async def ai_models(response: Response):
     return {"llm": catalog.public_llm_catalog()}
 
 
+def _content_text(content: Any) -> str:
+    """Flatten OpenAI message content to plain text for the complexity classifier.
+
+    Content is either a string or a list of content-parts (multimodal). Image parts
+    carry a base64 data URL that must NOT be stringified into the classifier input
+    (megabytes of garbage to a text model), so only `text` parts are kept.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            (part.get("text") or "")
+            for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+    return ""
+
+
 async def _resolve_managed_model(
     model: str, messages: list[dict[str, Any]], allowed_tiers: set[str]
 ) -> str:
@@ -198,7 +216,7 @@ async def _resolve_managed_model(
     """
     if model == "auto":
         classifier_input = [
-            {"role": str(m.get("role", "")), "content": str(m.get("content") or "")}
+            {"role": str(m.get("role", "")), "content": _content_text(m.get("content"))}
             for m in messages
         ]
         complexity = await classify_auto_model_complexity(classifier_input)

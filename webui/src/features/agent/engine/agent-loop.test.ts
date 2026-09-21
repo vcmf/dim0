@@ -719,3 +719,49 @@ describe("runAgent tool-result view (fresh results kept full)", () => {
     expect(m && "toolName" in m ? m.toolName : undefined).toBe("fetch")
   })
 })
+
+
+describe("runAgent images", () => {
+  const recorder = (): { llm: LlmClient; seen: () => LlmMessage[] } => {
+    let captured: LlmMessage[] = []
+    return {
+      llm: {
+        async complete(messages) {
+          captured = messages
+          return { kind: "text", text: "ok" }
+        },
+      },
+      seen: () => captured,
+    }
+  }
+
+
+  it("attaches images to the live user message only, not to history", async () => {
+    const rec = recorder()
+    const imgs = [{ url: "data:image/png;base64,AAA" }]
+    await drain(
+      runAgent({
+        userMessage: "what's on my board?",
+        tools: [],
+        llm: rec.llm,
+        ctx: {} as ToolContext,
+        history: [
+          { role: "user", content: "earlier" },
+          { role: "assistant", content: "hi" },
+        ],
+        images: imgs,
+      }),
+    )
+    const users = rec.seen().filter((m): m is Extract<LlmMessage, { role: "user" }> => m.role === "user")
+    expect(users.at(-1)).toMatchObject({ role: "user", content: "what's on my board?", images: imgs })
+    expect(users[0].images).toBeUndefined() // the prior (history) user turn carries no image
+  })
+
+
+  it("omits images when none are passed", async () => {
+    const rec = recorder()
+    await drain(runAgent({ userMessage: "hi", tools: [], llm: rec.llm, ctx: {} as ToolContext }))
+    const user = rec.seen().find((m) => m.role === "user") as Extract<LlmMessage, { role: "user" }>
+    expect(user.images).toBeUndefined()
+  })
+})

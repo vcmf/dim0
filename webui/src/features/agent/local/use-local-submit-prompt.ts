@@ -25,17 +25,20 @@ import { getBoardPersistenceRef } from "@/features/board/persist/local/board-per
 import { makeDocSearchTool } from "@/features/agent/engine/doc-search"
 import { resolveConfirmDecision, useToolConfirm, type ToolConfirmDecision } from "@/features/agent/engine/tool-confirm-store"
 import { useToolTrustStore } from "@/features/agent/settings/tool-trust-store"
-import type { AgentEvent } from "@/features/agent/engine/types"
+import type { AgentEvent, LlmImage } from "@/features/agent/engine/types"
 import { planSystemPrompt } from "@/features/agent/prompts"
 import { useByokStore } from "@/features/agent/byok/byok-store"
 import { useChatStore } from "@/features/agent/store/chat-store"
-import { byokModelForId } from "@/features/agent/types/model-catalog"
+import { byokModelForId, type PublicModel } from "@/features/agent/types/model-catalog"
 import { useBoardAppStore } from "@/features/board/harness/store/board-app-store"
 import { useLocalMessagesStore } from "@/features/agent/store/local-messages-store"
 import { putChatTranscript } from "@/features/agent/api/chat-transcript"
 import type { ChatMessage } from "@/features/agent/types/chat"
 import { agentLog } from "@/features/agent/engine/debug"
 import type { CanvasStore } from "@canvas-harness/core"
+import { blobToDataUri } from "@canvas-harness/core"
+import { getBoardCaptureRef } from "@/features/board/harness/board-capture-ref"
+import { shouldAttachBoardImage } from "./board-image-gate"
 import { latestAssistantText, stepsFromEvents } from "./agent-event-to-step"
 import { COMPACT_TAIL_MESSAGES, compactHistory, isOverCompactionBudget, toLlmHistory } from "./chat-history"
 import { maybeAutoLabelBoard, maybeDeriveBoardPurpose } from "./describe-board"
@@ -89,6 +92,33 @@ const buildBoardBlock = async (store: CanvasStore, rootId: string | null, boardI
   } catch (e) {
     agentLog.error("buildBoardBlock", e)
     return ""
+  }
+}
+
+
+/**
+ * Optional board-viewport screenshot for a vision turn (flagged, off by default). Gated +
+ * best-effort: returns undefined when the flag is off, the resolved model can't accept images,
+ * the board is empty, or the capture fails — a failed capture must NEVER block the turn. The
+ * caller kicks this off up front so it overlaps the board/memory/conversation blocks instead of
+ * adding serial latency to time-to-first-token; the capture time is logged for canary tuning.
+ */
+const captureBoardImage = async (
+  store: CanvasStore,
+  llmCatalog: PublicModel[],
+  llmModel: string,
+): Promise<LlmImage[] | undefined> => {
+  if (!shouldAttachBoardImage(store, llmCatalog, llmModel)) return undefined
+  try {
+    const t0 = performance.now()
+    const blob = await getBoardCaptureRef()?.()
+    if (!blob) return undefined
+    const url = await blobToDataUri(blob)
+    agentLog.capture(Math.round(performance.now() - t0), blob.size)
+    return [{ url }]
+  } catch (e) {
+    agentLog.error("board viewport capture", e)
+    return undefined
   }
 }
 
@@ -286,6 +316,13 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
       let turnErrored = false
       try {
         const system = planSystemPrompt(new Date().toLocaleString())
+        // Multimodal board context (flagged, off by default): a PNG of the current
+        // viewport for a vision model. Kicked off up front so it overlaps the board/
+        // memory/conversation blocks below rather than adding serial latency; awaited
+        // just before the user message is built. Transient — set only on this live
+        // turn's message (never the persisted ChatMessage or history). Best-effort:
+        // a failed capture yields undefined and never blocks the turn.
+        const imagesPromise = captureBoardImage(store, llmCatalog, llmModel)
         // Deterministic board awareness (no LLM), injected as a standing section.
         const boardBlock = await buildBoardBlock(store, rootId, boardId)
         const systemWithBoard = boardBlock ? `${system}\n\n## BOARD\n${boardBlock}` : system
@@ -295,7 +332,13 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
         const systemWithMemory = memoryBlock
           ? `${systemWithBoard}\n\n## MEMORY\n<memory>\n${memoryBlock}\n</memory>`
           : systemWithBoard
-        const userMessageForAgent = wrapWithMessageContext(prompt, messageContext)
+        const images = await imagesPromise
+        const userMessageForAgent = wrapWithMessageContext(
+          images
+            ? `${prompt}\n\nA screenshot of the current board viewport is attached.`
+            : prompt,
+          messageContext,
+        )
         // Rolling thread summary (already self-fenced as `## CONVERSATION`), built up
         // front so it counts toward the compaction estimate and stands in for the
         // trimmed turns after compaction.
@@ -392,7 +435,7 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
           liveNodes: new Map<string, { parentId: string | null; type: string }>(),
           sessions: new Map<string, HeadlessMutator>(),
         }
-        for await (const ev of runAgent({ system: systemWithDocs, userMessage: userMessageForAgent, history, tools, llm, ctx })) {
+        for await (const ev of runAgent({ system: systemWithDocs, userMessage: userMessageForAgent, history, tools, llm, ctx, images })) {
           // Streaming yields cumulative assistant_text / reasoning per token —
           // replace the previous snapshot in place instead of appending one event
           // per token. (assistant_text renders live; reasoning is shown at turn-end.)
