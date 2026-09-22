@@ -1,3 +1,14 @@
+## v0.3.98 (2026-09-22)
+
+### Feat
+
+- **agent**: run the browser agent on synced boards by default (#343)
+- **board**: add a quick-create + for local boards in the sidebar (#342)
+
+### Fix
+
+- **api**: drop unknown enabled_tools instead of 422 on send message (#341)
+
 ## v0.3.97 (2026-09-22)
 
 ### Feat
