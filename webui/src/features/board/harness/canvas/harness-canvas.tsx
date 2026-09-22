@@ -53,9 +53,9 @@ import { setBoardPersistenceRef } from "@/features/board/persist/local/board-per
 import { ShareButton } from "@/features/sharing/share-button"
 import { BoardKindBadge } from "@/features/board/components/board-kind-badge"
 import { BoardBreadcrumb } from "@/features/board/components/breadcrumb/board-breadcrumb"
-import { DEFAULT_INK_COLOR, DEFAULT_INK_COLOR_DARK, useBoardAppStore } from "../store/board-app-store"
+import { useBoardAppStore } from "../store/board-app-store"
 import { createBoardStore } from "../store/create-board-store"
-import { adaptEdgeColors, applyColorsToEdgeStyle } from "../theme/color-adapter"
+import { adaptEdgeColors, adaptNodeColors, applyColorsToEdgeStyle } from "../theme/color-adapter"
 import { getBoardThemeMode } from "../theme/theme-mode-ref"
 import { useBoardTheme } from "../theme/use-board-theme"
 import { useThemeColorProjection } from "../theme/use-theme-color-projection"
@@ -325,20 +325,20 @@ export function HarnessCanvas({ local = false }: { local?: boolean } = {}) {
   // Pen/eraser config for the lib's built-in ink tool. Factories run at
   // gesture start so a color/width change takes effect on the next stroke.
   //
-  // - `data` stamps scope (graphUid/parentId) + the Note envelope at BIRTH,
-  //   so useStampNewNodes finds nothing to rescope and Cmd+Z reverts a stroke
-  //   in one press (the lib already sets style.autoFit:false, so its autofit
-  //   branch also no-ops). The engine merges this next to `data.ink`.
-  // - `color` is literal user intent (a red stroke stays red across theme
-  //   flips — ink is excluded from useThemeColorProjection). Only the untouched
-  //   default is swapped for a light tone on a dark board so a first stroke is
-  //   visible instead of near-black-on-dark.
+  // - `color` is the DISPLAY color for the current theme — the picked color in
+  //   light, its dark-mode projection in dark (so the near-black default is
+  //   visible on a dark board). The engine bakes it onto node.style.strokeColor.
+  // - `data` stamps the Note envelope + scope AND `_storedColors` at BIRTH.
+  //   `_storedColors` is the canonical (pre-projection) color and is REQUIRED:
+  //   the collab persist path (apply_ops) treats strokeColor/backgroundColor as
+  //   theme-display values and only persists the canonical ones from
+  //   `_storedColors`. Ink is engine-created (bypasses noteToNode, which stamps
+  //   this for every other node), so without it the pen color is dropped on the
+  //   server and a reloaded stroke paints transparent = invisible.
   const inkDefaults: InkToolDefaults = {
     size: () => inkSize,
     color: () =>
-      inkColor === DEFAULT_INK_COLOR && getBoardThemeMode() === "dark"
-        ? DEFAULT_INK_COLOR_DARK
-        : inkColor,
+      adaptNodeColors({ strokeColor: inkColor }, getBoardThemeMode()).strokeColor ?? inkColor,
     data: () => {
       if (!boardId) return undefined
       return {
@@ -348,6 +348,10 @@ export function HarnessCanvas({ local = false }: { local?: boolean } = {}) {
         createdAt: new Date().toISOString(),
         graphUid: boardId,
         parentId: rootId ?? undefined,
+        // Canonical colors so the pen color survives the collab round-trip.
+        // Ink has no fill; a transparent background keeps it off the minimap
+        // as a colored box and matches the engine's node.style.
+        _storedColors: { strokeColor: inkColor, backgroundColor: "transparent" },
       }
     },
   }

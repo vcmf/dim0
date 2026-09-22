@@ -56,11 +56,12 @@ export const useThemeColorProjection = (
     const ops: Op[] = []
 
     for (const node of store.getAllNodes()) {
-      // Ink strokes carry a literal, user-chosen color (no _storedColors) and
-      // must not be theme-adapted — skip them so a flip never rewrites a
-      // stroke's color or stamps note-oriented _storedColors onto it.
-      if (node.type === "ink") continue
       const data = node.data as Partial<NoteNodeData> | undefined
+      // An ink stroke without canonical `_storedColors` (a pre-fix stroke, or one
+      // synced live from an older client) has only its display color to fall back
+      // on — re-projecting that would corrupt it. Skip it; ink WITH `_storedColors`
+      // projects normally like any node.
+      if (node.type === "ink" && !data?._storedColors) continue
       const stored: StoredColors = data?._storedColors ?? {
         backgroundColor: node.style?.backgroundColor,
         strokeColor: node.style?.strokeColor,
