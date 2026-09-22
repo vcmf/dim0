@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { BracketsCurly, CardsThree, GithubLogo, Headset, UsersThree } from "@phosphor-icons/react"
+import { CardsThree, GithubLogo, Headset, UsersThree } from "@phosphor-icons/react"
 import {
   AwardIcon,
   ChatTranslateIcon,
   DocumentIcon,
-  LayerStackIcon,
   PuzzlePieceIcon,
   SparklesFeatureIcon,
   SparklesIcon,
-  ToolCodeIcon,
   WarningIcon,
   type AppIconComponent,
 } from "@/components/icons"
@@ -310,7 +308,7 @@ export function BillingScreen() {
           ) : null}
         </Card>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           <Card className="relative">
             <CardHeader>
               <div className="flex items-center gap-2">
@@ -334,7 +332,7 @@ export function BillingScreen() {
               <FeatureRow icon={ChatTranslateIcon} label="Lite models only" />
               <FeatureRow icon={Headset} label="Community support" />
               <p className="pt-2 text-xs leading-relaxed text-muted-foreground/80">
-                Free is currently limited while we run on a small budget. We plan to make the free plan more usable over time.
+                Great for trying Dim0 and personal projects. Upgrade any time as your workspace grows.
               </p>
             </CardContent>
           </Card>
@@ -458,31 +456,20 @@ export function BillingScreen() {
               )}
             </CardContent>
           </Card>
-
-          <Card className="relative">
-            <CardHeader>
-              <CardTitle className="text-4xl font-semibold">Self-host</CardTitle>
-              <CardDescription>Run it yourself, own everything</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm text-muted-foreground">
-              <div className="flex items-end gap-2">
-                <span className="text-3xl font-semibold text-foreground">Free</span>
-                <span className="text-sm text-muted-foreground">MIT licensed</span>
-              </div>
-              <FeatureRow icon={ToolCodeIcon} label="Full source on GitHub" />
-              <FeatureRow icon={LayerStackIcon} label="Your infrastructure, your data" />
-              <FeatureRow icon={BracketsCurly} label="Bring your own model keys" />
-              <FeatureRow icon={UsersThree} label="Unlimited collaborators" />
-              <FeatureRow icon={AwardIcon} label="No caps, no lock-in" />
-              <Button asChild variant="outline" className="w-full">
-                <a href={GITHUB_URL} target="_blank" rel="noreferrer">
-                  <GithubLogo className="h-4 w-4" weight="fill" />
-                  Get the code
-                </a>
-              </Button>
-            </CardContent>
-          </Card>
         </div>
+
+        <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
+          <span>Prefer to run it yourself? Dim0 is open source (MIT).</span>
+          <a
+            href={GITHUB_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 font-medium text-foreground underline-offset-2 hover:underline"
+          >
+            <GithubLogo className="h-3.5 w-3.5" weight="fill" />
+            Get the code on GitHub →
+          </a>
+        </p>
 
         {errorMessage ? (
           <p className="text-sm text-destructive">{errorMessage}</p>

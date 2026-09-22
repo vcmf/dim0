@@ -142,7 +142,7 @@ export const useCreateHandlers = (
         const label = CREATE_LABELS[type] ?? type
         toast.error(
           `You've reached this board's ${label} limit (${nodeLimitFor(type, userPlan)}). ` +
-          `Upgrade for more, or self-host for your own unlimited setup.`,
+          `Upgrade for more.`,
         )
         return false
       }
