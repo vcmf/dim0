@@ -65,10 +65,10 @@ const buildLimitDescription = ({
       : formatRetryAfter(retryAfter) ?? "It should reset automatically soon."
 
   if (userPlan === "free") {
-    return `We’re a small indie project running on a very tight budget, so the free tier is capped for now. ${resetHint} If you need more room, please consider self-hosting or upgrading to Plus.`
+    return `Your free plan includes a limited number of AI requests. ${resetHint} Upgrade to Plus for unlimited requests and frontier models.`
   }
 
-  return `We’re a small indie project running on a very tight budget, so usage is still capped for now. ${resetHint} If you need more room, you can also self-host or review the available plans.`
+  return `You've used your plan's AI requests for now. ${resetHint} Upgrade for more headroom.`
 }
 
 /**
