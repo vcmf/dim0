@@ -9,7 +9,7 @@
  * backend-agent retirement); a board can still be pinned to the legacy client
  * with an explicit `syncEngine: "legacy"` (an escape hatch during rollout).
  */
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { isLocalAgentOnSynced } from "@/features/agent/local/local-agent-flag"
 import type { BoardMeta } from "@/features/board/model"
 import { getLocalStores } from "@/features/local-stores"
@@ -90,8 +90,13 @@ export const browserAgentActiveFor = (
 /**
  * Hook form of {@link browserAgentActiveFor} for callers that don't already hold
  * the resolved engine — resolves it from the local registry via `useSyncEngine`.
+ * Memoized so the chat surfaces (which re-render on store/search-param changes)
+ * don't read the reload-stable flag from localStorage on every render.
  */
 export const useBrowserAgentActive = (
   boardId: string | null,
   local: boolean,
-): boolean => browserAgentActiveFor(local, useSyncEngine(boardId, local))
+): boolean => {
+  const syncEngine = useSyncEngine(boardId, local)
+  return useMemo(() => browserAgentActiveFor(local, syncEngine), [local, syncEngine])
+}
