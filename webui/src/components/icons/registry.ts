@@ -35,6 +35,7 @@ import {
   DotsThreeOutlineVerticalIcon,
   DownloadSimpleIcon,
   EnvelopeIcon,
+  EraserIcon as EraserGlyphIcon,
   EyeIcon,
   EyeSlashIcon,
   FileCodeIcon as FileCodeGlyphIcon,
@@ -72,6 +73,7 @@ import {
   PaintBrushIcon,
   PathIcon as PathGlyphIcon,
   PencilIcon,
+  PenNibIcon as PenNibGlyphIcon,
   PentagramIcon,
   PlayIcon as PlayGlyphIcon,
   PlusIcon as PlusGlyphIcon,
@@ -166,6 +168,8 @@ export const InstallAppIcon = createPhosphorIcon(DownloadSimpleIcon)
 export const DragHandleIcon = createPhosphorIcon(ArrowsOutSimpleIcon)
 export const DragGripIcon = createPhosphorIcon(DotsSixVerticalIcon)
 export const DrawIcon = createPhosphorIcon(PentagramIcon)
+export const InkPenIcon = createPhosphorIcon(PenNibGlyphIcon)
+export const EraserIcon = createPhosphorIcon(EraserGlyphIcon)
 export const EditIcon = createPhosphorIcon(PencilIcon)
 export const EditNoteIcon = createPhosphorIcon(PencilIcon)
 export const EllipsisIcon = createPhosphorIcon(DotsThreeGlyphIcon)

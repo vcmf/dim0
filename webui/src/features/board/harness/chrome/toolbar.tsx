@@ -6,10 +6,12 @@ import {
   ConnectorPathIcon,
   CursorSelectIcon,
   DiamondShapeIcon,
+  EraserIcon,
   GraphViewIcon,
   GridViewIcon,
   HandGrabIcon,
   HandPanIcon,
+  InkPenIcon,
   LayerStackIcon,
   ListViewIcon,
   NotepadIcon,
@@ -27,7 +29,13 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
+import { Slider } from "@/components/ui/slider"
 import {
   Tooltip,
   TooltipContent,
@@ -68,6 +76,19 @@ const SHAPE_TOOLS: ReadonlyArray<ShapeTool> = [
 
 
 const SHAPE_TOOL_IDS = new Set(SHAPE_TOOLS.map((t) => t.id))
+
+
+// Quick ink colors for the pen popover. A native color input covers
+// anything off-palette; these are the common ones a stroke reaches for.
+// First entry matches the store's default inkColor.
+const INK_COLORS: ReadonlyArray<string> = [
+  "#1f2937", // ink (near-black)
+  "#dc2626", // red
+  "#2563eb", // blue
+  "#16a34a", // green
+  "#ca8a04", // amber
+  "#7c3aed", // violet
+]
 
 
 // The `border` width sits on EVERY state so toggling a visible border on
@@ -217,6 +238,10 @@ function FlaredTray({
 export function HarnessToolbar({ local = false }: { local?: boolean } = {}) {
   const tool = useBoardAppStore((s) => s.tool)
   const setTool = useBoardAppStore((s) => s.setTool)
+  const inkColor = useBoardAppStore((s) => s.inkColor)
+  const setInkColor = useBoardAppStore((s) => s.setInkColor)
+  const inkSize = useBoardAppStore((s) => s.inkSize)
+  const setInkSize = useBoardAppStore((s) => s.setInkSize)
   const chromeDialog = useBoardAppStore((s) => s.chromeDialog)
   const setChromeDialog = useBoardAppStore((s) => s.setChromeDialog)
   const slidesPanelOpen = useBoardAppStore((s) => s.slidesPanelOpen)
@@ -444,6 +469,95 @@ export function HarnessToolbar({ local = false }: { local?: boolean } = {}) {
           </button>
         </TooltipTrigger>
         <TooltipContent side="bottom" sideOffset={10}>Note</TooltipContent>
+      </Tooltip>
+
+      {/*
+        Pen: the button activates the ink tool AND opens a small popover for
+        color + width, so picking the pen and adjusting it is one gesture.
+        The eraser (next) is a plain tool toggle with no settings of its own.
+      */}
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            onClick={() => setTool("ink")}
+            aria-label="Pen"
+            aria-pressed={tool === "ink"}
+            className={tool === "ink" ? activeClass : inactiveClass}
+          >
+            <div className="relative">
+              <InkPenIcon
+                className="size-4 shrink-0"
+                weight={tool === "ink" ? "fill" : undefined}
+              />
+              <ShortcutHint shortcut="B" />
+            </div>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent side="bottom" sideOffset={10} className="w-56">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-1.5">
+              {INK_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  aria-label={`Ink color ${c}`}
+                  aria-pressed={inkColor.toLowerCase() === c.toLowerCase()}
+                  onClick={() => setInkColor(c)}
+                  className={cn(
+                    "size-5 rounded-full border",
+                    inkColor.toLowerCase() === c.toLowerCase()
+                      ? "ring-2 ring-offset-1 ring-foreground/60"
+                      : "border-border",
+                  )}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+              <label className="ml-auto flex size-5 cursor-pointer items-center justify-center rounded-full border border-border">
+                <span className="sr-only">Custom ink color</span>
+                <input
+                  type="color"
+                  value={inkColor}
+                  onChange={(e) => setInkColor(e.target.value)}
+                  className="size-5 cursor-pointer opacity-0"
+                />
+              </label>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Width</span>
+              <Slider
+                min={1}
+                max={32}
+                step={1}
+                value={[inkSize]}
+                onValueChange={([v]) => setInkSize(v)}
+                className="flex-1"
+              />
+              <span className="w-6 text-right text-xs tabular-nums text-muted-foreground">{inkSize}</span>
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => setTool("eraser")}
+            aria-label="Eraser"
+            aria-pressed={tool === "eraser"}
+            className={tool === "eraser" ? activeClass : inactiveClass}
+          >
+            <div className="relative">
+              <EraserIcon
+                className="size-4 shrink-0"
+                weight={tool === "eraser" ? "fill" : undefined}
+              />
+              <ShortcutHint shortcut="E" />
+            </div>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" sideOffset={10}>Eraser</TooltipContent>
       </Tooltip>
 
       <Separator orientation="vertical" className="hidden md:!h-6 md:block" />

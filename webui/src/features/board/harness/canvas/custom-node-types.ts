@@ -31,4 +31,7 @@ export const CUSTOM_NODE_TYPES: ReadonlySet<string> = new Set([
   "icon",
   "image",
   "frame",
+  // Ink strokes (canvas-harness built-in) have no text body — a
+  // double-click must not drop an invisible caret over the stroke.
+  "ink",
 ])

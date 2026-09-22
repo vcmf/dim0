@@ -20,6 +20,7 @@ import {
   Minimap,
   type ArrowToolDefaults,
   type CanvasPointerEvent,
+  type InkToolDefaults,
 } from "@canvas-harness/react"
 import {
   Sheet,
@@ -52,7 +53,7 @@ import { setBoardPersistenceRef } from "@/features/board/persist/local/board-per
 import { ShareButton } from "@/features/sharing/share-button"
 import { BoardKindBadge } from "@/features/board/components/board-kind-badge"
 import { BoardBreadcrumb } from "@/features/board/components/breadcrumb/board-breadcrumb"
-import { useBoardAppStore } from "../store/board-app-store"
+import { DEFAULT_INK_COLOR, DEFAULT_INK_COLOR_DARK, useBoardAppStore } from "../store/board-app-store"
 import { createBoardStore } from "../store/create-board-store"
 import { adaptEdgeColors, applyColorsToEdgeStyle } from "../theme/color-adapter"
 import { getBoardThemeMode } from "../theme/theme-mode-ref"
@@ -126,6 +127,8 @@ export function HarnessCanvas({ local = false }: { local?: boolean } = {}) {
 
   const tool = useBoardAppStore((s) => s.tool)
   const viewMode = useBoardAppStore((s) => s.viewMode)
+  const inkColor = useBoardAppStore((s) => s.inkColor)
+  const inkSize = useBoardAppStore((s) => s.inkSize)
   const theme = useBoardTheme()
   const [ready, setReady] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -319,6 +322,35 @@ export function HarnessCanvas({ local = false }: { local?: boolean } = {}) {
       }
     },
   }
+  // Pen/eraser config for the lib's built-in ink tool. Factories run at
+  // gesture start so a color/width change takes effect on the next stroke.
+  //
+  // - `data` stamps scope (graphUid/parentId) + the Note envelope at BIRTH,
+  //   so useStampNewNodes finds nothing to rescope and Cmd+Z reverts a stroke
+  //   in one press (the lib already sets style.autoFit:false, so its autofit
+  //   branch also no-ops). The engine merges this next to `data.ink`.
+  // - `color` is literal user intent (a red stroke stays red across theme
+  //   flips — ink is excluded from useThemeColorProjection). Only the untouched
+  //   default is swapped for a light tone on a dark board so a first stroke is
+  //   visible instead of near-black-on-dark.
+  const inkDefaults: InkToolDefaults = {
+    size: () => inkSize,
+    color: () =>
+      inkColor === DEFAULT_INK_COLOR && getBoardThemeMode() === "dark"
+        ? DEFAULT_INK_COLOR_DARK
+        : inkColor,
+    data: () => {
+      if (!boardId) return undefined
+      return {
+        noteType: "note",
+        styleType: "ink",
+        version: 1,
+        createdAt: new Date().toISOString(),
+        graphUid: boardId,
+        parentId: rootId ?? undefined,
+      }
+    },
+  }
   const { onDragOver, onDrop } = useHarnessDropFiles(wrapRef, store, boardId, rootId, canEdit)
   const navigate = useNavigate()
 
@@ -492,7 +524,16 @@ export function HarnessCanvas({ local = false }: { local?: boolean } = {}) {
       <HarnessWrapRefProvider value={wrapRef}>
         <div
           ref={wrapRef}
-          className="absolute inset-0"
+          // Suppress text selection / iOS callout whenever a drawing tool is
+          // SELECTED (mouse or pen), not just when a stylus is active — so a
+          // mouse drag on the canvas never selects underlying chrome. This is
+          // intentionally broader than the lib's `useIsPenActive()` (which
+          // tracks stylus presence, a different concept).
+          className={
+            tool === "ink" || tool === "eraser"
+              ? "absolute inset-0 select-none [-webkit-touch-callout:none]"
+              : "absolute inset-0"
+          }
           onDragOver={onDragOver}
           onDrop={onDrop}
         >
@@ -503,6 +544,7 @@ export function HarnessCanvas({ local = false }: { local?: boolean } = {}) {
             viewMode={viewMode}
             canCollab={!local}
             arrowDefaults={arrowDefaults}
+            inkDefaults={inkDefaults}
             onCreateDrag={handleCreateDrag}
             onDoubleClick={handleDoubleClick}
             onRenderer={handleRenderer}
@@ -522,6 +564,7 @@ type InnerProps = {
   viewMode: "board" | "files" | "list"
   canCollab: boolean
   arrowDefaults: ArrowToolDefaults
+  inkDefaults: InkToolDefaults
   onCreateDrag: ReturnType<typeof useCreateHandlers>["handleCreateDrag"]
   onDoubleClick: (e: CanvasPointerEvent) => void
   onRenderer: (r: Renderer) => void
@@ -535,6 +578,7 @@ function HarnessCanvasInner({
   viewMode,
   canCollab,
   arrowDefaults,
+  inkDefaults,
   onCreateDrag,
   onDoubleClick,
   onRenderer,
@@ -564,6 +608,7 @@ function HarnessCanvasInner({
             renderCustomNodeView={renderView}
             editorAdapter={createHarnessTextareaEditor}
             arrowDefaults={arrowDefaults}
+            inkDefaults={inkDefaults}
             onCreateDrag={onCreateDrag}
             onDoubleClick={onDoubleClick}
             onRenderer={onRenderer}
