@@ -1,5 +1,5 @@
 import { asGroupId, asNodeId } from "@canvas-harness/core"
-import type { Node } from "@canvas-harness/core"
+import type { InkStrokeData, Node } from "@canvas-harness/core"
 import type { Note, NoteProperties, RichText } from "@/features/board/types/note"
 import { asRichLabel } from "@/features/board/model"
 import type { Document } from "@/features/board/types/document"
@@ -36,6 +36,9 @@ export const AUTOFIT_DISABLED_TYPES = new Set([
   "mini-app",
   "applet",
   "document",
+  // Ink has no text `content`; autoFit would snap its height to an empty
+  // measure and collapse the stroke's bounds.
+  "ink",
 ])
 
 
@@ -87,6 +90,10 @@ export const noteToNode = (note: Note | Document): Node => {
   delete (rest as Record<string, unknown>).nodePosition
   delete (rest as Record<string, unknown>).nodeSize
   delete (rest as Record<string, unknown>).nodeZIndex
+  // Ink geometry is lifted to top-level `data.ink` below; drop it from the
+  // properties bag so the (potentially large) points array isn't carried
+  // twice on the node. Symmetric with note_to_wire's snake-echo strip.
+  delete (rest as Record<string, unknown>).inkData
 
   const data: NoteNodeData = {
     noteType: note.type,
@@ -145,6 +152,7 @@ export const noteToNode = (note: Note | Document): Node => {
     naturalW?: number
     naturalH?: number
     alt?: string
+    ink?: InkStrokeData
   } = data
   if (canvasType === "image") {
     const url = note.properties?.imageUrl?.image?.url
@@ -154,6 +162,12 @@ export const noteToNode = (note: Note | Document): Node => {
       finalData.naturalH = size.height
       finalData.alt = note.label?.markdown
     }
+  }
+  // canvas-harness's ink renderer reads geometry off `node.data.ink`
+  // (InkStrokeData), separate from the round-tripped properties. Lift it
+  // from the persisted Note property so a reloaded / synced stroke paints.
+  if (canvasType === "ink" && note.properties?.inkData) {
+    finalData.ink = note.properties.inkData
   }
 
   return {

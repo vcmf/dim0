@@ -1,5 +1,6 @@
 // Property primitives for FE use (camelCase)
 
+import type { InkStrokeData } from "@canvas-harness/core"
 import type { UrlAnnotation } from "@/features/agent/types/tool-outputs"
 
 export type PropertyType =
@@ -19,6 +20,7 @@ export type PropertyType =
   | 'url'
   | 'reasoning'
   | 'multi_source'
+  | 'ink'
 
 export interface BaseProperty<TType extends PropertyType> {
   type: TType
@@ -93,6 +95,15 @@ export interface MultiSourceProperty extends BaseProperty<'multi_source'> {
   sources?: UrlAnnotation[]
 }
 
+/**
+ * Ink stroke geometry, owned by canvas-harness's built-in `ink` node
+ * (`InkStrokeData`: pressure-aware points + size + optional shape knobs).
+ * Reused verbatim as the Dim0 property so persistence carries the exact
+ * bytes the engine rebuilds the outline from; its `type: 'ink'` doubles as
+ * both the engine geometry tag and this property's discriminator.
+ */
+export type InkProperty = InkStrokeData
+
 export type DataProperty =
   | NumberProperty
   | DateProperty
@@ -109,3 +120,4 @@ export type DataProperty =
   | PositionProperty
   | SizeProperty
   | ReasoningProperty
+  | InkProperty

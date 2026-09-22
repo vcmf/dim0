@@ -1,4 +1,4 @@
-import type { Node } from "@canvas-harness/core"
+import type { InkStrokeData, Node } from "@canvas-harness/core"
 import type { Note, NoteProperties } from "@/features/board/types/note"
 import { applyColorsToStyle } from "../theme/color-adapter"
 import type { NoteNodeData } from "./note-to-node"
@@ -35,6 +35,14 @@ export const nodeToNote = (node: Node): Note => {
     mimeType: extraProperties.mimeType,
     status: extraProperties.status,
     summary: extraProperties.summary,
+    // Ink geometry lives at top-level `node.data.ink` (the engine writes it
+    // there); persist it as a Note property so it survives to the server and
+    // back. Mirror of the `finalData.ink` lift in `noteToNode`. Gated on the
+    // ink type so a stale `data.ink` on a type-changed node can't attach
+    // geometry to a non-ink Note (symmetric with the forward lift's gate).
+    inkData: node.type === "ink"
+      ? ((data as { ink?: InkStrokeData }).ink ?? extraProperties.inkData)
+      : undefined,
   }
 
   return {
