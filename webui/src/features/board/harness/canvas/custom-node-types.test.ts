@@ -29,6 +29,7 @@ const EXPECTED_CUSTOM_TYPES = [
   "icon",
   "image",
   "frame",
+  "ink",
 ].sort()
 
 
