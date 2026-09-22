@@ -35,6 +35,7 @@ import {
   DotsThreeOutlineVerticalIcon,
   DownloadSimpleIcon,
   EnvelopeIcon,
+  EraserIcon as EraserGlyphIcon,
   EyeIcon,
   EyeSlashIcon,
   FileCodeIcon as FileCodeGlyphIcon,
@@ -168,6 +169,7 @@ export const DragGripIcon = createPhosphorIcon(DotsSixVerticalIcon)
 export const DrawIcon = createPhosphorIcon(PentagramIcon)
 export const EditIcon = createPhosphorIcon(PencilIcon)
 export const EditNoteIcon = createPhosphorIcon(PencilIcon)
+export const EraserIcon = createPhosphorIcon(EraserGlyphIcon)
 export const EllipsisIcon = createPhosphorIcon(DotsThreeGlyphIcon)
 export const ExaBrandIcon = createReactIcon(Exa.Color)
 export const ExternalLinkIcon = createPhosphorIcon(ArrowSquareOutIcon)

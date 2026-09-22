@@ -1,3 +1,4 @@
+import { readInkProperty } from "../ink/ink-data"
 import type { Node } from "@canvas-harness/core"
 import type { Note, NoteProperties } from "@/features/board/types/note"
 import { applyColorsToStyle } from "../theme/color-adapter"
@@ -17,6 +18,9 @@ const RAD_TO_DEG = 180 / Math.PI
 export const nodeToNote = (node: Node): Note => {
   const data = (node.data ?? {}) as Partial<NoteNodeData>
   const extraProperties = data.properties ?? {}
+  const relayProperties = extraProperties as typeof extraProperties & {
+    ink_data?: NoteProperties["inkData"]
+  }
   const groupIds = node.groups as unknown as string[]
 
   const properties: NoteProperties = {
@@ -35,6 +39,7 @@ export const nodeToNote = (node: Node): Note => {
     mimeType: extraProperties.mimeType,
     status: extraProperties.status,
     summary: extraProperties.summary,
+    inkData: readInkProperty(node) ?? extraProperties.inkData ?? relayProperties.ink_data,
   }
 
   return {

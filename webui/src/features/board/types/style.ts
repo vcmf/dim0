@@ -27,6 +27,7 @@ export type NodeType =
   | "code-sandbox"
   | "widget"
   | "mini-app"
+  | "ink"
   | "applet"
 
 /**
@@ -289,6 +290,7 @@ export const createDefaultStyle = ({
         strokeColor: TRANSPARENT_HEX,
       } as Style
     case "text":
+    case "ink":
       return {
         ...defaultOptions,
         roughness: 0,
@@ -296,7 +298,8 @@ export const createDefaultStyle = ({
         fontFamily: "handwriting",
         fontSize: "M",
         textAlign: "left",
-        backgroundColor: TRANSPARENT_HEX
+        backgroundColor: TRANSPARENT_HEX,
+        strokeColor: type === "ink" ? STONE_800 : TRANSPARENT_HEX,
       } as Style
     case "image":
       return {
