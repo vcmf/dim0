@@ -29,7 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Res
 
 from topix.api.utils.decorators import with_standard_response
 from topix.api.utils.security import get_current_user_uid
-from topix.collab.apply_ops import apply_batch
+from topix.collab.apply_ops import apply_batch, batch_had_persist_failure, should_reject_batch
 from topix.collab.capacity import get_room_cap_for_board
 from topix.collab.room import MAX_PRESENCE_PAYLOAD_BYTES, Client, Room, RoomRegistry
 from topix.collab.snapshot import read_snapshot_payload
@@ -383,14 +383,41 @@ async def _handle_message(  # noqa: C901 — flat kind-dispatch reads better tha
                     except Exception:
                         logger.debug("collab op-applied (dedup) send failed", exc_info=True)
                     return
-            seq = await oplog.next_seq(board_id)
-            room.seq = seq  # keep the in-memory head in sync for snapshot reads
-            await apply_batch(
+            results = await apply_batch(
                 graph_store=graph_store,
                 board_id=board_id,
                 user_id=user_id,
                 ops=ops,
             )
+            # Surface lost writes instead of silently acking them. A single-op
+            # batch that wholly failed to persist is rejected so the sender rolls
+            # it back (rather than the edit reappearing empty on the next reload),
+            # and is not oplogged/broadcast. Multi-op batches are never rejected —
+            # client batches are coalesced (a debounce window / paste is one batch
+            # of independent ops) and op-rejected rolls back the whole client
+            # batch, so it would destroy the sibling ops that DID persist — so a
+            # failure there is logged loudly for triage and the batch proceeds.
+            if should_reject_batch(results):
+                logger.warning(
+                    "collab op rejected board=%s client_seq=%s reason=%s",
+                    board_id, client_seq, results[0].reason,
+                )
+                try:
+                    await websocket.send_json({
+                        "kind": "op-rejected",
+                        "client_seq": client_seq,
+                        "reason": "persist failed",
+                    })
+                except Exception:
+                    logger.debug("collab op-rejected send failed", exc_info=True)
+                return
+            if batch_had_persist_failure(results):
+                logger.error(
+                    "collab persist failure not surfaced to client (multi-op batch) board=%s client_seq=%s reasons=%s",
+                    board_id, client_seq, [r.reason for r in results if r.persist_failure],
+                )
+            seq = await oplog.next_seq(board_id)
+            room.seq = seq  # keep the in-memory head in sync for snapshot reads
             # Durable log: the source of truth for reconnect catch-up and a
             # restart-safe seq. Idempotent by (board_id, seq). A durable-log
             # hiccup must not fail the op — the factory already has it and peers
