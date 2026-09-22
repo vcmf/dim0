@@ -25,7 +25,7 @@ export const BOARD_LIMITS: Record<BillingPlan, number> = {
 export const FREE_PLAN_BOARD_LIMIT = BOARD_LIMITS.free
 
 export const FREE_PLAN_BOARD_LIMIT_TOOLTIP =
-  "Board limit reached for your plan. Upgrade for more boards, or self-host for your own unlimited setup."
+  "Board limit reached for your plan. Upgrade for more boards."
 
 
 export function boardLimitForPlan(plan: BillingPlan): number {

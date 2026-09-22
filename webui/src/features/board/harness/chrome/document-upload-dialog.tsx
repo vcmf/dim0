@@ -59,7 +59,7 @@ const DocumentUploadDialogBody = ({
     if (isNodeTypeAtLimit("document", userPlan, documentCount)) {
       toast.error(
         `You've reached this board's document limit (${nodeLimitFor("document", userPlan)}). ` +
-        `Upgrade for more, or self-host for your own unlimited setup.`,
+        `Upgrade for more.`,
       )
       return
     }

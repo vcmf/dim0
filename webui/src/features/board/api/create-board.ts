@@ -61,7 +61,7 @@ export const useCreateBoard = () => {
       // and shows its own dialog, so it reaches this branch only in a rare stale-count
       // race (toast + dialog both fire then, an accepted edge).
       if (isBoardCreationLimited(userPlan, countOwnedBoards(boards))) {
-        toast.error(`You've reached your plan's board limit (${boardLimitForPlan(userPlan)}). Upgrade for more, or self-host for your own unlimited setup.`)
+        toast.error(`You've reached your plan's board limit (${boardLimitForPlan(userPlan)}). Upgrade for more.`)
         throw new Error(BOARD_LIMIT_REACHED)
       }
 
