@@ -1,11 +1,12 @@
 /**
- * Phase 3 rollout flag — run the in-browser agent engine on SYNCED boards too,
- * not just local-only ones. When on, a synced board's chat uses the browser
- * engine (edits ride the v2 relay to peers) instead of the server agent.
+ * Run the in-browser agent engine on SYNCED boards too, not just local-only
+ * ones. When on, a synced board's chat uses the browser engine (edits ride the
+ * v2 relay to peers; transcript backs up to the server) instead of the legacy
+ * server agent — the same runtime local boards already use, so applets, the
+ * board-vision context, and the full browser toolset work on synced boards.
  *
- * Off by default → zero effect (synced boards keep the backend agent). Toggle
- * from the dev console: `dim0LocalAgent.on()` then reload. Graduates to a proper
- * rollout gate (v2-only) as Phase 3 lands.
+ * ON by default (graduated from the opt-in soak). Opt OUT from the dev console:
+ * `dim0LocalAgent.off()` then reload.
  */
 const KEY = "dim0_local_agent_on_synced"
 
@@ -13,9 +14,11 @@ const KEY = "dim0_local_agent_on_synced"
 /** Whether synced-board chat should run on the browser engine. */
 export const isLocalAgentOnSynced = (): boolean => {
   try {
-    return localStorage.getItem(KEY) === "1"
+    // Default ON — only an explicit opt-out ("0", set by `dim0LocalAgent.off()`)
+    // routes a synced board back to the legacy server agent.
+    return localStorage.getItem(KEY) !== "0"
   } catch {
-    return false
+    return true
   }
 }
 
@@ -31,10 +34,10 @@ export const isBrowserAgentActive = (local: boolean): boolean => local || isLoca
 
 const set = (on: boolean): void => {
   try {
-    if (on) localStorage.setItem(KEY, "1")
-    else localStorage.removeItem(KEY)
+    if (on) localStorage.removeItem(KEY) // clear the opt-out → back to the default (on)
+    else localStorage.setItem(KEY, "0")  // explicit opt-out → legacy server agent
   } catch {
-    // ignore — private mode / storage disabled just means the flag doesn't stick
+    // ignore — private mode / storage disabled just means the choice doesn't stick
   }
 }
 
