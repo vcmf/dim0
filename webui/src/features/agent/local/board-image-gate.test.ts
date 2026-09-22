@@ -17,25 +17,23 @@ afterEach(() => {
 
 
 describe("shouldAttachBoardImage", () => {
-  it("is off by default (flag unset)", () => {
-    expect(shouldAttachBoardImage(storeWith(3), visionCatalog, "a")).toBe(false)
-  })
-
-
-  it("attaches when flag on + vision model + non-empty board", () => {
-    localStorage.setItem(FLAG, "1")
+  it("is ON by default (flag unset) for a vision model + non-empty board", () => {
     expect(shouldAttachBoardImage(storeWith(3), visionCatalog, "a")).toBe(true)
   })
 
 
+  it("respects an explicit opt-out (flag = \"0\")", () => {
+    localStorage.setItem(FLAG, "0")
+    expect(shouldAttachBoardImage(storeWith(3), visionCatalog, "a")).toBe(false)
+  })
+
+
   it("skips an empty board", () => {
-    localStorage.setItem(FLAG, "1")
     expect(shouldAttachBoardImage(storeWith(0), visionCatalog, "a")).toBe(false)
   })
 
 
   it("skips a text-only model", () => {
-    localStorage.setItem(FLAG, "1")
     expect(shouldAttachBoardImage(storeWith(3), textCatalog, "a")).toBe(false)
   })
 })
