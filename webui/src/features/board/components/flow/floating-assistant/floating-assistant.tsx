@@ -26,11 +26,11 @@ export const FloatingAssistant = ({
   onOpenFullSheet,
   local = false,
 }: FloatingAssistantProps) => {
-  // Phase 3 (flag-gated): run the browser engine on a synced board too, but only
-  // once its sync engine resolves to v2 — a legacy-sync board keeps the backend
-  // agent (its relay has no DB persistence). The chat then goes fully local-mode
-  // (browser engine + local transcript store), and its edits ride the v2 relay to
-  // peers with no server agent. Off / legacy / still-resolving → unchanged.
+  // Phase 3 (flag-gated): run the browser engine on a synced board too, unless its
+  // sync engine is a resolved `legacy` pin — that board keeps the backend agent
+  // (its relay has no DB persistence). The chat then goes fully local-mode (browser
+  // engine + local transcript store), and its edits ride the v2 relay to peers with
+  // no server agent. Off / resolved-legacy → the backend agent instead.
   const browserAgent = useBrowserAgentActive(boardId, local)
   // Phase 2: a SYNCED board in browser-agent mode backs up transcripts to the
   // server (cross-device). A local-only board (`local`) has nothing to sync to.

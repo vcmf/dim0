@@ -68,18 +68,23 @@ export const useSyncEngine = (
 
 
 /**
- * Whether the browser agent is the active runtime for a board, given its already
- * resolved `syncEngine`: always on local-only boards (`local`), and on a synced
- * board only once its engine is confirmed `v2`. Legacy-sync boards stay on the
- * backend agent — the legacy WS relay has no DB persistence, so routing their
- * edits through the browser agent would lose them on reload. A synced board whose
- * engine is still resolving (`null`) reads as false, so the caller defers to the
- * backend agent until v2 is confirmed rather than mounting then swapping.
+ * Whether the browser agent is the active runtime for a board, given its
+ * `syncEngine`. Always on for local-only boards (`local`). On a synced board it's
+ * on UNLESS the engine is a confirmed `legacy` pin: v2 is the default, so a board
+ * still resolving (`null`) is treated optimistically as v2 rather than starting
+ * on the backend agent and swapping to the browser agent once v2 resolves — that
+ * swap would fire on every v2 board load and could orphan a turn sent mid-swap.
+ *
+ * Only an explicit, RESOLVED `legacy` pin routes a board to the backend agent:
+ * the legacy WS relay has no DB persistence, so a browser-agent edit there would
+ * be lost on reload. The optimistic `null` window is safe because a synced board
+ * is still loading then (store empty, no collab client mounted), so there is no
+ * real content to edit or lose until the engine resolves.
  */
 export const browserAgentActiveFor = (
   local: boolean,
   syncEngine: SyncEngine | null,
-): boolean => local || (isLocalAgentOnSynced() && syncEngine === "v2")
+): boolean => local || (isLocalAgentOnSynced() && syncEngine !== "legacy")
 
 
 /**

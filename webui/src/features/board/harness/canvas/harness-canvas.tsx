@@ -261,11 +261,13 @@ export function HarnessCanvas({ local = false }: { local?: boolean } = {}) {
 
   // The browser agent's local indexes (note search + doc Q&A) must exist whenever
   // the browser agent is the active engine — on local-only boards AND on synced
-  // boards in browser-agent mode. That means v2 synced boards only: a legacy-sync
-  // board stays on the backend agent (its relay has no DB persistence), so its
-  // indexes would be dead weight. Gating on `local` alone left `search_notes` with
-  // a null index (empty results for EVERY query) on synced browser-agent boards;
-  // gating on the flag alone built them for legacy boards that never use them.
+  // boards not pinned to legacy. Same predicate as the chat routing, so the index
+  // matches the runtime: gating on `local` alone left `search_notes` with a null
+  // index (empty results for EVERY query) on synced browser-agent boards, while a
+  // resolved legacy board (backend agent) skips the index it never queries. The
+  // optimistic null window keeps the head start — indexes build from the first
+  // render, well before any query, rather than waiting on the engine read.
+  // (`isLocalAgentOnSynced` is read inside but reload-stable, so it's not a dep.)
   // Persistence/hydrate below stays gated on `local` — synced boards still sync.
   const agentLocalIndexes = useMemo(
     () => browserAgentActiveFor(local, syncEngine),

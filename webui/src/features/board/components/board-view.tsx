@@ -23,12 +23,13 @@ export const BoardView: React.FC = () => {
   const setChatSheetOpen = useBoardAppStore((s) => s.setChatSheetOpen)
   const presentationMode = useBoardAppStore((s) => s.presentationMode)
 
-  // Phase 3 (flag-gated): a synced board runs the browser engine — but only once
-  // its sync engine resolves to v2. A legacy-sync board keeps the backend agent
-  // (its relay has no DB persistence, so browser-agent edits would be lost on
-  // reload). Computed once here and passed to BOTH chat surfaces so the pill and
-  // the drawer stay on the same engine and share one conversation (the pill is
-  // hidden while the drawer is open, so they must agree). This screen is only
+  // Phase 3 (flag-gated): a synced board runs the browser engine unless its sync
+  // engine is a resolved `legacy` pin (that relay has no DB persistence, so
+  // browser-agent edits would be lost on reload). This value drives the CopilotSheet
+  // drawer; the FloatingAssistant pill recomputes the SAME predicate from the same
+  // boardId (see useBrowserAgentActive), so both surfaces agree on the engine and
+  // share one conversation without threading a prop (the pill can't take this as
+  // `local` — that would suppress its transcript backup). This screen is only
   // mounted for synced boards, so `local` is always false here.
   const browserAgent = useBrowserAgentActive(boardId, false)
   const syncTranscript = browserAgent
