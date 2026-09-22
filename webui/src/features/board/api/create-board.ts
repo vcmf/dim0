@@ -3,19 +3,37 @@ import { apiFetch } from "@/api"
 import { useAppStore } from "@/store"
 import { useBoardAppStore } from "../harness/store/board-app-store"
 import { listBoards, type BoardListItem } from "./list-boards"
-import { boardLimitForPlan, isBoardCreationLimited } from "../lib/board-limit"
+import { boardLimitForPlan, countOwnedBoards, isBoardCreationLimited } from "../lib/board-limit"
 import { toast } from "sonner"
 
 
 /**
- * Create a new board for the user.
+ * Thrown (as an Error message) when board creation is blocked by the plan's
+ * synced-board cap — either the client pre-check or the backend's atomic 402.
+ * Callers switch on this to open the upgrade/local-board dialog.
+ */
+export const BOARD_LIMIT_REACHED = "board_limit_reached"
+
+
+/**
+ * Create a new board for the user. Normalizes the backend's atomic cap rejection
+ * (HTTP 402) into the `BOARD_LIMIT_REACHED` sentinel so callers handle a stale
+ * client count and a server-side cap hit the same way.
  */
 export async function createBoard(): Promise<string> {
-  const res = await apiFetch<{ data: { graph_id: string } }>({
-    path: "/boards",
-    method: "PUT"
-  })
-  return res.data.graph_id
+  try {
+    const res = await apiFetch<{ data: { graph_id: string } }>({
+      path: "/boards",
+      method: "PUT"
+    })
+    return res.data.graph_id
+  } catch (err) {
+    // apiFetch throws `Error("402 Payment Required - ...")` for the synced-board cap.
+    if (err instanceof Error && err.message.startsWith("402 ")) {
+      throw new Error(BOARD_LIMIT_REACHED)
+    }
+    throw err
+  }
 }
 
 
@@ -36,9 +54,15 @@ export const useCreateBoard = () => {
       const cachedBoards = queryClient.getQueryData<BoardListItem[]>(["listBoards", userId])
       const boards = cachedBoards ?? await listBoards()
 
-      if (isBoardCreationLimited(userPlan, boards.length)) {
+      // Fast-fail before the network call. Counts OWNED boards only (shared-with-me
+      // don't count — mirrors the backend synced-board cap + useIsBoardCreationLimited).
+      // Keep the toast here: this mutation has several callers (dashboard card,
+      // save-as-note, composer) that rely on it for feedback. The sidebar pre-gates
+      // and shows its own dialog, so it reaches this branch only in a rare stale-count
+      // race (toast + dialog both fire then, an accepted edge).
+      if (isBoardCreationLimited(userPlan, countOwnedBoards(boards))) {
         toast.error(`You've reached your plan's board limit (${boardLimitForPlan(userPlan)}). Upgrade for more, or self-host for your own unlimited setup.`)
-        throw new Error("board_limit_reached")
+        throw new Error(BOARD_LIMIT_REACHED)
       }
 
       const boardId = await createBoard()

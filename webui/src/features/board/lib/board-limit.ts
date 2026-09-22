@@ -1,6 +1,6 @@
 import type { BillingPlan } from "@/lib/decode-jwt"
 import { useAppStore } from "@/store"
-import { useListBoards } from "../api/list-boards"
+import { useListBoards, type BoardListItem } from "../api/list-boards"
 
 
 // Backend-authoritative billing gate (flag AND Stripe keys, never the raw VITE
@@ -8,7 +8,7 @@ import { useListBoards } from "../api/list-boards"
 // helpers use it for correctness at call time (create paths read fresh here),
 // but a component that must RE-RENDER when billingActive flips (e.g. after boot
 // hydration) MUST also select `s.billingActive` itself — see
-// useIsBoardCreationLimited / NewBoardItem.
+// useIsBoardCreationLimited (the shared reactive gate) and its callers.
 const billingActive = (): boolean => useAppStore.getState().billingActive
 
 
@@ -39,6 +39,16 @@ export function isBoardCreationLimited(plan: BillingPlan, boardCount: number): b
 
 
 /**
+ * Count boards the user OWNS — the axis the synced-board cap gates on
+ * (shared-with-me boards are excluded, mirroring the backend). Single source so
+ * the reactive gate and the create-time check can't drift.
+ */
+export function countOwnedBoards(boards: BoardListItem[]): number {
+  return boards.filter((b) => b.role === "owner").length
+}
+
+
+/**
  * Reactive variant of `isBoardCreationLimited` for UI gating.
  * Reuses the cached `listBoards` query so it doesn't trigger extra fetches.
  */
@@ -49,7 +59,7 @@ export function useIsBoardCreationLimited(): boolean {
   // it (e.g. flag-on-but-keyless self-host: seeded true → hydrated false).
   const billingActive = useAppStore((s) => s.billingActive)
   const { data: boards = [] } = useListBoards(userId)
-  return billingActive && isBoardCreationLimited(userPlan, boards.length)
+  return billingActive && isBoardCreationLimited(userPlan, countOwnedBoards(boards))
 }
 
 

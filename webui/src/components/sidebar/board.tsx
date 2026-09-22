@@ -1,4 +1,3 @@
-import { useCreateBoard } from "@/features/board/api/create-board"
 import { SidebarMenuAction, SidebarMenuButton, SidebarMenuItem } from "../ui/sidebar"
 import { useDeleteBoard } from "@/features/board/api/delete-board"
 import { trimText } from "@/lib/common"
@@ -17,9 +16,6 @@ import { useBoardOfflineStatus } from "@/features/board/api/board-offline-status
 import { nodeSurfaceKindFromPath } from "@/features/board/utils/node-surface-url"
 import { useState, type MouseEvent } from "react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip"
-import { useAppStore } from "@/store"
-import { FREE_PLAN_BOARD_LIMIT_TOOLTIP, isBoardCreationLimited } from "@/features/board/lib/board-limit"
-import { useListBoards } from "@/features/board/api/list-boards"
 
 /**
  * The open surface (sheet/code-sandbox/widget) — or scoped folder — node id for
@@ -73,55 +69,17 @@ export function DashboardMenuItem() {
 }
 
 /**
- * New board item component
+ * "New board" button for signed-in users. Creates a SYNCED board by default
+ * (backed up + shareable). The sidebar owns the create + plan-limit logic and
+ * passes `onClick`; hitting the cap opens the choice dialog rather than creating
+ * here. Local-only boards are the dialog's fallback, not created from this button.
  */
-export function NewBoardItem() {
-  const { createBoardAsync } = useCreateBoard()
-  const userId = useAppStore(s => s.userId)
-  const { data: boards = [] } = useListBoards(userId)
-  const userPlan = useAppStore(s => s.userPlan)
-  // Subscribe so the gate re-renders when billingActive is hydrated at boot.
-  const billingActive = useAppStore(s => s.billingActive)
-  const navigate = useNavigate()
-  const boardCreationLimited = billingActive && isBoardCreationLimited(userPlan, boards.length)
-
-  const handleClick = async () => {
-    if (boardCreationLimited) return
-
-    const newId = await createBoardAsync()
-    // Go to /boards/:id (no page refresh)
-    navigate({ to: '/boards/$id', params: { id: newId } })
-  }
-
-  if (boardCreationLimited) {
-    return (
-      <SidebarMenuItem>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="block">
-              <SidebarMenuButton
-                className="text-xs text-secondary-foreground/60 font-medium transition-all cursor-not-allowed opacity-60"
-                disabled
-                onClick={handleClick}
-              >
-                <EditIcon className="text-xs shrink-0 text-sidebar-icon-1/60" strokeWidth={2} />
-                <span>New Board</span>
-              </SidebarMenuButton>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="right" align="center" className="max-w-64">
-            <p className="text-xs">{FREE_PLAN_BOARD_LIMIT_TOOLTIP}</p>
-          </TooltipContent>
-        </Tooltip>
-      </SidebarMenuItem>
-    )
-  }
-
+export function NewBoardItem({ onClick }: { onClick: () => void }) {
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton className="text-xs text-secondary-foreground font-medium transition-all" onClick={handleClick}>
+      <SidebarMenuButton className="text-xs text-secondary-foreground font-medium transition-all" onClick={onClick}>
         <EditIcon className="text-xs shrink-0 text-sidebar-icon-1" strokeWidth={2} />
-        <span>New Board</span>
+        <span>New board</span>
       </SidebarMenuButton>
     </SidebarMenuItem>
   )
