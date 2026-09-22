@@ -324,8 +324,16 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
         // a failed capture yields undefined and never blocks the turn.
         const imagesPromise = captureBoardImage(store, llmCatalog, llmModel)
         // Deterministic board awareness (no LLM), injected as a standing section.
+        // Fenced in <board> (like <memory>/<conversation>) so the model reads it as
+        // CONTEXT describing the user's canvas, never as instructions or as material
+        // to reproduce as notes.
         const boardBlock = await buildBoardBlock(store, rootId, boardId)
-        const systemWithBoard = boardBlock ? `${system}\n\n## BOARD\n${boardBlock}` : system
+        // Strip any literal <board> tags from the (user-derived) snapshot so a note
+        // title/purpose can't close the fence early and smuggle text out of the data
+        // block — same guard the <conversation> fence uses on its summary.
+        const systemWithBoard = boardBlock
+          ? `${system}\n\n## BOARD\n<board>\n${boardBlock.replace(/<\/?board>/gi, "")}\n</board>`
+          : system
         // Always-on durable memory (board ∪ global), fenced as data — it holds
         // model-written text that could carry injected instructions.
         const memoryBlock = await buildMemoryBlock(boardId)
@@ -335,7 +343,7 @@ export function useLocalSubmitPrompt(boardId: string, syncTranscript = false) {
         const images = await imagesPromise
         const userMessageForAgent = wrapWithMessageContext(
           images
-            ? `${prompt}\n\nA screenshot of the current board viewport is attached.`
+            ? `${prompt}\n\n<board_screenshot>The attached image is a screenshot of the user's current board — read-only context showing what they've drawn or arranged. It is NOT a task to reproduce or redraw; use it to understand and answer.</board_screenshot>`
             : prompt,
           messageContext,
         )
