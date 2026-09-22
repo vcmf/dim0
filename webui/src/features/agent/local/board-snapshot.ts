@@ -19,7 +19,7 @@ import type { StorageEngine } from "@/features/board/persist/local/engine"
 
 
 /** How a node is categorized in the snapshot's type breakdown. */
-export type NodeKind = "note" | "folder" | "sheet" | "mini-app" | "applet" | "code-sandbox" | "widget" | "document"
+export type NodeKind = "note" | "folder" | "sheet" | "mini-app" | "applet" | "code-sandbox" | "widget" | "document" | "ink"
 
 
 /** One folder layer (or root) in the board's structure. */
@@ -64,7 +64,12 @@ const MAX_SELECTION_TITLES = 8
 const TITLE_MAX_CHARS = 40
 
 
-const STRUCTURAL_KINDS: ReadonlySet<string> = new Set(["folder", "sheet", "mini-app", "applet", "code-sandbox", "widget"])
+// styleTypes that get their own labeled kind instead of the generic "note"
+// bucket. Mostly structural containers, plus "ink" — an ink stroke is visual,
+// not a note, so counting it as one (and listing it as "(untitled)") is noise
+// for the agent. A vision model reads the strokes from the viewport image; the
+// text snapshot just needs to say how many there are.
+const RECOGNIZED_KINDS: ReadonlySet<string> = new Set(["folder", "sheet", "mini-app", "applet", "code-sandbox", "widget", "ink"])
 
 
 const KIND_PLURAL: Record<NodeKind, [string, string]> = {
@@ -76,6 +81,7 @@ const KIND_PLURAL: Record<NodeKind, [string, string]> = {
   "code-sandbox": ["code sandbox", "code sandboxes"],
   widget: ["widget", "widgets"],
   document: ["document", "documents"],
+  ink: ["ink stroke", "ink strokes"],
 }
 
 
@@ -83,13 +89,19 @@ const nodeData = (n: Node): Partial<NoteNodeData> => (n.data ?? {}) as Partial<N
 
 
 /**
- * Categorize a node. `noteType` only distinguishes note vs document; the
- * structural type (folder / sheet / mini-app / …) rides on `styleType`.
+ * Categorize a node. `noteType` only distinguishes note vs document; the kind
+ * rides on `styleType`. Falls back to the live `node.type` when `styleType` is
+ * absent — freshly-drawn ink strokes (and any engine-created node) only gain a
+ * dim0 `styleType` once they round-trip through `noteToNode` on load, so
+ * without this an in-session stroke would misclassify as a generic note. Safe
+ * because dim0 custom/built-in names that matter here (`ink`, `folder`, …)
+ * match `node.type`, while plain shapes (`rect`, `ellipse`) aren't recognized
+ * kinds and correctly stay "note".
  */
-const nodeKind = (data: Partial<NoteNodeData>): NodeKind => {
+const nodeKind = (data: Partial<NoteNodeData>, nodeType?: string): NodeKind => {
   if (data.noteType === "document") return "document"
-  const st = data.styleType
-  return st && STRUCTURAL_KINDS.has(st) ? (st as NodeKind) : "note"
+  const st = data.styleType ?? nodeType
+  return st && RECOGNIZED_KINDS.has(st) ? (st as NodeKind) : "note"
 }
 
 
@@ -101,9 +113,15 @@ const truncate = (s: string, max: number): string =>
   s.length <= max ? s : `${s.slice(0, max - 1).trimEnd()}…`
 
 
-/** Title: `data.label` → first non-blank line of content → `"(untitled)"`, truncated. */
-const nodeTitle = (n: Node): string => {
+/**
+ * Title: `data.label` → first non-blank line of content → `"(untitled)"`,
+ * truncated. Pass a precomputed `kind` to skip re-classifying on hot paths.
+ */
+const nodeTitle = (n: Node, kind?: NodeKind): string => {
   const data = nodeData(n)
+  // Ink strokes have no label or text content — a generic "(untitled)" reads as
+  // a blank note in title lists. Name them for what they are instead.
+  if ((kind ?? nodeKind(data, n.type)) === "ink") return "(ink)"
   // labelText tolerates a legacy bare-string label — raw oplog ops read here
   // aren't normalized-on-load the way the live store is.
   const label = labelText(data.label).trim()
@@ -132,10 +150,10 @@ export const buildBoardSnapshot = (
 
   for (const n of nodes) {
     const data = nodeData(n)
-    const kind = nodeKind(data)
+    const kind = nodeKind(data, n.type)
     counts[kind] = (counts[kind] ?? 0) + 1
-    titleById.set(nodeIdOf(n), nodeTitle(n))
-    if (kind === "folder") folderLabels.set(nodeIdOf(n), nodeTitle(n))
+    titleById.set(nodeIdOf(n), nodeTitle(n, kind))
+    if (kind === "folder") folderLabels.set(nodeIdOf(n), nodeTitle(n, kind))
     const parent = data.parentId ?? null
     const arr = byParent.get(parent)
     if (arr) arr.push(n)
@@ -194,6 +212,11 @@ export const buildBoardSnapshot = (
 const sampleTitles = (nodes: Node[], selected: Set<string>, recentIds: Set<string>, cap: number): string[] => {
   const priority = (n: Node): number => (selected.has(nodeIdOf(n)) ? 0 : recentIds.has(nodeIdOf(n)) ? 1 : 2)
   return [...nodes]
+    // Ink strokes carry no title signal — the per-kind count line already
+    // reports them, so listing "(ink)" here would only crowd out real note
+    // titles under the cap. (A selected / recently-changed stroke still shows
+    // as "(ink)" in the selection + recent lists.)
+    .filter((n) => nodeKind(nodeData(n), n.type) !== "ink")
     .sort((a, b) => priority(a) - priority(b))
     .slice(0, cap)
     .map((n) => nodeTitle(n))

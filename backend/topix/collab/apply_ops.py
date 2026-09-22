@@ -42,14 +42,39 @@ RAD_TO_DEG = 180.0 / math.pi
 class WireOpResult(BaseModel):
     """Outcome of applying one op.
 
-    `applied=True` means the DB write happened; `applied=False` means
-    the op was unsupported but the relay should still broadcast it to
-    peers (best-effort).
+    `applied=True` means the DB write happened. `applied=False` splits two ways:
+      - `persist_failure=True` — a REAL durability loss (Note/Link failed to
+        build, or the store raised). The client's edit was acked-but-lost.
+      - `persist_failure=False` — an EXPECTED non-persist: a deferred op kind
+        relayed to peers (group.*/frame.reorder), an empty/unsupported patch, or
+        a malformed id-less op. Benign; the relay still broadcasts it.
+
+    The flag is set structurally at each failure site (not inferred from the
+    free-text `reason`), so `reason` can stay human-readable and a store
+    exception message can never be mistaken for a benign case.
     """
 
     applied: bool
     op_type: str
     reason: str | None = None
+    persist_failure: bool = False
+
+
+def batch_had_persist_failure(results: list[WireOpResult]) -> bool:
+    """Report whether any op in the batch suffered a real durability failure."""
+    return any(r.persist_failure for r in results)
+
+
+def should_reject_batch(results: list[WireOpResult]) -> bool:
+    """Whether to tell the sender the batch was rejected (→ client rollback).
+
+    ONLY a single-op batch that wholly failed to persist. Multi-op batches are
+    never rejected: client batches are coalesced (a debounce window / a paste is
+    one batch of many independent ops) and `op-rejected` rolls back the whole
+    client batch, so rejecting would destroy the sibling ops that DID persist and
+    drop any relay-only op riding along. Those are logged instead of rejected.
+    """
+    return len(results) == 1 and results[0].persist_failure
 
 
 async def apply_batch(  # noqa: C901 — flat dispatch by op-kind reads better than further nesting
@@ -99,7 +124,7 @@ async def apply_batch(  # noqa: C901 — flat dispatch by op-kind reads better t
         if op_type == "node.add":
             note = _wire_node_to_note(op.get("node") or {}, board_id=board_id)
             if note is None:
-                results[idx] = WireOpResult(applied=False, op_type=op_type, reason="could not construct Note")
+                results[idx] = WireOpResult(applied=False, op_type=op_type, reason="could not construct Note", persist_failure=True)
             else:
                 node_adds.append((idx, note))
             continue
@@ -128,7 +153,7 @@ async def apply_batch(  # noqa: C901 — flat dispatch by op-kind reads better t
         if op_type == "edge.add":
             link = _wire_edge_to_link(op.get("edge") or {}, board_id=board_id)
             if link is None:
-                results[idx] = WireOpResult(applied=False, op_type=op_type, reason="could not construct Link")
+                results[idx] = WireOpResult(applied=False, op_type=op_type, reason="could not construct Link", persist_failure=True)
             else:
                 edge_adds.append((idx, link))
             continue
@@ -217,7 +242,7 @@ async def _dispatch_bucket(
         logger.exception("collab apply error bucket=%s n=%d err=%s", op_type, len(items), exc)
         reason = str(exc)
         for idx, *_ in items:
-            results[idx] = WireOpResult(applied=False, op_type=op_type, reason=reason)
+            results[idx] = WireOpResult(applied=False, op_type=op_type, reason=reason, persist_failure=True)
         return
     for idx, *_ in items:
         results[idx] = WireOpResult(applied=True, op_type=op_type)
@@ -299,6 +324,17 @@ def _node_patch_to_note_data(patch: dict[str, Any]) -> dict[str, Any]:  # noqa: 
                 if snake_key in {"node_position", "node_size", "node_z_index"}:
                     continue
                 properties[snake_key] = value
+        # Ink geometry rides at top-level `data.ink` (InkStrokeData), where the
+        # engine writes it on a freshly-drawn stroke — never under
+        # `data.properties`. Lift it onto `ink_data` so the Note persists it;
+        # its camelCase inner keys validate against InkProperty's aliases.
+        # Gated on the ink type (node.add carries `type`; a restyle carries
+        # `data.styleType`) so a stray `data.ink` never attaches geometry to a
+        # non-ink note — symmetric with the client convert layer's gate.
+        wire_ink = wire_data_for_props.get("ink")
+        is_ink = patch.get("type") == "ink" or wire_data_for_props.get("styleType") == "ink"
+        if isinstance(wire_ink, dict) and is_ink:
+            properties["ink_data"] = wire_ink
 
     data: dict[str, Any] = {}
     if properties:

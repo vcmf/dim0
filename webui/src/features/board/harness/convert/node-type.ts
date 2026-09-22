@@ -35,6 +35,8 @@ const DIM0_TO_CANVAS: Record<Dim0NodeType, CanvasNodeType> = {
   widget: "widget",
   "mini-app": "mini-app",
   applet: "applet",
+  // Built-in in canvas-harness 0.2.0 — 1:1 name.
+  ink: "ink",
 }
 
 
@@ -43,8 +45,14 @@ const CANVAS_TO_DIM0: Record<string, Dim0NodeType> = Object.fromEntries(
 )
 
 
-/** Translate a Dim0 NodeType to the canvas-harness type string. */
-export const dim0TypeToCanvas = (t: Dim0NodeType): CanvasNodeType => DIM0_TO_CANVAS[t]
+/**
+ * Translate a Dim0 NodeType to the canvas-harness type string. Falls
+ * through unmapped values unchanged (defensive: a new Dim0 type must never
+ * resolve to `undefined` and produce a typeless node) — same contract as
+ * `canvasTypeToDim0`.
+ */
+export const dim0TypeToCanvas = (t: Dim0NodeType): CanvasNodeType =>
+  (DIM0_TO_CANVAS[t] ?? t) as CanvasNodeType
 
 
 /**

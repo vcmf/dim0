@@ -51,6 +51,9 @@ const EXCLUDED_TYPES: ReadonlySet<string> = new Set([
   // would inherit the rectangle's stroke / fill — visually surprising.
   "icon",
   "image",
+  // Ink has its own color/width settings on the pen tool; it must not
+  // sponge or donate the shared shape-style memory.
+  "ink",
   // Frames are slide containers (presentation mode). Their chrome is a
   // fixed visual identity — they should never sponge styles from
   // neighboring shapes nor donate styles back.

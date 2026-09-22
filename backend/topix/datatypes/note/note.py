@@ -10,6 +10,7 @@ from topix.datatypes.property import (
     DataProperty,
     IconProperty,
     ImageProperty,
+    InkProperty,
     NumberProperty,
     PositionProperty,
     SizeProperty,
@@ -71,6 +72,10 @@ class NoteProperties(ResourceProperties):
     programming_language: TextProperty = Field(
         default_factory=lambda: TextProperty(text="python")
     )
+    # Geometry of an `ink` node's stroke (canvas-harness InkStrokeData).
+    # None for every non-ink note. Lifted to/from the wire `node.data.ink`
+    # by the collab converters, mirroring the client convert layer.
+    ink_data: InkProperty | None = None
 
 
 class Note(Resource):

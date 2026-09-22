@@ -13,6 +13,12 @@ import {
 export type NodeSurfaceKind = "sheet" | "code-sandbox" | "widget" | "mini-app" | "applet"
 
 
+// Default pen color (near-black), matching the engine's DEFAULT_INK_COLOR. On a
+// dark board it's projected to a visible tone by the ink tool's color factory
+// (same dark-mode adaptation every node uses), so no separate dark default.
+export const DEFAULT_INK_COLOR = "#1f2937"
+
+
 /**
  * Tracks which floating chrome dialog/menu is open. Lives on the app
  * store so the keyboard handler (which doesn't sit inside the toolbar)
@@ -84,6 +90,12 @@ export type BoardAppState = {
   // string — built-ins use lib-defined names, customs can use their own.
   tool: string
 
+  // Ink tool settings — color + base width for the pen. Fed to the lib's
+  // `inkDefaults` (color stamped on node.style, width as the stroke size).
+  // The eraser piggybacks on `tool` and reads no settings of its own.
+  inkColor: string
+  inkSize: number
+
   /**
    * Which top-level surface is mounted. `"board"` is the canvas-harness
    * Canvas; `"files"` and `"list"` are alternate read-mostly views of
@@ -144,6 +156,8 @@ export type BoardAppActions = {
   setIsLoading: (loading: boolean) => void
 
   setTool: (tool: string) => void
+  setInkColor: (color: string) => void
+  setInkSize: (size: number) => void
 
   setViewMode: (mode: BoardAppState["viewMode"]) => void
   setViewSlides: (enabled: boolean) => void
@@ -176,6 +190,8 @@ const initialState: BoardAppState = {
   boardRole: null,
   isLoading: false,
   tool: "select",
+  inkColor: DEFAULT_INK_COLOR,
+  inkSize: 5,
   viewMode: "board",
   viewSlides: true,
   presentationMode: false,
@@ -228,6 +244,9 @@ export const useBoardAppStore = create<BoardAppState & BoardAppActions>((set, ge
   setIsLoading: (loading) => set({ isLoading: loading }),
 
   setTool: (tool) => set({ tool }),
+  setInkColor: (inkColor) => set({ inkColor }),
+  // Clamp to the pen's usable range (matches the slider bounds).
+  setInkSize: (inkSize) => set({ inkSize: Math.max(1, Math.min(32, inkSize)) }),
 
   setViewMode: (mode) => set({ viewMode: mode }),
   setViewSlides: (enabled) => set({ viewSlides: enabled }),

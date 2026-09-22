@@ -7,7 +7,7 @@ import abc
 from enum import IntEnum, StrEnum
 from typing import Annotated, Literal, Type
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from topix.agents.datatypes.annotations import SearchResult
 from topix.agents.datatypes.reasoning_step import ReasoningStep
@@ -35,6 +35,7 @@ class PropertyType(StrEnum):
     URL = "url"
     REASONING = "reasoning"
     MULTI_SOURCE = "multi_source"
+    INK = "ink"
 
 
 class Property(abc.ABC, BaseModel):
@@ -225,6 +226,37 @@ class MultiSourceProperty(Property):
     sources: list[SearchResult] = []
 
 
+class InkProperty(Property):
+    """Ink stroke geometry — canvas-harness's `InkStrokeData`, stored verbatim.
+
+    The engine paints an `ink` node from `node.data.ink`, so persistence
+    must carry the exact geometry it rebuilds the outline from: pressure
+    `points`, base `size`, the stroke's intrinsic bounds, and any non-default
+    shape knobs. Field names are snake_case for the store; the camelCase
+    aliases match the engine's on-the-wire shape, so inbound wire values
+    (which keep camelCase inner keys) validate, and `model_dump(by_alias=True)`
+    reproduces the shape the client renderer expects. The outline itself is
+    NOT stored — the renderer derives it from these fields.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    # `id` on the base Property is meaningless for ink geometry and is not
+    # part of InkStrokeData. Override it away so no uid is minted on validate
+    # and nothing leaks into the wire `data.ink` — keeping it a byte-exact
+    # InkStrokeData across every reconstruction.
+    id: str | None = Field(default=None, exclude=True)
+    type: Literal[PropertyType.INK] = PropertyType.INK
+    version: int = 1
+    size: float = 5
+    points: list[tuple[float, float, float]] = []
+    intrinsic_width: float = Field(default=0, alias="intrinsicWidth")
+    intrinsic_height: float = Field(default=0, alias="intrinsicHeight")
+    thinning: float | None = None
+    smoothing: float | None = None
+    streamline: float | None = None
+
+
 type DataProperty = Annotated[
     (
         NumberProperty
@@ -242,6 +274,7 @@ type DataProperty = Annotated[
         | PositionProperty
         | SizeProperty
         | ReasoningProperty
+        | InkProperty
     ),
     Field(discriminator="type")
 ]

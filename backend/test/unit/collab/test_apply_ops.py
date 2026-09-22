@@ -6,7 +6,7 @@ without Postgres/Qdrant.
 
 import math
 
-from topix.collab.apply_ops import RAD_TO_DEG, apply_batch
+from topix.collab.apply_ops import RAD_TO_DEG, WireOpResult, apply_batch, batch_had_persist_failure, should_reject_batch
 
 
 class _RecordingGraphStore:
@@ -1492,3 +1492,85 @@ async def test_invalid_ops_excluded_from_bucket_dont_poison_bulk_dispatch():
     # The single bulk patch_notes call only carried the two valid ops.
     assert len(store.patch_notes_bulk_calls) == 1
     assert len(store.patch_notes_bulk_calls[0]["updates"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# persist-failure classification + reject policy
+# ---------------------------------------------------------------------------
+
+def test_batch_had_persist_failure_keys_off_the_flag():
+    """batch_had_persist_failure reads the structured flag, not the reason text."""
+    real = WireOpResult(applied=False, op_type="node.add", reason="could not construct Note", persist_failure=True)
+    deferred = WireOpResult(applied=False, op_type="group.upsert", reason="unsupported op type")
+    ok = WireOpResult(applied=True, op_type="node.add")
+    assert batch_had_persist_failure([real]) is True
+    assert batch_had_persist_failure([deferred]) is False  # relay-only, not a loss
+    assert batch_had_persist_failure([ok, ok]) is False
+
+
+def test_should_reject_only_single_op_total_failure():
+    """Reject a lone failed op; never a multi-op (coalesced/paste) batch."""
+    fail = WireOpResult(applied=False, op_type="node.add", reason="x", persist_failure=True)
+    ok = WireOpResult(applied=True, op_type="node.add")
+    deferred = WireOpResult(applied=False, op_type="group.upsert", reason="unsupported op type")
+    assert should_reject_batch([fail]) is True            # lone failure → safe to roll back
+    assert should_reject_batch([fail, ok]) is False       # a sibling persisted → keep it
+    assert should_reject_batch([fail, fail]) is False     # paste/coalesced → never destroy the batch
+    assert should_reject_batch([deferred]) is False       # lone relay-only op → not a failure
+    assert should_reject_batch([ok]) is False
+
+
+async def test_node_add_construct_failure_flags_persist_failure():
+    """A node.add that can't build a Note is flagged as a real durability failure."""
+    store = _RecordingGraphStore()
+    results = await apply_batch(graph_store=store, board_id="b1", user_id="u1", ops=[{"type": "node.add", "node": {}}])
+    assert results[0].applied is False
+    assert results[0].persist_failure is True
+    assert should_reject_batch(results) is True
+
+
+async def test_group_upsert_is_not_a_persist_failure():
+    """A deferred/relayed op kind is applied=False but NOT a persist failure."""
+    store = _RecordingGraphStore()
+    results = await apply_batch(graph_store=store, board_id="b1", user_id="u1", ops=[{"type": "group.upsert", "group": {"id": "g1"}}])
+    assert results[0].applied is False
+    assert results[0].persist_failure is False
+    assert should_reject_batch(results) is False
+
+
+# ---------------------------------------------------------------------------
+# ink round-trip guard — pen color survives apply_batch (persist path)
+# ---------------------------------------------------------------------------
+
+async def test_ink_node_add_persists_stroke_color():
+    """An ink node.add keeps its pen color through the persist path.
+
+    End-to-end guard for the color-loss regression: apply_batch skips the wire
+    style's display colors and persists the canonical ones from data._storedColors.
+    Ink must carry _storedColors, else stroke_color falls to the transparent
+    default and the reloaded stroke paints invisibly.
+    """
+    store = _RecordingGraphStore()
+    op = {
+        "type": "node.add",
+        "node": {
+            "id": "k1", "type": "ink",
+            "x": 0, "y": 0, "w": 10, "h": 10, "angle": 0, "z": 0, "groups": [],
+            "style": {"strokeColor": "#1f2937", "backgroundColor": "transparent"},
+            "data": {
+                "styleType": "ink",
+                "ink": {
+                    "type": "ink", "version": 1, "size": 5,
+                    "points": [[0.0, 0.0, 0.5], [4.0, 3.0, 0.6]],
+                    "intrinsicWidth": 10.0, "intrinsicHeight": 10.0,
+                },
+                "_storedColors": {"strokeColor": "#1f2937", "backgroundColor": "transparent"},
+            },
+        },
+    }
+    results = await apply_batch(graph_store=store, board_id="b1", user_id="u1", ops=[op])
+    assert results[0].applied is True
+    assert not batch_had_persist_failure(results)
+    note = store.add_notes_calls[0][0]
+    assert note.style.stroke_color == "#1f2937"   # NOT the transparent default
+    assert note.properties.ink_data is not None

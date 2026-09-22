@@ -29,6 +29,9 @@ const TOOL_SHORTCUTS: Record<string, string> = {
   o: "ellipse",
   d: "diamond",
   y: "code-sandbox",
+  // 'b' (brush) for ink — 'i' is already the Images-search shortcut.
+  b: "ink",
+  e: "eraser",
 }
 
 
