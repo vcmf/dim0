@@ -25,6 +25,17 @@ const mkNode = (id: string, opts: NodeOpts = {}): Node => {
 }
 
 
+// A freshly-drawn ink stroke as it lives in the store BEFORE any persist
+// round-trip: the engine sets node.type="ink" + data.ink but no dim0 styleType.
+const mkLiveInk = (id: string): Node => ({
+  id: id as NodeId,
+  type: "ink",
+  x: 0, y: 0, w: 10, h: 10, angle: 0, z: 0, groups: [],
+  content: undefined,
+  data: { noteType: "note", version: 1, graphUid: "g", properties: {} } as NoteNodeData,
+})
+
+
 const fakeStore = (nodes: Node[], selection: string[] = []): CanvasStore =>
   ({ getAllNodes: () => nodes, getSelection: () => selection as unknown as NodeId[] }) as unknown as CanvasStore
 
@@ -64,6 +75,32 @@ describe("buildBoardSnapshot", () => {
     )
     expect(snap.counts).toEqual({ note: 2, folder: 1, sheet: 1, "mini-app": 1, document: 1 })
     expect(snap.total).toBe(6)
+  })
+
+
+  it("counts freshly-drawn ink (node.type='ink', no styleType) as its own kind", () => {
+    const snap = buildBoardSnapshot(
+      fakeStore([mkNode("a", { label: "a note" }), mkLiveInk("k1"), mkLiveInk("k2")]),
+      null,
+      [],
+    )
+    // Classified via the node.type fallback, not lumped into "note".
+    expect(snap.counts).toEqual({ note: 1, ink: 2 })
+    // Ink carries no title signal: excluded from per-layer samples so it can't
+    // crowd out real note titles — only the note appears.
+    expect(snap.layers[0].sampleTitles).toEqual(["a note"])
+  })
+
+
+  it("also classifies persisted ink (styleType='ink') as ink", () => {
+    const snap = buildBoardSnapshot(fakeStore([mkNode("k", { kind: "ink" })]), null, [])
+    expect(snap.counts).toEqual({ ink: 1 })
+  })
+
+
+  it("shows a selected ink stroke as '(ink)', not a blank '(untitled)'", () => {
+    const snap = buildBoardSnapshot(fakeStore([mkLiveInk("k1")], ["k1"]), null, [])
+    expect(snap.selection).toEqual(["(ink)"])
   })
 
 
