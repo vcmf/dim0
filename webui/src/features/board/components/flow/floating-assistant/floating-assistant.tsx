@@ -1,5 +1,5 @@
 import { ChatProvider } from "@/features/agent/hooks/chat-context"
-import { isLocalAgentOnSynced } from "@/features/agent/local/local-agent-flag"
+import { useBrowserAgentActive } from "@/features/board/harness/canvas/use-sync-engine"
 import { AnswerCard } from "./answer-card"
 import { FloatingIsland } from "./floating-island"
 
@@ -26,10 +26,12 @@ export const FloatingAssistant = ({
   onOpenFullSheet,
   local = false,
 }: FloatingAssistantProps) => {
-  // Phase 3 (flag-gated): run the browser engine on a synced board too. The chat
-  // then goes fully local-mode (browser engine + local transcript store), and its
-  // edits ride the v2 relay to peers with no server agent. Off → unchanged.
-  const browserAgent = local || isLocalAgentOnSynced()
+  // Phase 3 (flag-gated): run the browser engine on a synced board too, unless its
+  // sync engine is a resolved `legacy` pin — that board keeps the backend agent
+  // (its relay has no DB persistence). The chat then goes fully local-mode (browser
+  // engine + local transcript store), and its edits ride the v2 relay to peers with
+  // no server agent. Off / resolved-legacy → the backend agent instead.
+  const browserAgent = useBrowserAgentActive(boardId, local)
   // Phase 2: a SYNCED board in browser-agent mode backs up transcripts to the
   // server (cross-device). A local-only board (`local`) has nothing to sync to.
   const syncTranscript = browserAgent && !local

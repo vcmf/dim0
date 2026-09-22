@@ -69,7 +69,6 @@ import { useBlockFolderCopy } from "./use-block-folder-copy"
 import { resolveStoredEdgeColors, useStampNewEdges } from "./use-stamp-new-edges"
 import { useStampNewNodes } from "./use-stamp-new-nodes"
 import { useLocalSearchIndex } from "@/features/board/search/use-search-index"
-import { isBrowserAgentActive } from "@/features/agent/local/local-agent-flag"
 import { useLocalDocIndex } from "@/features/board/search/use-doc-index"
 import { useDocNodeCascade } from "@/features/board/harness/agent/use-doc-node-cascade"
 import { useStyleMemory } from "./use-style-memory"
@@ -78,7 +77,7 @@ import { useLocalPresence } from "./use-local-presence"
 import { useWsCollab } from "./use-ws-collab"
 import { useBoardSyncV2 } from "./use-board-sync-v2"
 import { useHistoryBatchIds } from "./use-history-batch-ids"
-import { useSyncEngine } from "./use-sync-engine"
+import { browserAgentActiveFor, useSyncEngine } from "./use-sync-engine"
 import { useThumbnailCapture } from "./use-thumbnail-capture"
 import { useViewportPersistence } from "./use-viewport-persistence"
 import { useTrackBoardCameraMotion } from "./board-camera-motion"
@@ -237,17 +236,6 @@ export function HarnessCanvas({ local = false }: { local?: boolean } = {}) {
   useStampNewEdges(store, boardId, rootId)
   useStampNewNodes(store, boardId, rootId)
   useSidebarContentsSync(store, boardId)
-  // The browser agent's local indexes (note search + doc Q&A) must exist whenever
-  // the browser agent is the active engine — on local-only boards AND on synced
-  // boards in browser-agent mode. Gating on `local` alone left `search_notes` with
-  // a null index (empty results for EVERY query) on synced browser-agent boards.
-  // Persistence/hydrate below stays gated on `local` — synced boards still sync.
-  // Memoized: the flag is reload-stable, so don't read localStorage every render
-  // of this hot canvas component.
-  const agentLocalIndexes = useMemo(() => isBrowserAgentActive(local), [local])
-  useLocalSearchIndex(store, agentLocalIndexes)
-  useLocalDocIndex(boardId ?? "", agentLocalIndexes)
-  useDocNodeCascade(store, boardId ?? "", agentLocalIndexes)
   useBlockFolderCopy(store)
   useHarnessApplyMindMap(store, boardId, rootId, ready)
   useHydrateIconNodes(store, boardId, rootId, ready)
@@ -270,6 +258,25 @@ export function HarnessCanvas({ local = false }: { local?: boolean } = {}) {
   // retirement); a board can be pinned to legacy via `syncEngine: "legacy"`.
   const syncEngine = useSyncEngine(boardId, local)
   const v2 = syncEngine === "v2"
+
+  // The browser agent's local indexes (note search + doc Q&A) must exist whenever
+  // the browser agent is the active engine — on local-only boards AND on synced
+  // boards not pinned to legacy. Same predicate as the chat routing, so the index
+  // matches the runtime: gating on `local` alone left `search_notes` with a null
+  // index (empty results for EVERY query) on synced browser-agent boards, while a
+  // resolved legacy board (backend agent) skips the index it never queries. The
+  // optimistic null window keeps the head start — indexes build from the first
+  // render, well before any query, rather than waiting on the engine read.
+  // (`isLocalAgentOnSynced` is read inside but reload-stable, so it's not a dep.)
+  // Persistence/hydrate below stays gated on `local` — synced boards still sync.
+  const agentLocalIndexes = useMemo(
+    () => browserAgentActiveFor(local, syncEngine),
+    [local, syncEngine],
+  )
+  useLocalSearchIndex(store, agentLocalIndexes)
+  useLocalDocIndex(boardId ?? "", agentLocalIndexes)
+  useDocNodeCascade(store, boardId ?? "", agentLocalIndexes)
+
   useWsCollab(store, boardId, ready && !local && !v2, rootId)
   // Fail-closed until the coordinator resolves the role from the ticket: unknown
   // role (null) → no edit affordances / no owner-only Share. Keyed on the board

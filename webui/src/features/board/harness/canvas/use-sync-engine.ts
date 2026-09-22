@@ -9,7 +9,8 @@
  * backend-agent retirement); a board can still be pinned to the legacy client
  * with an explicit `syncEngine: "legacy"` (an escape hatch during rollout).
  */
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { isLocalAgentOnSynced } from "@/features/agent/local/local-agent-flag"
 import type { BoardMeta } from "@/features/board/model"
 import { getLocalStores } from "@/features/local-stores"
 import { isBoardSyncV2 } from "../sync/sync-engine-flag"
@@ -63,4 +64,39 @@ export const useSyncEngine = (
   }, [boardId, local])
 
   return engine
+}
+
+
+/**
+ * Whether the browser agent is the active runtime for a board, given its
+ * `syncEngine`. Always on for local-only boards (`local`). On a synced board it's
+ * on UNLESS the engine is a confirmed `legacy` pin: v2 is the default, so a board
+ * still resolving (`null`) is treated optimistically as v2 rather than starting
+ * on the backend agent and swapping to the browser agent once v2 resolves — that
+ * swap would fire on every v2 board load and could orphan a turn sent mid-swap.
+ *
+ * Only an explicit, RESOLVED `legacy` pin routes a board to the backend agent:
+ * the legacy WS relay has no DB persistence, so a browser-agent edit there would
+ * be lost on reload. The optimistic `null` window is safe because a synced board
+ * is still loading then (store empty, no collab client mounted), so there is no
+ * real content to edit or lose until the engine resolves.
+ */
+export const browserAgentActiveFor = (
+  local: boolean,
+  syncEngine: SyncEngine | null,
+): boolean => local || (isLocalAgentOnSynced() && syncEngine !== "legacy")
+
+
+/**
+ * Hook form of {@link browserAgentActiveFor} for callers that don't already hold
+ * the resolved engine — resolves it from the local registry via `useSyncEngine`.
+ * Memoized so the chat surfaces (which re-render on store/search-param changes)
+ * don't read the reload-stable flag from localStorage on every render.
+ */
+export const useBrowserAgentActive = (
+  boardId: string | null,
+  local: boolean,
+): boolean => {
+  const syncEngine = useSyncEngine(boardId, local)
+  return useMemo(() => browserAgentActiveFor(local, syncEngine), [local, syncEngine])
 }

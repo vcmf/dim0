@@ -1,10 +1,10 @@
 import { useEffect } from "react"
 import { useNavigate, useSearch } from "@tanstack/react-router"
-import { isLocalAgentOnSynced } from "@/features/agent/local/local-agent-flag"
 import { seedTranscriptsFromServer } from "@/features/agent/local/seed-transcripts"
 import { useLocalMessagesStore } from "@/features/agent/store/local-messages-store"
 import { ToolConfirmDialog } from "@/features/agent/components/chat/tool-confirm-dialog"
 import { HarnessCanvas } from "../harness/canvas"
+import { useBrowserAgentActive } from "../harness/canvas/use-sync-engine"
 import { useBoardAppStore } from "../harness/store/board-app-store"
 import { FloatingAssistant } from "./flow/floating-assistant/floating-assistant"
 import { CopilotSheet } from "./flow/copilot-sheet"
@@ -23,11 +23,15 @@ export const BoardView: React.FC = () => {
   const setChatSheetOpen = useBoardAppStore((s) => s.setChatSheetOpen)
   const presentationMode = useBoardAppStore((s) => s.presentationMode)
 
-  // Phase 3 (flag-gated): a synced board runs the browser engine. Computed once
-  // here and passed to BOTH chat surfaces so the pill and the drawer stay on the
-  // same engine and share one conversation (the pill is hidden while the drawer
-  // is open, so they must agree). Phase 2: back finished turns up to the server.
-  const browserAgent = isLocalAgentOnSynced()
+  // Phase 3 (flag-gated): a synced board runs the browser engine unless its sync
+  // engine is a resolved `legacy` pin (that relay has no DB persistence, so
+  // browser-agent edits would be lost on reload). This value drives the CopilotSheet
+  // drawer; the FloatingAssistant pill recomputes the SAME predicate from the same
+  // boardId (see useBrowserAgentActive), so both surfaces agree on the engine and
+  // share one conversation without threading a prop (the pill can't take this as
+  // `local` — that would suppress its transcript backup). This screen is only
+  // mounted for synced boards, so `local` is always false here.
+  const browserAgent = useBrowserAgentActive(boardId, false)
   const syncTranscript = browserAgent
 
   // Own the local-store init at the screen level (mirrors LocalBoardScreen), so
