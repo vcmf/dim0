@@ -17,6 +17,11 @@ const skillTool = (name: SkillName, description: string): Tool =>
     parameters: z.object({}),
     // The guidance text IS the useful output; the loop feeds it back to the model.
     run: async () => SKILLS[name],
+    // The skill prompt must reach the model in FULL — it's the whole point of the
+    // call. Several skills exceed the loop's size cap (mini-app ~21k, applet ~18k),
+    // so without this they'd be silently truncated mid-guidance and the model would
+    // author from a fraction of the instructions. See docs/plans/tool-result-lifecycle.md.
+    keepFullResult: true,
   })
 
 
@@ -26,16 +31,16 @@ export const learnGenerateDiagram = skillTool(
 )
 
 
-export const learnGenerateMiniApp = skillTool(
-  "learn_generate_mini_app",
-  'REQUIRED before authoring a sandboxed interactive React mini-app (the default custom-rendered artifact): call this first, then write one with write_note(note_type="mini-app").',
+export const learnGenerateApplet = skillTool(
+  "learn_generate_applet",
+  'REQUIRED before authoring an applet (the default custom-rendered artifact — chart, dashboard, diagram, flashcard, interactive control): call this first, then write one with write_note(note_type="applet").',
 )
 
 
 export const learnGenerateHtmlWidget = skillTool(
   "learn_generate_html_widget",
-  'REQUIRED before authoring a legacy raw-HTML widget: call this first, then write one with write_note(note_type="widget") (legacy — prefer learn_generate_mini_app).',
+  'REQUIRED before authoring a legacy raw-HTML widget: call this first, then write one with write_note(note_type="widget") (legacy — prefer learn_generate_applet).',
 )
 
 
-export const skillTools: Tool[] = [learnGenerateDiagram, learnGenerateMiniApp, learnGenerateHtmlWidget]
+export const skillTools: Tool[] = [learnGenerateDiagram, learnGenerateApplet, learnGenerateHtmlWidget]

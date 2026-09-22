@@ -32,11 +32,18 @@ providers:
   exa:        { key: EXA_API_KEY }
 
 llm:
+  # `vision: true` marks models that accept image input (multimodal). Every
+  # USER-FACING model here is image-capable (verified against OpenRouter's
+  # input_modalities). The lone exception is `gpt-oss-120b` — text-only and
+  # `internal: true` (the auto complexity classifier only; excluded from
+  # public_llm_catalog so it never shows in the picker, but still resolvable).
+
   # --- OpenAI (native preferred, OpenRouter fallback without :nitro) ---
   - id: gpt-5.5
     label: GPT-5.5
     family: openai
     tier: pro
+    vision: true
     routes:
       - { via: openai,     model: gpt-5.5 }
       - { via: openrouter, model: openai/gpt-5.5 }
@@ -44,6 +51,7 @@ llm:
     label: GPT-5.5 Pro
     family: openai
     tier: pro
+    vision: true
     routes:
       - { via: openai,     model: gpt-5.5-pro }
       - { via: openrouter, model: openai/gpt-5.5-pro }
@@ -51,37 +59,44 @@ llm:
     label: GPT-5.4
     family: openai
     tier: pro
+    vision: true
     routes:
       - { via: openai,     model: gpt-5.4 }
       - { via: openrouter, model: openai/gpt-5.4 }
 
   # --- Auto-routing base + classifier ---
-  # `deepseek-v4-flash` is the first *lite* entry, so it's the normal/base auto
+  # `deepseek-v4.1-flash` is the first *lite* entry, so it's the normal/base auto
   # default (OpenRouter, nitro; falls through to gpt-5.4-mini with no OpenRouter
   # key). `gpt-oss-120b` is pinned as the complexity-classifier model in
   # auto_model.py (resolved by id, not tier order), so its position here does not
   # affect the base default. `gpt-5.5` stays the first entry overall → the no-tier
   # fallback + complex/pro default.
-  - id: deepseek-v4-flash
-    label: DeepSeek V4 Flash
+  - id: deepseek-v4.1-flash
+    label: DeepSeek V4.1 Flash
     family: deepseek
     tier: lite
+    vision: true
     routes:
-      - { via: openrouter, model: deepseek/deepseek-v4-flash:nitro }
+      - { via: openrouter, model: deepseek/deepseek-v4.1-flash:nitro }
   # gpt-oss is OpenAI-branded but OPEN-WEIGHT and multi-provider on OpenRouter, so
   # (unlike proprietary openai/* models) it keeps :nitro to route to the fastest
-  # provider — important for the latency-sensitive classifier.
+  # provider — important for the latency-sensitive classifier. It is text-only and
+  # `internal` (classifier only; hidden from the picker).
   - id: gpt-oss-120b
     label: GPT-OSS 120B
     family: openai
     tier: lite
+    internal: true
     routes:
       - { via: openrouter, model: openai/gpt-oss-120b:nitro }
 
+  # mini/nano inherit the GPT line's multimodality (the whole GPT-4o/4.1/5 family,
+  # minis included, accepts image input).
   - id: gpt-5.4-mini
     label: GPT-5.4 Mini
     family: openai
     tier: lite
+    vision: true
     routes:
       - { via: openai,     model: gpt-5.4-mini }
       - { via: openrouter, model: openai/gpt-5.4-mini }
@@ -89,6 +104,7 @@ llm:
     label: GPT-5.4 Nano
     family: openai
     tier: lite
+    vision: true
     routes:
       - { via: openai,     model: gpt-5.4-nano }
       - { via: openrouter, model: openai/gpt-5.4-nano }
@@ -98,6 +114,7 @@ llm:
     label: Claude Opus 4.8
     family: anthropic
     tier: pro
+    vision: true
     routes:
       - { via: anthropic,  model: claude-opus-4-8 }
       - { via: openrouter, model: anthropic/claude-opus-4.8 }
@@ -105,6 +122,7 @@ llm:
     label: Claude Sonnet 4.6
     family: anthropic
     tier: pro
+    vision: true
     routes:
       - { via: anthropic,  model: claude-sonnet-4-6 }
       - { via: openrouter, model: anthropic/claude-sonnet-4.6 }
@@ -112,35 +130,40 @@ llm:
     label: Claude Haiku 4.5
     family: anthropic
     tier: lite
+    vision: true
     routes:
       - { via: anthropic,  model: claude-haiku-4-5 }
       - { via: openrouter, model: anthropic/claude-haiku-4.5 }
 
   # --- z-ai GLM (OpenRouter only) ---
-  - id: glm-5.2
-    label: GLM 5.2
+  - id: glm-5.3-flashx
+    label: GLM 5.3 FlashX
     family: z-ai
     tier: pro
+    vision: true
     routes:
-      - { via: openrouter, model: z-ai/glm-5.2:nitro }
-  - id: glm-5.1
-    label: GLM 5.1
+      - { via: openrouter, model: z-ai/glm-5.3-flashx:nitro }
+  - id: glm-5.3-flash
+    label: GLM 5.3 Flash
     family: z-ai
     tier: lite
+    vision: true
     routes:
-      - { via: openrouter, model: z-ai/glm-5.1:nitro }
+      - { via: openrouter, model: z-ai/glm-5.3-flash:nitro }
 
   # --- Google Gemma (OpenRouter only) ---
   - id: gemma-4-31b
     label: Gemma 4 31B
     family: google
     tier: lite
+    vision: true
     routes:
       - { via: openrouter, model: google/gemma-4-31b-it:nitro }
   - id: gemma-4-26b
     label: Gemma 4 26B
     family: google
     tier: lite
+    vision: true
     routes:
       - { via: openrouter, model: google/gemma-4-26b-a4b-it:nitro }
 
@@ -149,49 +172,28 @@ llm:
     label: Qwen3.6 Plus
     family: qwen
     tier: pro
+    vision: true
     routes:
       - { via: openrouter, model: qwen/qwen3.6-plus:nitro }
 
-  # --- DeepSeek V4 (OpenRouter only). deepseek-v4-flash is the auto base, listed
-  #     up in the "Auto-routing base + classifier" block above. ---
-  - id: deepseek-v4-pro
-    label: DeepSeek V4 Pro
-    family: deepseek
-    tier: pro
-    routes:
-      - { via: openrouter, model: deepseek/deepseek-v4-pro:nitro }
-
   # --- Mistral (native preferred, OpenRouter fallback with :nitro) ---
-  - id: mistral-large
-    label: Mistral Large
-    family: mistralai
-    tier: pro
-    routes:
-      - { via: mistral,    model: mistral-large-latest }
-      - { via: openrouter, model: mistralai/mistral-large-2512:nitro }
   - id: mistral-medium-3.5
     label: Mistral Medium 3.5
     family: mistralai
     tier: lite
+    vision: true
     routes:
       - { via: mistral,    model: mistral-medium-latest }
       - { via: openrouter, model: mistralai/mistral-medium-3-5:nitro }
 
   # --- Moonshot Kimi (OpenRouter only) ---
-  - id: kimi-k2.6
-    label: Kimi K2.6
+  - id: kimi-k3
+    label: Kimi K3
     family: moonshotai
     tier: pro
+    vision: true
     routes:
-      - { via: openrouter, model: moonshotai/kimi-k2.6:nitro }
-
-  # --- MiniMax (OpenRouter only) ---
-  - id: minimax-m2.7
-    label: MiniMax M2.7
-    family: minimax
-    tier: pro
-    routes:
-      - { via: openrouter, model: minimax/minimax-m2.7:nitro }
+      - { via: openrouter, model: moonshotai/kimi-k3:nitro }
 
 embedding:
   # Routes under one id MUST share `dim` (vectors are not cross-compatible).

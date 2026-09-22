@@ -22,6 +22,7 @@ const EXPECTED_CUSTOM_TYPES = [
   "document",
   "widget",
   "mini-app",
+  "applet",
   "code-sandbox",
   "sheet",
   "ink",

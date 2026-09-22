@@ -28,6 +28,7 @@ export type NodeType =
   | "widget"
   | "mini-app"
   | "ink"
+  | "applet"
 
 /**
  * Stroke style for the node.
@@ -338,6 +339,7 @@ export const createDefaultStyle = ({
     case "code-sandbox":
     case "widget":
     case "mini-app":
+    case "applet":
       return {
         ...defaultOptions,
         roughness: 0,

@@ -45,6 +45,7 @@ const EXCLUDED_TYPES: ReadonlySet<string> = new Set([
   "document",
   "mini-app",
   "ink",
+  "applet",
   // Icons and images opt out: user-picked color is per-icon, not a
   // sticky session preference, and images don't carry colors anyway.
   // Without this, dropping an icon/image after styling a rectangle

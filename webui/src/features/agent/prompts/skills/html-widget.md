@@ -1,13 +1,13 @@
 # SKILL — legacy HTML widget
 
-> **Prefer `learn_generate_mini_app`** for any new widget. Mini-app handles
-> the same chart / dashboard / diagram / flashcard cases via a React +
-> Tailwind component, with interactive state, theme propagation, and the
+> **Prefer `learn_generate_applet`** for any new widget. The applet skill handles
+> the same chart / dashboard / diagram / flashcard cases via a declarative React +
+> Tailwind widget, with interactive state, theme propagation, and the
 > same scope of primitives — it's the default custom-rendered artifact.
 > This HTML widget skill exists for narrow cases only:
 > - the user explicitly asked for raw HTML, or
 > - you're editing an existing `note_type="widget"` note that should NOT be migrated.
-> If neither applies, stop reading and call `learn_generate_mini_app` instead.
+> If neither applies, stop reading and call `learn_generate_applet` instead.
 
 ---
 

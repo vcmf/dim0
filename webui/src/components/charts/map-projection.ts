@@ -5,12 +5,12 @@
 // is pure), so it's unit-tested without loading the real atlas. The async
 // geometry load + React lifecycle live in map.tsx / map-geo.ts.
 
-import { geoNaturalEarth1, geoPath } from "d3-geo"
+import { geoNaturalEarth1 } from "d3-geo"
 import type { GeoProjection } from "d3-geo"
 import type { Feature, Geometry, GeoJsonProperties } from "geojson"
 
 import { resolveColor } from "./color-token"
-import type { MapDatum, MapMarker, ProjectedMarker, RegionPath } from "./map-types"
+import type { MapDatum, MapMarker, ProjectedMarker } from "./map-types"
 
 
 type GeoFeature = Feature<Geometry, GeoJsonProperties>
@@ -83,22 +83,6 @@ export function buildProjection(
   return geoNaturalEarth1().fitSize([width, height], {
     type: "FeatureCollection",
     features,
-  })
-}
-
-
-/** Render each region to an SVG path with its resolved fill. */
-export function buildRegionPaths(
-  features: GeoFeature[],
-  projection: GeoProjection,
-  fillFor: (featureId: string) => string,
-): RegionPath[] {
-  const path = geoPath(projection)
-  return features.map((f) => {
-    const id = String(f.id ?? "")
-    const name =
-      typeof f.properties?.name === "string" ? f.properties.name : id
-    return { id, name, d: path(f) ?? "", fill: fillFor(id) }
   })
 }
 

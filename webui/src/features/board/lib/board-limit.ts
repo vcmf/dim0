@@ -63,7 +63,12 @@ type PlanLimits = Record<BillingPlan, number>
 
 export const NODE_LIMITS: Record<string, PlanLimits | number> = {
   document: { free: 3, basic: 10, plus: 25 },
+  // applet + mini-app share the same numbers but count SEPARATELY. A grandfathered
+  // user at the mini-app cap could hold that many again as applets; acceptable
+  // because mini-app creation is frozen (its count only shrinks). A shared
+  // interactive-widget cap would need the create check to sum both types.
   "mini-app": { free: 10, basic: 20, plus: 100 },
+  applet: { free: 10, basic: 20, plus: 100 },
   "code-sandbox": { free: 30, basic: 60, plus: 300 },
   folder: 10, // universal: sub-boards per level (all plans, incl. self-host)
 }

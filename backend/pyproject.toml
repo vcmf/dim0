@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "topix"
-version = "0.3.93"
+version = "0.3.95"
 description = "Learn - Note - Share with AI"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -52,6 +52,7 @@ dev = [
     "black>=25.1.0",
     "datasets>=3.6.0",
     "fakeredis>=2.26.0",
+    "pytest-cov>=6.0.0",
 ]
 
 [tool.uv]
@@ -101,6 +102,21 @@ exclude = ["build", "test"]
 # C-level queue.get (the default `signal` method can't, on a worker).
 timeout = 30
 timeout_method = "thread"
+
+[tool.coverage.run]
+# Measure the shipped package only; branch coverage for truer numbers.
+source = ["topix"]
+branch = true
+omit = ["topix/scripts/*"]
+
+[tool.coverage.report]
+# Don't count lines the interpreter never runs anyway.
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "@(abc\\.)?abstractmethod",
+]
 
 [dependency-groups]
 dev = [

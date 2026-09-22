@@ -35,6 +35,7 @@ const DIM0_TO_CANVAS: Record<Dim0NodeType, CanvasNodeType> = {
   widget: "widget",
   "mini-app": "mini-app",
   ink: "ink",
+  applet: "applet",
 }
 
 

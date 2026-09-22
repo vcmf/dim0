@@ -1,6 +1,7 @@
 # -------- Settings (tweak if needed) --------
 PROFILE ?= dev                 # dev | local
 ENVFILE ?= .env                # path to your env file (repo root by default)
+SIGNING_ENVFILE ?= .env.signing # macOS signing/notarization env for desktop-build (repo-root)
 DIM0_VERSION ?= $(shell cat VERSION)
 COMPOSE_BASE := docker compose -p dim0-src -f build/docker-compose.yml
 COMPOSE := ENVFILE=$(ENVFILE) $(COMPOSE_BASE) --env-file $(ENVFILE)
@@ -10,6 +11,7 @@ DB_SERVICES := $(if $(filter prod,$(PROFILE)),postgres qdrant redis,postgres-$(P
 
 # Allow: make VAR=value ...
 # Ex: make up PROFILE=local API_PORT=9090 API_HOST_PORT=9090 API_ORIGIN=http://localhost:9090
+# Ex: make desktop-build SIGNING_ENVFILE=.env.signing.prod   # sign with a different key set
 
 # -------- Meta --------
 .PHONY: help
@@ -40,9 +42,33 @@ build: ## Just (re)build images (no start)
 desktop-dev: ## Run the Tauri desktop app in dev (native window + hot reload); needs Rust
 	cd webui && npm_config_envfile="$(strip $(ENVFILE))" npm run tauri-dev
 
+# Optional local signing: if a `.env.signing` (see .env.signing.sample) exists on
+# macOS, source it and inject the Developer ID via `--config` so the build is signed
+# + notarized exactly like a CI release — for a pre-ship smoke test. Uses the cert in
+# your login keychain (no .p12 here) + the App Store Connect key for notarization.
+# Absent (or non-macOS) ⇒ the plain ad-hoc build, unchanged. `set -a` exports the
+# sourced vars into the tauri process (`.env` still feeds VITE_* via dotenv).
+# Pick a different file like ENVFILE: `make desktop-build SIGNING_ENVFILE=.env.signing.prod`.
 .PHONY: desktop-build
-desktop-build: ## Build the desktop installer for this OS → webui/src-tauri/target/release/bundle
-	cd webui && npm_config_envfile="$(strip $(ENVFILE))" npm run tauri-build
+desktop-build: ## Build desktop installer → webui/src-tauri/target/release/bundle (signs+notarizes if .env.signing exists)
+	@sf="$(strip $(SIGNING_ENVFILE))"; case "$$sf" in /*) ;; *) sf="$(CURDIR)/$$sf" ;; esac; \
+	sign=; \
+	if [ "$$(uname -s)" = "Darwin" ] && [ -f "$$sf" ]; then \
+		set -a; . "$$sf"; set +a; \
+		[ -n "$$APPLE_SIGNING_IDENTITY" ] && sign=1; \
+	fi; \
+	if [ -n "$$sign" ]; then \
+		case "$$APPLE_API_KEY_PATH" in /*|"") ;; *) APPLE_API_KEY_PATH="$(CURDIR)/$$APPLE_API_KEY_PATH"; export APPLE_API_KEY_PATH ;; esac; \
+		if [ -z "$$APPLE_API_ISSUER" ] || [ -z "$$APPLE_API_KEY" ] || [ -z "$$APPLE_API_KEY_PATH" ] || [ ! -f "$$APPLE_API_KEY_PATH" ]; then \
+			echo "$(strip $(SIGNING_ENVFILE)): identity set but notarization creds missing/invalid (need APPLE_API_ISSUER, APPLE_API_KEY, and a readable APPLE_API_KEY_PATH)" >&2; exit 1; \
+		fi; \
+		echo "→ signing + notarizing with $$APPLE_SIGNING_IDENTITY"; \
+		cd webui && npm_config_envfile="$(strip $(ENVFILE))" npm run tauri-build -- \
+			--config "{\"bundle\":{\"macOS\":{\"signingIdentity\":\"$$APPLE_SIGNING_IDENTITY\"}}}"; \
+	else \
+		unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_PATH APPLE_SIGNING_IDENTITY; \
+		cd webui && npm_config_envfile="$(strip $(ENVFILE))" npm run tauri-build; \
+	fi
 
 .PHONY: pull
 pull: ## Pull published backend and webui images for DIM0_VERSION
@@ -164,6 +190,10 @@ lint-ui: ## Webui type-check + eslint (check-all)
 test-ui: ## Webui vitest suite (one-shot)
 	cd webui && npm run test:run
 
+.PHONY: test-ui-cov
+test-ui-cov: ## Webui vitest suite with coverage (writes webui/coverage/lcov.info)
+	cd webui && npm run test:cov
+
 .PHONY: lint-backend
 lint-backend: ## Backend ruff check (runs before backend tests in CI)
 	cd backend && uv run ruff check topix test/unit
@@ -182,6 +212,10 @@ setup-mini-app-compiler: ## Install mini-app compiler node deps (sucrase) for th
 .PHONY: test-backend
 test-backend: setup-mini-app-compiler ## Backend unit tests (integration deferred — they need DBs)
 	cd backend && uv run pytest test/unit
+
+.PHONY: test-backend-cov
+test-backend-cov: setup-mini-app-compiler ## Backend unit tests with coverage (writes backend/coverage.xml)
+	cd backend && uv run pytest test/unit --cov=topix --cov-report=xml --cov-report=term-missing:skip-covered
 
 .PHONY: test-tauri
 test-tauri: ## Desktop (Tauri) Rust unit tests — the rusqlite storage layer (needs Rust + WebKit/GTK)

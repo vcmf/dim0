@@ -14,7 +14,7 @@ import { resolveConfirmDecision } from "./tool-confirm-store"
 import { defineTool } from "./types"
 import type { AgentEvent, LlmClient, LlmMessage, Tool, ToolContext } from "./types"
 import { createNote, editNote, getNote, linkNotes, listBoards, localTools, searchNotes, updateNote, writeNote } from "./tools"
-import { learnGenerateMiniApp, skillTools } from "./skills"
+import { learnGenerateApplet, skillTools } from "./skills"
 
 
 const drain = async (gen: AsyncGenerator<AgentEvent>): Promise<AgentEvent[]> => {
@@ -301,14 +301,14 @@ describe("tools", () => {
   })
 
 
-  it("write_note creates a typed node (mini-app)", async () => {
+  it("write_note creates a typed node (applet)", async () => {
     const store = freshStore("c")
     const { id } = (await writeNote.run(
-      { note_id: "m1", label: "Chart", content: "function Widget() { return null }", note_type: "mini-app" },
+      { note_id: "m1", label: "Chart", content: "<Widget><div>hi</div></Widget>", note_type: "applet" },
       { store },
     )) as { id: string }
     const node = store.getNode(asNodeId(id))
-    expect(node?.type).toBe("mini-app")
+    expect(node?.type).toBe("applet")
     expect(titleOf(node?.data)).toBe("Chart")
     // Custom types must be born with grow-to-fit OFF (mirrors note_to_wire).
     expect(node?.style?.autoFit).toBe(false)
@@ -344,10 +344,10 @@ describe("tools", () => {
   })
 
 
-  it("write_note rejects a malformed mini-app without creating a node", async () => {
+  it("write_note rejects a malformed applet without creating a node", async () => {
     const store = freshStore("c")
-    const res = await writeNote.run({ note_id: "bad", content: "const x = 1", note_type: "mini-app" }, { store })
-    expect(res).toMatchObject({ error: expect.stringContaining("mini-app invalid") })
+    const res = await writeNote.run({ note_id: "bad", content: "const x = 1", note_type: "applet" }, { store })
+    expect(res).toMatchObject({ error: expect.stringContaining("applet invalid") })
     expect(store.getNode(asNodeId("bad"))).toBeUndefined()
   })
 
@@ -386,16 +386,16 @@ describe("tools", () => {
 
 describe("skills", () => {
   it("learn_generate_* tools return their guidance text", async () => {
-    const out = (await learnGenerateMiniApp.run({}, { store: freshStore("c") })) as string
+    const out = (await learnGenerateApplet.run({}, { store: freshStore("c") })) as string
     expect(typeof out).toBe("string")
     expect(out.length).toBeGreaterThan(200)
   })
 
   it("exposes the three skill loaders", () => {
     expect(skillTools.map((t) => t.name).sort()).toEqual([
+      "learn_generate_applet",
       "learn_generate_diagram",
       "learn_generate_html_widget",
-      "learn_generate_mini_app",
     ])
   })
 })
@@ -648,9 +648,10 @@ describe("runAgent — declined off-board tool is not re-prompted across turns",
 })
 
 
-describe("runAgent intra-run tool-result cap", () => {
+describe("runAgent tool-result view (fresh results kept full)", () => {
   // A client that requests one tool call, then captures the messages it's given
-  // on the follow-up round (where the tool result rides as a `tool` message).
+  // on the follow-up round — i.e. the derived model view, where the tool result
+  // rides as a `tool` message.
   const captureAfterTool = (toolName: string) => {
     let captured: LlmMessage[] | null = null
     const llm: LlmClient = {
@@ -666,24 +667,15 @@ describe("runAgent intra-run tool-result cap", () => {
   }
 
 
-  it("truncates a large tool result (head kept, marker added)", async () => {
-    const bigTool: Tool = { name: "fetch", description: "d", parameters: z.object({}), run: async () => "y".repeat(20000) }
+  it("keeps a FRESH bulky result (under the non-skill tier) in full — the model still needs it", async () => {
+    const big = "y".repeat(15000) // > bulky threshold (8k) but < the 20k non-skill tier
+    const bigTool: Tool = { name: "fetch", description: "d", parameters: z.object({}), run: async () => big }
     const cap = captureAfterTool("fetch")
     await drain(runAgent({ userMessage: "fetch it", tools: [bigTool], llm: cap.llm, ctx: {} as ToolContext }))
     const content = cap.toolMessage()?.content ?? ""
-    expect(content.length).toBeLessThan(20000)
-    expect(content).toContain("truncated")
-    expect(content.startsWith('"yyy')).toBe(true) // head preserved
-  })
-
-
-  it("is byte-stable — the same large result truncates identically across runs", async () => {
-    const bigTool: Tool = { name: "fetch", description: "d", parameters: z.object({}), run: async () => "z".repeat(20000) }
-    const a = captureAfterTool("fetch")
-    const b = captureAfterTool("fetch")
-    await drain(runAgent({ userMessage: "x", tools: [bigTool], llm: a.llm, ctx: {} as ToolContext }))
-    await drain(runAgent({ userMessage: "x", tools: [bigTool], llm: b.llm, ctx: {} as ToolContext }))
-    expect(a.toolMessage()?.content).toBe(b.toolMessage()?.content)
+    expect(content).toBe(JSON.stringify(big)) // full, byte-for-byte
+    expect(content).not.toContain("cleared")
+    expect(content).not.toContain("omitted")
   })
 
 
@@ -692,5 +684,84 @@ describe("runAgent intra-run tool-result cap", () => {
     const cap = captureAfterTool("get_note")
     await drain(runAgent({ userMessage: "read", tools: [smallTool], llm: cap.llm, ctx: {} as ToolContext }))
     expect(cap.toolMessage()?.content).toBe(JSON.stringify({ id: "n1", ok: true }))
+  })
+
+
+  it("never elides a keepFullResult tool (e.g. a skill), even past the bulky threshold", async () => {
+    const big = "y".repeat(20000)
+    const skill: Tool = { name: "learn_generate_applet", description: "d", parameters: z.object({}), run: async () => big, keepFullResult: true }
+    const cap = captureAfterTool("learn_generate_applet")
+    await drain(runAgent({ userMessage: "learn", tools: [skill], llm: cap.llm, ctx: {} as ToolContext }))
+    expect(cap.toolMessage()?.content).toBe(JSON.stringify(big))
+  })
+
+
+  it("substitutes a sentinel only for an absent (undefined) tool result", async () => {
+    const emptyTool: Tool = { name: "noop", description: "d", parameters: z.object({}), run: async () => undefined }
+    const cap = captureAfterTool("noop")
+    await drain(runAgent({ userMessage: "x", tools: [emptyTool], llm: cap.llm, ctx: {} as ToolContext }))
+    expect(cap.toolMessage()?.content).toBe("(noop completed with no output)")
+  })
+
+  it("passes a meaningful null result through unchanged (not the no-output sentinel)", async () => {
+    const nullTool: Tool = { name: "lookup", description: "d", parameters: z.object({}), run: async () => null }
+    const cap = captureAfterTool("lookup")
+    await drain(runAgent({ userMessage: "x", tools: [nullTool], llm: cap.llm, ctx: {} as ToolContext }))
+    expect(cap.toolMessage()?.content).toBe("null")
+  })
+
+
+  it("stores the tool name on the tool message (for per-tool view policy)", async () => {
+    const t: Tool = { name: "fetch", description: "d", parameters: z.object({}), run: async () => "ok" }
+    const cap = captureAfterTool("fetch")
+    await drain(runAgent({ userMessage: "x", tools: [t], llm: cap.llm, ctx: {} as ToolContext }))
+    const m = cap.toolMessage()
+    expect(m && "toolName" in m ? m.toolName : undefined).toBe("fetch")
+  })
+})
+
+
+describe("runAgent images", () => {
+  const recorder = (): { llm: LlmClient; seen: () => LlmMessage[] } => {
+    let captured: LlmMessage[] = []
+    return {
+      llm: {
+        async complete(messages) {
+          captured = messages
+          return { kind: "text", text: "ok" }
+        },
+      },
+      seen: () => captured,
+    }
+  }
+
+
+  it("attaches images to the live user message only, not to history", async () => {
+    const rec = recorder()
+    const imgs = [{ url: "data:image/png;base64,AAA" }]
+    await drain(
+      runAgent({
+        userMessage: "what's on my board?",
+        tools: [],
+        llm: rec.llm,
+        ctx: {} as ToolContext,
+        history: [
+          { role: "user", content: "earlier" },
+          { role: "assistant", content: "hi" },
+        ],
+        images: imgs,
+      }),
+    )
+    const users = rec.seen().filter((m): m is Extract<LlmMessage, { role: "user" }> => m.role === "user")
+    expect(users.at(-1)).toMatchObject({ role: "user", content: "what's on my board?", images: imgs })
+    expect(users[0].images).toBeUndefined() // the prior (history) user turn carries no image
+  })
+
+
+  it("omits images when none are passed", async () => {
+    const rec = recorder()
+    await drain(runAgent({ userMessage: "hi", tools: [], llm: rec.llm, ctx: {} as ToolContext }))
+    const user = rec.seen().find((m) => m.role === "user") as Extract<LlmMessage, { role: "user" }>
+    expect(user.images).toBeUndefined()
   })
 })

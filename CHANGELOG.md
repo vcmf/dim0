@@ -1,3 +1,52 @@
+## v0.3.95 (2026-09-19)
+
+### Feat
+
+- **agent**: VITE_AGENT_DEBUG env gate + log managed-client & reasoning steps (#317)
+- **applet**: restyle the graph — bigger ring-less nodes, edge gap, mono labels + halo (#315)
+- **board**: composite real applet render into png/svg export (#310)
+- **applet**: author-time validation of <Chart> config shape (PR 6b) (#309)
+- **applet**: snapshot-first LOD for the board (PR 5) (#302)
+- **applet**: render <map> to canvas on the shared harness (#301)
+- **applet**: render <graph> to canvas on the shared harness (#300)
+- **applet**: Chart.js <Chart> for the applet renderer (#299)
+- **applet**: shared canvas harness for rich elements (#298)
+- **agent**: recency-aware tool-result view (retain full, elide old) — PR 2 (#293)
+- **board**: applet inspect surface (read-only expand) — PR 5 (#288) (#290)
+- **applet**: author-time render smoke-test in validateApplet (#289)
+- **applet**: Phase 3 — agent authoring + freeze agent mini-app (#286)
+- **applet**: Phase 2b — applet board node type + create-gate (#285)
+- **applet**: Phase 2a — inline renderer + component registry + Table (#283)
+- **applet**: Phase 1 — JSX→tree transformer + validateApplet (#281)
+- **applet**: Phase 0 — bounded expression interpreter + red-team suite (#279)
+
+### Fix
+
+- **board**: strip applet JSX source from the SVG export (#318)
+- **applet**: let clicks reach a focused applet on the canvas (#314)
+- **applet**: let the inspect-dialog preview scroll to the bottom (#313)
+- **webui**: leave the route when deleting the active local board (#312)
+- **applet**: revert the broken snapshot-placeholder cap; fix key delimiter (#307)
+- **applet**: make the snapshot-placeholder cap actually bite (recency-based) (#306)
+- **webui**: split large vendors out of the monolithic index chunk (#304)
+- **applet**: repair epic CI broken by the migration merges (#303)
+- **agent**: never truncate skill tool results + drop misleading marker (#292)
+- **applet**: actionable message when the model namespaces scope values (#291)
+
+### Refactor
+
+- **applet**: use the sheet placeholder mechanism (drop snapshot-first LOD) (#308)
+
+### Perf
+
+- **applet**: halve snapshot resolution + cap snapshot placeholders per pass (#305)
+
+## v0.3.94 (2026-09-08)
+
+### Feat
+
+- **desktop**: sign and notarize macOS release in CI (#275)
+
 ## v0.3.93 (2026-09-05)
 
 ### Feat

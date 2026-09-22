@@ -37,11 +37,24 @@ export type ToolConfirmDecision = "deny" | "once" | "always"
 export type LlmToolCall = { id: string; name: string; arguments: string }
 
 
+/**
+ * An image attached to a user turn — a `data:` URL (or a remote URL). Transient by
+ * design: only ever set on the live turn's user message, never written to the
+ * persisted transcript or replayed through history (see
+ * docs/plans/multimodal-board-context.md §4.1). Expanded to OpenAI content-parts
+ * only at the wire boundary (`toOpenAiMessages`).
+ */
+export type LlmImage = { url: string }
+
+
 export type LlmMessage =
   | { role: "system"; content: string }
-  | { role: "user"; content: string }
+  | { role: "user"; content: string; images?: LlmImage[] }
   | { role: "assistant"; content: string; toolCalls?: LlmToolCall[] }
-  | { role: "tool"; toolCallId: string; content: string }
+  // `toolName` lets the loop resolve per-tool policy (elide old bulky results, keep
+  // skills whole) when deriving the model-facing view; optional so prior-history
+  // tool messages without it still type-check. Clients ignore it.
+  | { role: "tool"; toolCallId: string; content: string; toolName?: string }
 
 
 /** One model turn: either a final answer or a set of tool calls. */
@@ -148,6 +161,13 @@ export type Tool = {
   /** Zod schema for the arguments; the agent loop converts it to JSON Schema for the LLM. */
   parameters: z.ZodType
   run: (args: unknown, ctx: ToolContext) => Promise<unknown>
+  /**
+   * When true, this tool's result is fed to the model in full, never truncated by
+   * the agent loop's size cap. For bounded, authored, must-be-read-in-full outputs
+   * — chiefly the `learn_generate_*` skills, whose whole point is the guidance they
+   * return. See docs/plans/tool-result-lifecycle.md.
+   */
+  keepFullResult?: boolean
 }
 
 
@@ -164,10 +184,13 @@ export const defineTool = <S extends z.ZodType>(def: {
   description: string
   parameters: S
   run: (args: z.infer<S>, ctx: ToolContext) => Promise<unknown>
+  /** See `Tool.keepFullResult` — opt this tool's result out of the size cap. */
+  keepFullResult?: boolean
 }): Tool => ({
   name: def.name,
   description: def.description,
   parameters: def.parameters,
+  keepFullResult: def.keepFullResult,
   run: async (args, ctx) => {
     const parsed = def.parameters.safeParse(args)
     if (!parsed.success) {

@@ -7,7 +7,9 @@ import {
 } from "react"
 import { toast } from "sonner"
 import type { CanvasStore, NodeId, Renderer } from "@canvas-harness/core"
-import { exportSelection, exportSelectionSvg } from "@canvas-harness/core"
+// NOTE: the export compositor is loaded lazily (below, inside the handlers) — it pulls
+// snapDOM (~50 KB) via the applet snapshot module, which must stay off the eagerly-loaded
+// board bundle. Do NOT add a static import of "../export/export-selection-image" here.
 import {
   Clipboard as ClipboardIcon,
   StackMinus as StackMinusIcon,
@@ -42,6 +44,28 @@ import { useHasUsableModel } from "@/features/agent/services/use-agent-availabil
 import { useBoardAppStore } from "../store/board-app-store"
 import { nodeToNote } from "../convert/node-to-note"
 import type { NoteNode } from "@/features/board/types/flow"
+
+
+/**
+ * A sonner progress toast for applet image export. Applet captures can take ~100ms each (and a
+ * slow one waits out the ~3s capture-readiness timeout), so any applet export shows a toast so
+ * the user isn't left with a dismissed menu and no feedback: a running "Rendering applets…
+ * n/total" for several, "Rendering applet…" for one. `done()` dismisses it — call from a
+ * `finally`.
+ */
+function makeExportProgress(): { onProgress: (done: number, total: number) => void; done: () => void } {
+  let id: string | number | undefined
+  return {
+    onProgress: (done, total) => {
+      if (total < 1) return
+      const label = total > 1 ? `Rendering applets… ${done}/${total}` : "Rendering applet…"
+      id = toast.loading(label, { id })
+    },
+    done: () => {
+      if (id !== undefined) toast.dismiss(id)
+    },
+  }
+}
 
 
 export type CanvasContextMenuProps = {
@@ -186,14 +210,19 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
 
   // ---- Export -----------------------------------------------------------
   const handleExportPng = useCallback(async () => {
+    const progress = makeExportProgress()
     try {
-      const blob = await exportSelection(store, {
+      const { exportSelectionImage } = await import("../export/export-selection-image")
+      const blob = await exportSelectionImage(store, {
         transparentBackground: exportTransparent,
         // Pass the live renderer's asset cache so image + icon nodes
         // paint from already-decoded bitmaps. Without this, the lib
         // silently skips those node types in the output (back-compat
-        // shape from canvas-harness 0.1.15).
+        // shape from canvas-harness 0.1.15). Applet nodes are composited
+        // from a snapDOM capture of their real render (their `content`
+        // is JSX source, which the base export would draw as text).
         assetCache: rendererRef.current?.getAssetCache(),
+        onProgress: progress.onProgress,
       })
       try {
         // Try clipboard first (Notion / Figma-style behavior).
@@ -213,12 +242,21 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
     } catch (err) {
       console.error("[context-menu] PNG export failed", err)
       toast.error("Couldn't export selection")
+    } finally {
+      progress.done()
     }
   }, [store, exportTransparent, rendererRef])
 
-  const handleExportSvg = useCallback(() => {
+  const handleExportSvg = useCallback(async () => {
+    const progress = makeExportProgress()
     try {
-      const svg = exportSelectionSvg(store)
+      // Vector SVG for built-ins, with each selected applet's real render embedded as a
+      // raster `<image>` on top (applets have no vector representation — see the compositor).
+      const { exportSelectionSvgWithApplets } = await import("../export/export-selection-image")
+      const svg = await exportSelectionSvgWithApplets(store, {
+        transparentBackground: exportTransparent,
+        onProgress: progress.onProgress,
+      })
       const blob = new Blob([svg], { type: "image/svg+xml" })
       const url = URL.createObjectURL(blob)
       Object.assign(document.createElement("a"), {
@@ -229,8 +267,10 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
     } catch (err) {
       console.error("[context-menu] SVG export failed", err)
       toast.error("Couldn't export selection")
+    } finally {
+      progress.done()
     }
-  }, [store])
+  }, [store, exportTransparent])
 
   // ---- AI / Translate ---------------------------------------------------
   const handleAiAction = useCallback(
@@ -351,7 +391,7 @@ export function CanvasContextMenu({ wrapRef, store, rendererRef }: CanvasContext
         >
           Transparent background
         </DropdownMenuCheckboxItem>
-        <DropdownMenuItem onSelect={() => handleExportSvg()}>
+        <DropdownMenuItem onSelect={() => void handleExportSvg()}>
           <ImagePlaceholderIcon className="size-4" />
           Download as SVG
         </DropdownMenuItem>

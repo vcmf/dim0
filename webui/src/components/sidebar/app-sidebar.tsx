@@ -108,27 +108,36 @@ export function AppSidebar({ onLogout }: AppSidebarProps) {
 
   const localBoardItems = useMemo(
     () =>
-      localOnly.map((b) => (
-        <LocalBoardItem
-          key={b.id}
-          boardId={b.id}
-          label={b.title}
-          isActive={
-            pathname === `/local/${b.id}` || pathname.startsWith(`/local/${b.id}/`)
-          }
-          syncing={pendingId === b.id}
-          onOpen={() => openLocal(b.id)}
-          onEnableSync={() => {
-            void enableSync(b.id, b.title).then((r) => {
-              if (r.ok) void refresh()
-            })
-          }}
-          onDelete={() => void deleteBoard(b.id)}
-        />
-      )),
+      localOnly.map((b) => {
+        const active = pathname === `/local/${b.id}` || pathname.startsWith(`/local/${b.id}/`)
+        return (
+          <LocalBoardItem
+            key={b.id}
+            boardId={b.id}
+            label={b.title}
+            isActive={active}
+            syncing={pendingId === b.id}
+            onOpen={() => openLocal(b.id)}
+            onEnableSync={() => {
+              void enableSync(b.id, b.title).then((r) => {
+                if (r.ok) void refresh()
+              })
+            }}
+            // Deleting the board you're currently viewing must leave that route,
+            // else the view sits on a now-deleted local board. Mirrors the synced
+            // BoardItem's active-delete navigation, but picks the target by auth: a
+            // signed-out user can't reach `/boards` (it's `requireVerifiedAuth` and
+            // bounces to /signin), so route them to the unguarded local dashboard.
+            onDelete={() => {
+              void deleteBoard(b.id)
+              if (active) void navigate({ to: signedIn ? "/boards" : "/local" })
+            }}
+          />
+        )
+      }),
     // openLocal/enableSync/deleteBoard/refresh are stable enough for this list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [localOnly, pathname, pendingId],
+    [localOnly, pathname, pendingId, signedIn],
   )
 
   const chatItems = useMemo(

@@ -117,6 +117,27 @@ export const DEFAULT_WIDGET_HEIGHT = 500
 export const DEFAULT_MINI_APP_WIDTH = 720
 export const DEFAULT_MINI_APP_HEIGHT = 440
 
+// Applet: same default footprint as the mini-app it replaces.
+export const DEFAULT_APPLET_WIDTH = 720
+export const DEFAULT_APPLET_HEIGHT = 440
+
+// A toolbar-created applet has no editor/expand surface yet, so seed a working
+// starter (a counter) — the user sees a live widget immediately and the agent can
+// rewrite it, rather than an empty, uneditable card.
+export const STARTER_APPLET_SOURCE = `<Widget state={{ count: 0 }} persist>
+  <Card className="p-4 max-w-sm">
+    <CardHeader><CardTitle>Counter</CardTitle></CardHeader>
+    <CardContent>
+      <div className="text-3xl font-bold mb-3">{count}</div>
+      <div className="flex gap-2">
+        <Button variant="outline" onClick={set("count", count - 1)}>–</Button>
+        <Button onClick={set("count", count + 1)}>+</Button>
+        <Button variant="ghost" onClick={set("count", 0)}>reset</Button>
+      </div>
+    </CardContent>
+  </Card>
+</Widget>`
+
 
 /**
  * Function to create default properties for a note.
@@ -137,6 +158,8 @@ export const createDefaultNoteProperties = ({ type = 'rectangle' }: { type?: Nod
     ? { width: DEFAULT_WIDGET_WIDTH, height: DEFAULT_WIDGET_HEIGHT }
     : type === 'mini-app'
     ? { width: DEFAULT_MINI_APP_WIDTH, height: DEFAULT_MINI_APP_HEIGHT }
+    : type === 'applet'
+    ? { width: DEFAULT_APPLET_WIDTH, height: DEFAULT_APPLET_HEIGHT }
     : type === 'ellipse' || type === 'layered-circle'
     ? { width: DEFAULT_ELLIPSE_NOTE_WIDTH, height: DEFAULT_ELLIPSE_NOTE_HEIGHT }
     : type === 'diamond' || type === 'soft-diamond' || type === 'layered-diamond'
@@ -200,6 +223,8 @@ export const createDefaultNote = ({
     createdAt: new Date().toISOString(),
     graphUid: boardId,
     style: { ...createDefaultStyle({ type: nodeType }) },
+    // Seed a working starter for a freshly-created applet (see STARTER_APPLET_SOURCE).
+    ...(nodeType === 'applet' ? { content: { markdown: STARTER_APPLET_SOURCE } } : {}),
     minWidth: nodeType === 'sheet'
       ? DEFAULT_SHEET_WIDTH
       : nodeType === 'text'
@@ -214,6 +239,8 @@ export const createDefaultNote = ({
       ? DEFAULT_WIDGET_WIDTH
       : nodeType === 'mini-app'
       ? DEFAULT_MINI_APP_WIDTH
+      : nodeType === 'applet'
+      ? DEFAULT_APPLET_WIDTH
       : nodeType === 'ellipse' || nodeType === 'layered-circle'
       ? DEFAULT_ELLIPSE_NOTE_WIDTH
       : nodeType === 'diamond' || nodeType === 'soft-diamond' || nodeType === 'layered-diamond'
@@ -233,6 +260,8 @@ export const createDefaultNote = ({
       ? DEFAULT_WIDGET_HEIGHT
       : nodeType === 'mini-app'
       ? DEFAULT_MINI_APP_HEIGHT
+      : nodeType === 'applet'
+      ? DEFAULT_APPLET_HEIGHT
       : nodeType === 'ellipse' || nodeType === 'layered-circle'
       ? DEFAULT_ELLIPSE_NOTE_HEIGHT
       : nodeType === 'diamond' || nodeType === 'soft-diamond' || nodeType === 'layered-diamond'

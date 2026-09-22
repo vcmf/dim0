@@ -26,6 +26,7 @@ export const CUSTOM_NODE_TYPES: ReadonlySet<string> = new Set([
   "widget",
   "mini-app",
   "ink",
+  "applet",
   // No text-content concept; double-click should be a no-op rather
   // than open an invisible inline text editor.
   "icon",

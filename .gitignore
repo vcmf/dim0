@@ -6,6 +6,9 @@ mlruns/
 .ipynb_checkpoints
 .pytest_cache
 .coverage
+coverage.xml
+htmlcov/
+webui/coverage/
 .vscode/
 data/
 *.csv
@@ -16,6 +19,7 @@ tmp/
 .env
 .env.*
 !.env.sample
+!.env.signing.sample
 **/.DS_Store
 apicache-py3/
 throttle.ctrl
@@ -39,3 +43,9 @@ sharing-archi.md
 next-steps.md
 # internal design/planning docs — local only
 dev-docs/
+
+# signing secrets — never commit
+*.p12
+*.p8
+*.cer
+*.certSigningRequest

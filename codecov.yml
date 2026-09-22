@@ -1,0 +1,34 @@
+# Codecov config. Two suites upload separately under flags (webui, backend);
+# carryforward keeps the other suite's numbers when only one is re-uploaded.
+coverage:
+  status:
+    # informational: report the numbers and comment on PRs, but never fail
+    # the check / block merges. Flip `informational` to false (and set a
+    # `target`) later if you want coverage to gate merges.
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+comment:
+  layout: "header, diff, flags, components"
+  require_changes: false
+
+flags:
+  webui:
+    paths:
+      - webui/
+    carryforward: true
+  backend:
+    paths:
+      - backend/
+    carryforward: true
+
+# Files that shouldn't count against coverage.
+ignore:
+  - "**/*.test.*"
+  - "**/*.spec.*"
+  - "webui/e2e/**"
+  - "backend/test/**"

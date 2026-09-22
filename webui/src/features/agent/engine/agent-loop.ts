@@ -5,8 +5,9 @@
  */
 import { z } from "zod"
 import { CONFIRM_TOOL_NAMES } from "./types"
-import type { AgentEvent, LlmClient, LlmMessage, LlmToolDef, LlmTurn, Tool, ToolContext } from "./types"
+import type { AgentEvent, LlmClient, LlmImage, LlmMessage, LlmToolDef, LlmTurn, Tool, ToolContext } from "./types"
 import { isToolSoftError, toolRejected, toolThrew, unknownTool, userDeclined } from "./tool-result"
+import { buildModelMessages, emptyResultText, type ToolMsgMeta } from "./tool-result-view"
 import { agentLog } from "./debug"
 
 
@@ -19,20 +20,17 @@ export const DEFAULT_MAX_TURNS = 30
 
 
 /**
- * Cap on a single tool result fed back to the model within a turn. Large results
- * (`fetch` / `web_search` / `doc_search` full text) would otherwise ride in
- * context for every remaining round of the turn. The head is kept (ids, first
- * results); small results (note-tool `{id}`, failures) are untouched.
+ * Serialize a tool result to its FULL string for the log. No size cap here — the
+ * loop stores results at full fidelity and shrinks a derived VIEW at assembly time
+ * (`buildModelMessages`, tool-result-view.ts), so the just-produced result the
+ * model is still acting on is never truncated. Only a genuinely absent result
+ * (`undefined` → `JSON.stringify` yields `undefined`) becomes a sentinel, since a
+ * bare-empty tool result makes some models end their turn; `null`, `""`, `0` etc.
+ * are meaningful values and pass through unchanged.
  */
-export const MAX_TOOL_RESULT_CHARS = 8000
-
-
-/** Serialize a tool result for the model, truncating the tail past the cap with a
- *  marker that tells the model how to get more. Deterministic → byte-stable re-send. */
-const serializeToolResult = (output: unknown): string => {
-  const s = JSON.stringify(output) ?? "null"
-  if (s.length <= MAX_TOOL_RESULT_CHARS) return s
-  return `${s.slice(0, MAX_TOOL_RESULT_CHARS)}\n…[truncated ${s.length - MAX_TOOL_RESULT_CHARS} chars — call the tool again with a narrower query for more]`
+const serializeToolResult = (output: unknown, toolName: string): string => {
+  const s = JSON.stringify(output)
+  return s === undefined ? emptyResultText(toolName) : s
 }
 
 
@@ -162,6 +160,12 @@ export type RunAgentOptions = {
   system?: string
   /** Prior conversation turns, prepended so the agent remembers the chat. */
   history?: LlmMessage[]
+  /**
+   * Images attached to THIS turn's user message (e.g. a board screenshot).
+   * Transient by construction: set only on the live user message here, never on
+   * `history` or the persisted transcript — see docs/plans/multimodal-board-context.md §4.1.
+   */
+  images?: LlmImage[]
   maxTurns?: number
 }
 
@@ -173,13 +177,34 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
   const messages: LlmMessage[] = []
   if (opts.system) messages.push({ role: "system", content: opts.system })
   if (opts.history) messages.push(...opts.history)
-  messages.push({ role: "user", content: opts.userMessage })
+  messages.push({
+    role: "user",
+    content: opts.userMessage,
+    ...(opts.images && opts.images.length > 0 ? { images: opts.images } : {}),
+  })
 
   // Per-run confirm memory (declined + approved). Spans all turns, so a retry
   // or a follow-up call in a later round respects the earlier decision.
   const gate = newConfirmGate()
 
+  // Per-tool view policy: `keepFull` tools (skills) are never elided. Resolved from
+  // the tool message's `toolName`, set at insertion below — so a skill loaded IN
+  // this run is always protected. (A skill result carried in prior `history` without
+  // a `toolName`, e.g. from an older transcript, can't be recognized and may be
+  // elided once stale — acceptable: it's from a prior task and re-callable.)
+  const keepFullNames = new Set(opts.tools.filter((t) => t.keepFullResult).map((t) => t.name))
+  const metaOf = (m: Extract<LlmMessage, { role: "tool" }>): ToolMsgMeta => ({
+    toolName: m.toolName ?? "tool",
+    keepFull: keepFullNames.has(m.toolName ?? ""),
+  })
+  // Run-scoped "seen at least once" set for the derived view: a bulky result is
+  // kept until it has been shown once, then becomes elidable (see buildModelMessages).
+  const shownBulky = new Set<string>()
+
   for (let turn = 0; turn < maxTurns; turn += 1) {
+    // The full log is `messages`; the model sees a recency-shrunk view derived
+    // fresh each turn (old bulky results elided, recent + small + skills kept).
+    const modelMessages = buildModelMessages(messages, metaOf, shownBulky)
     // Prefer streaming: emit cumulative `assistant_text` per delta so the UI
     // renders token-by-token; fall back to a single atomic turn otherwise.
     let result: LlmTurn
@@ -187,7 +212,7 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
       let acc = ""
       let reasoningAcc = ""
       let final: LlmTurn | null = null
-      for await (const ev of opts.llm.completeStream(messages, defs)) {
+      for await (const ev of opts.llm.completeStream(modelMessages, defs)) {
         if (ev.kind === "delta") {
           acc += ev.text
           yield { type: "assistant_text", text: acc }
@@ -206,8 +231,14 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
         }
       }
       result = final ?? { kind: "text", text: acc }
+      // The streaming clients log the request but not the assembled turn/reasoning (they
+      // stream events); log them here, the single place that sees the whole streamed turn.
+      // (On a non-streaming completer — tests only — `complete()` also logs the response; a
+      // harmless duplicate never hit with a real streaming provider.)
+      if (reasoningAcc) agentLog.reasoning(reasoningAcc)
+      agentLog.llmResponse(result)
     } else {
-      result = await opts.llm.complete(messages, defs)
+      result = await opts.llm.complete(modelMessages, defs)
     }
 
     if (result.kind === "text") {
@@ -228,7 +259,8 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
       const output = await executeToolCall(call.name, args, opts.tools, opts.ctx, gate)
       agentLog.tool(call.name, args, output)
       yield { type: "tool_result", toolName: call.name, result: output }
-      messages.push({ role: "tool", toolCallId: call.id, content: serializeToolResult(output) })
+      // Store the FULL result; recency-based eliding happens in buildModelMessages.
+      messages.push({ role: "tool", toolCallId: call.id, toolName: call.name, content: serializeToolResult(output, call.name) })
     }
   }
 

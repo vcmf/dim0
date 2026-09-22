@@ -50,6 +50,8 @@ class CatalogModel(BaseModel):
     family: str
     tier: str | None = None    # "pro" | "lite" (llm only)
     dim: int | None = None     # vector size (embedding only)
+    vision: bool = False       # accepts image input (llm only); defaults false (text-only)
+    internal: bool = False     # resolvable but hidden from the public picker (e.g. the auto classifier)
     routes: list[Route]
 
 
@@ -64,6 +66,8 @@ class Resolved(BaseModel):
     provider: str
     model: str    # raw provider model string (e.g. "openai/text-embedding-3-small")
     call: str     # call code for agents/base.py (e.g. "openrouter/anthropic/claude-opus-4.6")
+    vision: bool = False     # accepts image input (mirrors CatalogModel.vision)
+    internal: bool = False   # resolvable by id, but not user-facing (mirrors CatalogModel.internal)
 
     @property
     def code(self) -> str:
@@ -115,6 +119,8 @@ def _resolve(model: CatalogModel, providers: dict[str, Provider], present: froze
                 provider=p.name,
                 model=route.model,
                 call=call,
+                vision=model.vision,
+                internal=model.internal,
             )
     return None
 
@@ -137,11 +143,17 @@ def available_llms(allowed_tiers: set[str] | None = None) -> list[Resolved]:
 
     When `allowed_tiers` is given, only models whose `tier` is in the set are
     returned (used for per-plan gating); `None` means no tier restriction.
+
+    `internal` models (e.g. the auto complexity classifier) are excluded — this is
+    the shared user-facing list, so they never surface in a picker, get chosen as a
+    default (`default_resolved`), or pass selection auth (`is_model_allowed` /
+    `resolve_code` flow through here). They stay reachable via `resolved_by_id`.
     """
     llms, _ = _resolved_for(frozenset(available_providers()))
+    public = [r for r in llms if not r.internal]
     if allowed_tiers is None:
-        return list(llms)
-    return [r for r in llms if r.tier in allowed_tiers]
+        return public
+    return [r for r in public if r.tier in allowed_tiers]
 
 
 def public_llm_catalog() -> list[dict]:
@@ -152,6 +164,10 @@ def public_llm_catalog() -> list[dict]:
     BYOK caller sends to that provider (e.g. openai→"gpt-5.4",
     openrouter→"openai/gpt-5.4"). Lets the client render a picker and translate
     the chosen model to the right string for the user's own provider.
+
+    `internal` models (e.g. the auto complexity classifier) are omitted — they
+    stay resolvable via `resolved_by_id`/`available_llms` but never appear in the
+    picker.
     """
     _, llms, _ = _load()
     return [
@@ -160,9 +176,11 @@ def public_llm_catalog() -> list[dict]:
             "label": m.label,
             "family": m.family,
             "tier": m.tier,
+            "vision": m.vision,
             "routes": [{"via": r.via, "model": r.model} for r in m.routes],
         }
         for m in llms
+        if not m.internal
     ]
 
 
@@ -242,8 +260,14 @@ def normalize_code(model: str) -> str | None:
 
 
 def resolved_by_id(model_id: str) -> Resolved | None:
-    """Return the reachable model with this canonical id, or None (unknown / no key)."""
-    return next((r for r in available_llms() if r.id == model_id), None)
+    """Return the reachable model with this canonical id, or None (unknown / no key).
+
+    Searches the full resolved set, INCLUDING `internal` models, so the auto
+    classifier can resolve its pinned model by id even though `available_llms`
+    (the user-facing list) excludes it.
+    """
+    llms, _ = _resolved_for(frozenset(available_providers()))
+    return next((r for r in llms if r.id == model_id), None)
 
 
 def default_resolved(tier: str | None = None) -> Resolved | None:

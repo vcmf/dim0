@@ -85,10 +85,75 @@ jobs:
         run: npm ci
         working-directory: webui
 
-      - name: Build desktop installers
-        run: npm run tauri-build
-        working-directory: webui
+      # macOS signing + notarization credentials, prepared in ONE gated step so
+      # they reach the build ONLY when signing. Gate is the public
+      # APPLE_SIGNING_IDENTITY variable: a fork (or the repo before secrets are
+      # configured) skips this step, so APPLE_CERTIFICATE et al. are never set —
+      # Tauri then takes the ad-hoc path. (Passing them straight to the build step
+      # would set APPLE_CERTIFICATE="" — present-but-empty — which makes Tauri try
+      # to import an empty cert and fail, breaking the fork/ad-hoc promise.) Fails
+      # fast if the identity is set but a required secret is missing, rather than
+      # dying deep in codesign/notarytool. Written via $GITHUB_ENV (the cert is
+      # base64 and may be multi-line, hence the heredoc form).
+      - name: Prepare Apple signing + notarization (macOS)
+        if: matrix.platform == 'macos-latest' && vars.APPLE_SIGNING_IDENTITY != ''
+        shell: bash
         env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          # bash indirect expansion (${!v}) — NOT eval, whose word-splitting would
+          # execute the multi-line .p8/.p12 secrets line by line.
+          missing=
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_P8; do
+            [ -n "${!v}" ] || missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::APPLE_SIGNING_IDENTITY is set but these secrets are missing:$missing"
+            exit 1
+          fi
+          key_path="$RUNNER_TEMP/apple_api_key.p8"
+          # Exactly one trailing newline: strip any the stored secret carried, then
+          # add one — strict PEM/ES256 parsers (notarytool) can reject a key with
+          # none, and a doubled blank line is likewise avoided.
+          printf '%s\n' "${APPLE_API_KEY_P8%$'\n'}" > "$key_path"
+          # Propagate to the build step ONLY when signing (absent otherwise).
+          {
+            echo "APPLE_API_KEY_PATH=$key_path"
+            echo "APPLE_API_ISSUER=$APPLE_API_ISSUER"
+            echo "APPLE_API_KEY=$APPLE_API_KEY"
+            echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
+            echo "APPLE_CERTIFICATE<<__DIM0_P12_EOF__"
+            echo "$APPLE_CERTIFICATE"
+            echo "__DIM0_P12_EOF__"
+          } >> "$GITHUB_ENV"
+
+      # Committed tauri.conf.json pins `signingIdentity: "-"` (ad-hoc) so the repo
+      # builds for anyone — forks and contributors without an Apple cert. The real
+      # Developer ID is injected HERE, at release time only, via `--config`: when
+      # the APPLE_SIGNING_IDENTITY repo VARIABLE is set (not a secret — the identity
+      # string is public), the macOS leg overrides it and signs + notarizes; unset
+      # (a fork) ⇒ it falls through to the ad-hoc build. Linux/Windows always take
+      # the plain path.
+      - name: Build desktop installers
+        working-directory: webui
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = "macos-latest" ] && [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+            npm run tauri-build -- --config "{\"bundle\":{\"macOS\":{\"signingIdentity\":\"$APPLE_SIGNING_IDENTITY\"}}}"
+          else
+            npm run tauri-build
+          fi
+        env:
+          # Only the PUBLIC identity variable is set here. When it's non-empty (and
+          # macOS), the run step above injects it via --config and Tauri signs +
+          # notarizes using the credentials the prep step put in $GITHUB_ENV
+          # (APPLE_CERTIFICATE, _PASSWORD, APPLE_API_ISSUER/KEY, APPLE_API_KEY_PATH).
+          # Empty (a fork) ⇒ the else branch ⇒ ad-hoc build, no Apple vars present.
+          APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
           # The one build-time value the desktop app needs: the public server URL
           # users sign in to, from the API_ORIGIN repo VARIABLE (a public URL, not
           # a secret). Passed straight into the environment — Vite bakes
