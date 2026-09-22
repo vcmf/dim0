@@ -2,6 +2,7 @@ import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
+  SidebarGroupAction,
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarMenu,
@@ -28,7 +29,7 @@ import { ChatsDialog } from './chats-dialog'
 import { useMemo, useRef, useState } from 'react'
 import { useRouterState } from '@tanstack/react-router'
 import type { Chat } from '@/features/agent/types/chat'
-import { AwardIcon, ChatHistoryIcon, InstallAppIcon, LogoutIcon, UserProfileIcon } from '@/components/icons'
+import { AwardIcon, ChatHistoryIcon, InstallAppIcon, LogoutIcon, PlusIcon, UserProfileIcon } from '@/components/icons'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
   DropdownMenu,
@@ -97,9 +98,20 @@ export function AppSidebar({ onLogout }: AppSidebarProps) {
     void navigate({ to: "/local/$boardId", params: { boardId: id } })
   }
 
+  // Re-entry guard so a rapid double-click on the "+" doesn't create two local
+  // boards (mirrors creatingBoardRef on the synced path).
+  const creatingLocalRef = useRef(false)
+
   const handleNewLocal = async (): Promise<void> => {
-    const meta = await createBoard("Untitled board")
-    if (meta) openLocal(meta.id)
+    if (creatingLocalRef.current) return
+    creatingLocalRef.current = true
+    try {
+      const meta = await createBoard("Untitled board")
+      if (meta) openLocal(meta.id)
+      else toast.error("Couldn't create a board. Please try again.")
+    } finally {
+      creatingLocalRef.current = false
+    }
   }
 
   // Signed-in default: a new board is SYNCED (backed up + shareable), so the user
@@ -281,8 +293,9 @@ export function AppSidebar({ onLogout }: AppSidebarProps) {
             {signedIn ? (
               <>
                 {/* Signed-in: the primary "New board" creates a SYNCED board.
-                    Existing on-device boards still list under LOCAL below, but
-                    new local boards are created via the at-limit dialog, not here. */}
+                    The LOCAL group below keeps an always-available "+" to create an
+                    on-device board directly (paid users never hit the at-limit
+                    dialog, so this is their only entry point). */}
                 <SidebarGroup>
                   <SidebarGroupLabel><span>SYNCED</span></SidebarGroupLabel>
                   <SidebarGroupContent>
@@ -293,16 +306,22 @@ export function AppSidebar({ onLogout }: AppSidebarProps) {
                   </SidebarGroupContent>
                 </SidebarGroup>
 
-                {localBoardItems.length > 0 && (
-                  <SidebarGroup>
-                    <SidebarGroupLabel><span>LOCAL</span></SidebarGroupLabel>
-                    <SidebarGroupContent>
-                      <SidebarMenu>
-                        {localBoardItems}
-                      </SidebarMenu>
-                    </SidebarGroupContent>
-                  </SidebarGroup>
-                )}
+                <SidebarGroup>
+                  <SidebarGroupLabel><span>LOCAL</span></SidebarGroupLabel>
+                  <SidebarGroupAction
+                    type="button"
+                    title="New local board"
+                    onClick={() => void handleNewLocal()}
+                  >
+                    <PlusIcon strokeWidth={2} />
+                    <span className="sr-only">New local board</span>
+                  </SidebarGroupAction>
+                  <SidebarGroupContent>
+                    <SidebarMenu>
+                      {localBoardItems}
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                </SidebarGroup>
               </>
             ) : (
               // Signed-out: local-first. "New board" creates an on-device board.

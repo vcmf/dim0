@@ -1,3 +1,13 @@
+## v0.3.97 (2026-09-22)
+
+### Feat
+
+- **board**: default new boards to synced for signed-in users (#340)
+
+### Refactor
+
+- **billing**: simplify pricing page and usage-limit copy (#339)
+
 ## v0.3.96 (2026-09-22)
 
 ### Feat
