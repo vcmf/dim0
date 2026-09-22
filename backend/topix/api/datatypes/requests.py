@@ -1,13 +1,22 @@
 """API Request Models."""
 
+import logging
+
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from topix.agents.datatypes.tools import AgentToolName
 from topix.agents.datatypes.web_search import WebSearchOption
 from topix.datatypes.note.link import Link
 from topix.datatypes.note.note import Note
+
+logger = logging.getLogger(__name__)
+
+# The tool names this backend agent implements. Built once (the enum is
+# immutable) and used to drop tool names the browser-agent frontend sends that
+# this legacy agent has no member for, instead of 422ing the whole request.
+_VALID_TOOL_NAMES = frozenset(t.value for t in AgentToolName)
 
 
 class UserSignupRequest(BaseModel):
@@ -107,6 +116,43 @@ class SendMessageRequest(BaseModel):
     use_deep_research: bool = False
 
     message_context: str | None = None
+
+    @field_validator("enabled_tools", mode="before")
+    @classmethod
+    def _drop_unknown_tools(cls, v: object) -> object:
+        """Ignore tool names this agent doesn't implement instead of rejecting the request.
+
+        The browser-agent frontend sends its own toolset (e.g. `learn_generate_applet`,
+        which this legacy agent has no `AgentToolName` member for). Without this, one
+        unknown name 422s the whole message. Drop unknown strings (keeping non-strings
+        and known names); the agent runs with the tools it does support.
+        """
+        if not isinstance(v, (list, tuple)):
+            return v
+        kept = [t for t in v if not isinstance(t, str) or t in _VALID_TOOL_NAMES]
+        if len(kept) != len(v):
+            dropped = [t for t in v if isinstance(t, str) and t not in _VALID_TOOL_NAMES]
+            # Routine (the frontend always sends a couple of browser-agent-only tools)
+            # → debug. Only the degenerate all-dropped case, where the agent would run
+            # with no tools at all, is worth a warning.
+            if kept:
+                logger.debug("send_message dropped unknown enabled_tools: %s", dropped)
+            else:
+                logger.warning("send_message: all enabled_tools unknown, agent runs tool-less; dropped %s", dropped)
+        return kept
+
+    @field_validator("force_tool", mode="before")
+    @classmethod
+    def _drop_unknown_force_tool(cls, v: object) -> object:
+        """Map a forced tool this agent doesn't implement to None (no force) rather than 422.
+
+        Same tolerance as `enabled_tools` for the same reason — the frontend toolset can
+        name tools absent from this legacy agent's enum.
+        """
+        if isinstance(v, str) and v not in _VALID_TOOL_NAMES:
+            logger.warning("send_message dropped unknown force_tool: %s", v)
+            return None
+        return v
 
 
 class ChatUpdateRequest(BaseModel):
