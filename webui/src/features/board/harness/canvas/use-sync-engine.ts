@@ -10,6 +10,7 @@
  * with an explicit `syncEngine: "legacy"` (an escape hatch during rollout).
  */
 import { useEffect, useState } from "react"
+import { isLocalAgentOnSynced } from "@/features/agent/local/local-agent-flag"
 import type { BoardMeta } from "@/features/board/model"
 import { getLocalStores } from "@/features/local-stores"
 import { isBoardSyncV2 } from "../sync/sync-engine-flag"
@@ -64,3 +65,28 @@ export const useSyncEngine = (
 
   return engine
 }
+
+
+/**
+ * Whether the browser agent is the active runtime for a board, given its already
+ * resolved `syncEngine`: always on local-only boards (`local`), and on a synced
+ * board only once its engine is confirmed `v2`. Legacy-sync boards stay on the
+ * backend agent — the legacy WS relay has no DB persistence, so routing their
+ * edits through the browser agent would lose them on reload. A synced board whose
+ * engine is still resolving (`null`) reads as false, so the caller defers to the
+ * backend agent until v2 is confirmed rather than mounting then swapping.
+ */
+export const browserAgentActiveFor = (
+  local: boolean,
+  syncEngine: SyncEngine | null,
+): boolean => local || (isLocalAgentOnSynced() && syncEngine === "v2")
+
+
+/**
+ * Hook form of {@link browserAgentActiveFor} for callers that don't already hold
+ * the resolved engine — resolves it from the local registry via `useSyncEngine`.
+ */
+export const useBrowserAgentActive = (
+  boardId: string | null,
+  local: boolean,
+): boolean => browserAgentActiveFor(local, useSyncEngine(boardId, local))

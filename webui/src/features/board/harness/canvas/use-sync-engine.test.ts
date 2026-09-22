@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 import type { BoardMeta } from "@/features/board/model"
-import { resolveSyncEngine } from "./use-sync-engine"
+import { browserAgentActiveFor, resolveSyncEngine } from "./use-sync-engine"
 
 
 const meta = (syncEngine?: "legacy" | "v2"): BoardMeta => ({
@@ -32,5 +32,37 @@ describe("resolveSyncEngine", () => {
     expect(resolveSyncEngine(undefined, true)).toBe("v2")
     expect(resolveSyncEngine(meta("legacy"), true)).toBe("v2")
     expect(resolveSyncEngine(meta("v2"), true)).toBe("v2")
+  })
+})
+
+
+describe("browserAgentActiveFor", () => {
+  afterEach(() => {
+    localStorage.clear()
+  })
+
+  it("is always on for a local-only board, regardless of the resolved engine", () => {
+    // Local boards have no sync engine (null) but must still run the browser agent.
+    expect(browserAgentActiveFor(true, null)).toBe(true)
+    expect(browserAgentActiveFor(true, "v2")).toBe(true)
+    expect(browserAgentActiveFor(true, "legacy")).toBe(true)
+  })
+
+  it("runs the browser agent on a v2 synced board when the flag is on (default)", () => {
+    expect(browserAgentActiveFor(false, "v2")).toBe(true)
+  })
+
+  it("KEEPS a legacy-sync board on the backend agent even with the flag on (no data loss)", () => {
+    // The legacy relay has no DB persistence, so the browser agent must not run.
+    expect(browserAgentActiveFor(false, "legacy")).toBe(false)
+  })
+
+  it("defers to the backend agent while a synced board's engine is still resolving", () => {
+    expect(browserAgentActiveFor(false, null)).toBe(false)
+  })
+
+  it("honours the flag opt-out on a v2 synced board", () => {
+    localStorage.setItem("dim0_local_agent_on_synced", "0")
+    expect(browserAgentActiveFor(false, "v2")).toBe(false)
   })
 })

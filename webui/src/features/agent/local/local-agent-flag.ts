@@ -7,6 +7,11 @@
  *
  * ON by default (graduated from the opt-in soak). Opt OUT from the dev console:
  * `dim0LocalAgent.off()` then reload.
+ *
+ * NOTE: this flag is necessary but not sufficient — a board only runs the browser
+ * agent once its sync engine resolves to v2 (see `browserAgentActiveFor` /
+ * `useBrowserAgentActive`). Legacy-sync boards stay on the backend agent because
+ * the legacy relay has no DB persistence, so browser-agent edits would be lost.
  */
 const KEY = "dim0_local_agent_on_synced"
 
@@ -21,15 +26,6 @@ export const isLocalAgentOnSynced = (): boolean => {
     return true
   }
 }
-
-
-/**
- * Whether the browser agent is the active engine for a given board — true on
- * local-only boards (`local`) OR on synced boards in browser-agent mode. The one
- * predicate that gates browser-agent-only infra (local search / doc indexes), so
- * callers don't re-derive `local || isLocalAgentOnSynced()` and drift apart.
- */
-export const isBrowserAgentActive = (local: boolean): boolean => local || isLocalAgentOnSynced()
 
 
 const set = (on: boolean): void => {
