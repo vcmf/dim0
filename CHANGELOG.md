@@ -1,3 +1,23 @@
+## v0.3.96 (2026-09-22)
+
+### Feat
+
+- **agent**: enable board-vision context by default (#338)
+- **agent**: label ink in the board text context (#332)
+- **board**: pen and eraser tools (#331)
+- **board**: persist and sync ink nodes (#330)
+- **agent**: composite applets into the board capture + frame/parallelize it (#327)
+- **agent**: attach a board-viewport screenshot to vision turns (flagged) (#326)
+- **config**: refresh model catalog — every user-facing model image-capable (#325)
+- **agent**: let the LLM user message carry image content-parts (#324)
+
+### Fix
+
+- **agent**: fence skills, board, and screenshot so instructions don't leak into notes (#336)
+- **agent**: fence skills, board, and screenshot so instructions don't leak into notes (#336) (#337)
+- **collab**: surface single-op persist failures; log the rest (#335)
+- **board**: persist ink stroke color across the collab round-trip (#334)
+
 ## v0.3.95 (2026-09-19)
 
 ### Feat
