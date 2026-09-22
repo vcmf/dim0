@@ -15,13 +15,17 @@ import { isSignedIn } from '@/lib/auth'
 import { isTauri } from '@/platform'
 import { SignInCta } from '@/features/desktop/sign-in-cta'
 import { useListBoards } from '@/features/board/api/list-boards'
+import { BOARD_LIMIT_REACHED, useCreateBoard } from '@/features/board/api/create-board'
 import { useLocalBoards } from '@/features/board/local/use-local-boards'
 import { useEnableSync } from '@/features/board/local/use-enable-sync'
+import { boardLimitForPlan, useIsBoardCreationLimited } from '@/features/board/lib/board-limit'
+import { BoardLimitDialog } from '@/features/board/components/board-limit-dialog'
+import { toast } from 'sonner'
 import { selectOnDeviceBoards } from '@/features/board/screens/partition-boards'
 import { ChatMenuItem, NewChatItem } from './chat'
-import { BoardItem, DashboardMenuItem, LocalBoardItem, NewLocalBoardItem } from './board'
+import { BoardItem, DashboardMenuItem, LocalBoardItem, NewBoardItem, NewLocalBoardItem } from './board'
 import { ChatsDialog } from './chats-dialog'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useRouterState } from '@tanstack/react-router'
 import type { Chat } from '@/features/agent/types/chat'
 import { AwardIcon, ChatHistoryIcon, InstallAppIcon, LogoutIcon, UserProfileIcon } from '@/components/icons'
@@ -71,6 +75,7 @@ export function AppSidebar({ onLogout }: AppSidebarProps) {
   }, [userEmail])
 
   const [chatsDialogOpen, setChatsDialogOpen] = useState(false)
+  const [showBoardLimitDialog, setShowBoardLimitDialog] = useState(false)
 
   const { data: chatPagesData } = useInfiniteChats({
     pageSize: CHAT_HISTORY_PAGE_SIZE,
@@ -79,6 +84,7 @@ export function AppSidebar({ onLogout }: AppSidebarProps) {
   })
   const { data: boards = [] } = useListBoards(userId)
   const { boards: localBoards, createBoard, deleteBoard, refresh } = useLocalBoards()
+  const { createBoardAsync } = useCreateBoard()
   const { enableSync, pendingId } = useEnableSync()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
 
@@ -94,6 +100,49 @@ export function AppSidebar({ onLogout }: AppSidebarProps) {
   const handleNewLocal = async (): Promise<void> => {
     const meta = await createBoard("Untitled board")
     if (meta) openLocal(meta.id)
+  }
+
+  // Signed-in default: a new board is SYNCED (backed up + shareable), so the user
+  // lands on the metered path. At the plan's board cap, open the choice dialog
+  // (upgrade, or an unlimited local-only board) instead of silently failing.
+  // Billing off (self-host) → never limited → always creates a synced board.
+  const boardCreationLimited = useIsBoardCreationLimited()
+
+  // Synchronous re-entry guard: two fast clicks would otherwise fire two
+  // PUT /boards, creating two boards + consuming two cap slots (a ref flips before
+  // the first await, unlike React state which updates next render).
+  const creatingBoardRef = useRef(false)
+
+  const handleNewBoard = (): void => {
+    if (boardCreationLimited) {
+      setShowBoardLimitDialog(true)
+      return
+    }
+    if (creatingBoardRef.current) return
+    creatingBoardRef.current = true
+    // then(onFulfilled, onRejected): the rejection handler guards ONLY the create,
+    // so a post-create navigate() failure isn't misreported as a create failure
+    // (the board already exists by then).
+    void createBoardAsync()
+      .then(
+        (id) => {
+          void navigate({ to: "/boards/$id", params: { id } })
+        },
+        (err: unknown) => {
+          // Cap hit — either the client gate raced or the backend rejected the
+          // create atomically (402, normalized to BOARD_LIMIT_REACHED). Offer the
+          // choice dialog instead of a dead-end "try again" toast.
+          if (err instanceof Error && err.message === BOARD_LIMIT_REACHED) {
+            setShowBoardLimitDialog(true)
+            return
+          }
+          // Genuine failure (offline, 5xx).
+          toast.error("Couldn't create a board. Please try again.")
+        },
+      )
+      .finally(() => {
+        creatingBoardRef.current = false
+      })
   }
 
   // Only truly-local boards belong here; a promoted board appears in the SYNCED
@@ -229,22 +278,40 @@ export function AppSidebar({ onLogout }: AppSidebarProps) {
               </SidebarGroupContent>
             </SidebarGroup>
 
-            <SidebarGroup>
-              <SidebarGroupLabel><span>LOCAL</span></SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  <NewLocalBoardItem onClick={() => void handleNewLocal()} />
-                  {localBoardItems}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
+            {signedIn ? (
+              <>
+                {/* Signed-in: the primary "New board" creates a SYNCED board.
+                    Existing on-device boards still list under LOCAL below, but
+                    new local boards are created via the at-limit dialog, not here. */}
+                <SidebarGroup>
+                  <SidebarGroupLabel><span>SYNCED</span></SidebarGroupLabel>
+                  <SidebarGroupContent>
+                    <SidebarMenu>
+                      <NewBoardItem onClick={handleNewBoard} />
+                      {myBoardItems}
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                </SidebarGroup>
 
-            {myBoardItems.length > 0 && (
+                {localBoardItems.length > 0 && (
+                  <SidebarGroup>
+                    <SidebarGroupLabel><span>LOCAL</span></SidebarGroupLabel>
+                    <SidebarGroupContent>
+                      <SidebarMenu>
+                        {localBoardItems}
+                      </SidebarMenu>
+                    </SidebarGroupContent>
+                  </SidebarGroup>
+                )}
+              </>
+            ) : (
+              // Signed-out: local-first. "New board" creates an on-device board.
               <SidebarGroup>
-                <SidebarGroupLabel><span>SYNCED</span></SidebarGroupLabel>
+                <SidebarGroupLabel><span>LOCAL</span></SidebarGroupLabel>
                 <SidebarGroupContent>
                   <SidebarMenu>
-                    {myBoardItems}
+                    <NewLocalBoardItem onClick={() => void handleNewLocal()} />
+                    {localBoardItems}
                   </SidebarMenu>
                 </SidebarGroupContent>
               </SidebarGroup>
@@ -287,6 +354,13 @@ export function AppSidebar({ onLogout }: AppSidebarProps) {
         </div>
 
         <ChatsDialog open={chatsDialogOpen} onOpenChange={setChatsDialogOpen} />
+
+        <BoardLimitDialog
+          open={showBoardLimitDialog}
+          onOpenChange={setShowBoardLimitDialog}
+          planLimit={boardLimitForPlan(userPlan)}
+          onCreateLocal={() => void handleNewLocal()}
+        />
 
         <SidebarGroup className="shrink-0 border-t border-sidebar-border/50 pt-2">
           <SidebarGroupContent>
