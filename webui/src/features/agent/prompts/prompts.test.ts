@@ -31,4 +31,13 @@ describe("prompts", () => {
       expect(SKILLS[key].length).toBeGreaterThan(200)
     }
   })
+
+
+  it("no skill contains the </skill> delimiter that would break its XML fence", () => {
+    // skillTool wraps each result in <skill>…</skill>; a literal closing tag in
+    // the guidance would close the fence early and spill un-fenced instructions.
+    for (const key of Object.keys(SKILLS) as (keyof typeof SKILLS)[]) {
+      expect(SKILLS[key].toLowerCase()).not.toContain("</skill>")
+    }
+  })
 })

@@ -16,7 +16,12 @@ const skillTool = (name: SkillName, description: string): Tool =>
     description,
     parameters: z.object({}),
     // The guidance text IS the useful output; the loop feeds it back to the model.
-    run: async () => SKILLS[name],
+    // Fenced in <skill> with an explicit framing so the model treats it as
+    // build guidance to FOLLOW, never as content to echo — without this the
+    // model has reproduced a skill's own rules (brevity/shape guidance) as
+    // board notes when a vague prompt routed it into a build.
+    run: async () =>
+      `<skill name="${name}">\nThe text below is build guidance for YOU to follow when producing this format. Apply it; do NOT copy, paraphrase, or restate it in note content or in your reply — notes hold the user's subject matter, never these instructions.\n\n${SKILLS[name]}\n</skill>`,
     // The skill prompt must reach the model in FULL — it's the whole point of the
     // call. Several skills exceed the loop's size cap (mini-app ~21k, applet ~18k),
     // so without this they'd be silently truncated mid-guidance and the model would
