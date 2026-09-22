@@ -13,11 +13,10 @@ import {
 export type NodeSurfaceKind = "sheet" | "code-sandbox" | "widget" | "mini-app" | "applet"
 
 
-// Default pen color (near-black), matching the engine's DEFAULT_INK_COLOR.
-// Exported so the ink tool can swap in a light default when this untouched
-// value would be drawn on a dark board (see harness-canvas inkDefaults).
+// Default pen color (near-black), matching the engine's DEFAULT_INK_COLOR. On a
+// dark board it's projected to a visible tone by the ink tool's color factory
+// (same dark-mode adaptation every node uses), so no separate dark default.
 export const DEFAULT_INK_COLOR = "#1f2937"
-export const DEFAULT_INK_COLOR_DARK = "#e5e7eb"
 
 
 /**

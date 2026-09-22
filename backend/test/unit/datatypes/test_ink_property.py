@@ -71,6 +71,51 @@ def test_wire_node_to_note_persists_ink() -> None:
     assert len(note.properties.ink_data.points) == 3
 
 
+def test_wire_node_to_note_persists_ink_stroke_color() -> None:
+    """The pen color survives the collab persist, carried by data._storedColors.
+
+    Regression: apply_ops treats style.strokeColor/backgroundColor as theme
+    display values and only persists the canonical ones from _storedColors. Ink
+    is engine-created (bypasses the client noteToNode that stamps _storedColors),
+    so without it the color is dropped → the Note style defaults to a transparent
+    stroke → a reloaded stroke paints invisibly and the minimap shows a box.
+    """
+    wire_node = {
+        "id": "n1",
+        "type": "ink",
+        "style": {"strokeColor": "#1f2937", "backgroundColor": "transparent"},
+        "data": {
+            "styleType": "ink",
+            "ink": WIRE_INK,
+            "_storedColors": {"strokeColor": "#1f2937", "backgroundColor": "transparent"},
+        },
+    }
+    note = _wire_node_to_note(wire_node, board_id="b1")
+    assert note is not None
+    # The pen color persists (NOT the model's transparent #00000000 default).
+    assert note.style.stroke_color == "#1f2937"
+    assert note.style.background_color == "transparent"
+    assert note.properties.ink_data is not None
+
+
+def test_wire_node_to_note_ink_without_stored_colors_loses_color() -> None:
+    """Documents the failure mode: no _storedColors → color falls to the default.
+
+    This is exactly the shipped bug; the fix is the client always sending
+    _storedColors on ink (see test above), not a server change.
+    """
+    wire_node = {
+        "id": "n1",
+        "type": "ink",
+        "style": {"strokeColor": "#1f2937"},
+        "data": {"styleType": "ink", "ink": WIRE_INK},
+    }
+    note = _wire_node_to_note(wire_node, board_id="b1")
+    assert note is not None
+    # No _storedColors → the wire strokeColor is skipped → transparent default.
+    assert note.style.stroke_color == "#00000000"
+
+
 def test_note_to_wire_lifts_ink_to_data_ink() -> None:
     """note_to_wire_node emits camelCase data.ink and drops the snake echo."""
     note = Note(
