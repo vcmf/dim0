@@ -7,7 +7,6 @@ import { cn } from "@/lib/utils"
 import { SendMessageError } from "@/features/agent/api/send-message"
 import { useChatSubmit } from "@/features/agent/hooks/use-chat-submit"
 import { useChat } from "@/features/agent/hooks/chat-context"
-import { usePendingBoardPrompt } from "@/features/agent/hooks/use-pending-board-prompt"
 import { DocAttachButton } from "@/features/agent/components/chat/doc-attach"
 import { buildMessageContext, useHasMessageContext } from "@/features/agent/hooks/use-message-context"
 import { SettingsButton } from "@/features/agent/settings/settings-button"
@@ -41,8 +40,6 @@ export const FloatingIsland = ({ boardId, onOpenFullSheet }: FloatingIslandProps
   // The agent can't run without a usable model (managed when signed in, or a
   // BYOK model key). When absent we dim the composer and light the key icon.
   const hasModel = useHasUsableModel()
-  // Run the prompt the home composer queued for this (freshly created) board.
-  usePendingBoardPrompt(boardId)
 
   const handleSubmit = async () => {
     if (isStreaming || !hasModel) return

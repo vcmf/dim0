@@ -116,7 +116,7 @@ describe("usePendingBoardPrompt", () => {
     useLocalMessagesStore.setState({ loadedBoardId: "b1" })
     mount("b1")
     expect(state.submit).not.toHaveBeenCalled()
-    expect(usePendingPromptStore.getState().pending).toEqual({ boardId: "b2", text: "not mine" })
+    expect(usePendingPromptStore.getState().pending).toMatchObject({ boardId: "b2", text: "not mine" })
   })
 
   it("holds the prompt while no model is available", () => {

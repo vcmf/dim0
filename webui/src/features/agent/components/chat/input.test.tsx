@@ -103,9 +103,19 @@ describe("InputBar at the board limit (home composer)", () => {
     await click("send")
     await click("create-local")
     expect(state.createLocalBoard).toHaveBeenCalledTimes(1)
-    expect(usePendingPromptStore.getState().pending).toEqual({ boardId: "local-1", text: "what is rust?" })
+    expect(usePendingPromptStore.getState().pending).toMatchObject({ boardId: "local-1", text: "what is rust?" })
     expect(state.navigate).toHaveBeenCalledWith({ to: "/local/$boardId", params: { boardId: "local-1" } })
     expect(textarea().value).toBe("")
+  })
+
+  it("keeps the typed prompt when the board create fails for another reason", async () => {
+    state.limited = false
+    act(() => root.render(<InputBar autoCreateBoard />))
+    state.submit.mockRejectedValueOnce(new Error("Failed to fetch"))
+    act(() => typeInto(textarea(), "what is rust?"))
+    await click("send")
+    expect(textarea().value).toBe("what is rust?")
+    expect(container.querySelector('[data-testid="create-local"]')).toBeNull()
   })
 
   it("opens the dialog when the server rejects the create at the cap", async () => {

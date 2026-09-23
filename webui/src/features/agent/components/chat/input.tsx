@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react'
+import { useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import clsx from 'clsx'
 import { useChatStore } from '../../store/chat-store'
 import { SendMessageError } from '../../api/send-message'
@@ -75,6 +75,7 @@ const buildLimitDescription = ({
   return `You've used your plan's AI requests for now. ${resetHint} Upgrade for more headroom.`
 }
 
+
 type ComposerBoardLimitDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -94,19 +95,28 @@ const ComposerBoardLimitDialog = ({ open, onOpenChange, prompt, onPromptCarried 
   const userPlan = useAppStore((s) => s.userPlan)
   const setPendingPrompt = usePendingPromptStore((s) => s.setPending)
   const { createBoard } = useLocalBoards()
+  // Re-entry guard so a rapid double activation can't create two local boards
+  // (mirrors the sidebar's creatingLocalRef).
+  const creatingRef = useRef(false)
 
   const handleCreateLocal = async () => {
-    const meta = await createBoard('Untitled board')
-    if (!meta) {
-      toast.error("Couldn't create a board. Please try again.")
-      return
+    if (creatingRef.current) return
+    creatingRef.current = true
+    try {
+      const meta = await createBoard('Untitled board')
+      if (!meta) {
+        toast.error("Couldn't create a board. Please try again.")
+        return
+      }
+      const trimmed = prompt.trim()
+      if (trimmed) {
+        setPendingPrompt(meta.id, trimmed)
+        onPromptCarried()
+      }
+      void navigate({ to: '/local/$boardId', params: { boardId: meta.id } })
+    } finally {
+      creatingRef.current = false
     }
-    const trimmed = prompt.trim()
-    if (trimmed) {
-      setPendingPrompt(meta.id, trimmed)
-      onPromptCarried()
-    }
-    void navigate({ to: '/local/$boardId', params: { boardId: meta.id } })
   }
 
   return (
@@ -200,6 +210,9 @@ export const InputBar = ({
         setShowBoardLimitDialog(true)
         return
       }
+      // Home composer: nothing else shows the prompt (no board/chat was opened),
+      // so put it back rather than lose it to e.g. an offline board create.
+      if (autoCreateBoard) setInput(trimmed)
       if (error instanceof SendMessageError && error.status === 429) {
         setLimitDialogCopy({
           title: "You’ve reached your AI request limit for now.",
@@ -215,7 +228,9 @@ export const InputBar = ({
 
   // The home composer hands its prompt to the new board's browser agent, which
   // has no Deep Research (backend-only), so skip that confirmation there.
-  const deepResearchApplies = !local && useDeepResearch && !(autoCreateBoard && isLocalAgentOnSynced())
+  // The flag is reload-stable, so read localStorage once per mount, not per keystroke.
+  const handsOffToBrowserAgent = useMemo(() => autoCreateBoard && isLocalAgentOnSynced(), [autoCreateBoard])
+  const deepResearchApplies = !local && useDeepResearch && !handsOffToBrowserAgent
 
   const handlePrimarySend = async () => {
     if (isStreaming) return

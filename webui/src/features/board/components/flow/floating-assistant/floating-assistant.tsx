@@ -1,4 +1,5 @@
 import { ChatProvider } from "@/features/agent/hooks/chat-context"
+import { PendingPromptRunner } from "@/features/agent/hooks/use-pending-board-prompt"
 import { useBrowserAgentActive } from "@/features/board/harness/canvas/use-sync-engine"
 import { AnswerCard } from "./answer-card"
 import { FloatingIsland } from "./floating-island"
@@ -46,6 +47,8 @@ export const FloatingAssistant = ({
       local={browserAgent}
       syncTranscript={syncTranscript}
     >
+      {/* Runs the prompt the home composer queued for this (fresh) board. */}
+      <PendingPromptRunner boardId={boardId} />
       <FloatingIsland boardId={boardId} onOpenFullSheet={onOpenFullSheet} />
       <AnswerCard onOpenFullSheet={onOpenFullSheet} />
     </ChatProvider>

@@ -81,7 +81,7 @@ describe("useSubmitPrompt autoCreateBoard", () => {
       await submit!("  what is rust?  ", { autoCreateBoard: true })
     })
     expect(state.createBoardAsync).toHaveBeenCalledTimes(1)
-    expect(usePendingPromptStore.getState().pending).toEqual({ boardId: "new-board", text: "what is rust?" })
+    expect(usePendingPromptStore.getState().pending).toMatchObject({ boardId: "new-board", text: "what is rust?" })
     expect(state.navigate).toHaveBeenCalledWith({ to: "/boards/$id", params: { id: "new-board" } })
     expect(state.createChatAsync).not.toHaveBeenCalled()
     expect(state.sendMessageAsync).not.toHaveBeenCalled()

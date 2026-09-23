@@ -43,15 +43,22 @@ export const useLocalMessagesStore = create<LocalMessagesState>((set, get) => ({
 
   openBoard: async (boardId) => {
     set({ boardId, loadedBoardId: null, chatUid: null, messages: [], chats: [] })
-    const chats = await listLocalChats(boardId)
-    // Guard against a newer openBoard racing this load.
-    if (get().boardId !== boardId) return
-    const latest = chats[0]
-    if (latest) {
-      const messages = await loadMessages(latest.id)
-      if (get().boardId === boardId) set({ chats, chatUid: latest.id, messages, loadedBoardId: boardId })
-    } else {
-      set({ chats, loadedBoardId: boardId })
+    try {
+      const chats = await listLocalChats(boardId)
+      // Guard against a newer openBoard racing this load.
+      if (get().boardId !== boardId) return
+      const latest = chats[0]
+      if (latest) {
+        const messages = await loadMessages(latest.id)
+        if (get().boardId === boardId) set({ chats, chatUid: latest.id, messages, loadedBoardId: boardId })
+      } else {
+        set({ chats, loadedBoardId: boardId })
+      }
+    } catch (err) {
+      // Storage failure: fall back to a fresh chat, but still mark the board
+      // loaded so waiters (the queued home prompt) aren't stuck forever.
+      console.error("[local-messages] openBoard failed", err)
+      if (get().boardId === boardId) set({ loadedBoardId: boardId })
     }
   },
 

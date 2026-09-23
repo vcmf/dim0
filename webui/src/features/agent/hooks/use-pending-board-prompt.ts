@@ -40,7 +40,8 @@ export const canRunPendingPrompt = (r: PendingPromptReadiness): boolean =>
 /**
  * Run the prompt queued by the home composer (see `usePendingPromptStore`) once
  * this board's browser-engine assistant is ready. Must be mounted inside the
- * board's ChatProvider. The take is one-shot, so it fires at most once.
+ * board's ChatProvider. The take is one-shot, so it fires at most once even when
+ * both chat surfaces (pill and sheet) mount a runner over time.
  */
 export const usePendingBoardPrompt = (boardId: string): void => {
   const { local } = useChat()
@@ -71,4 +72,15 @@ export const usePendingBoardPrompt = (boardId: string): void => {
       toast.error(error instanceof Error ? error.message : "Could not send message.")
     })
   }, [hasPending, boardId, local, scopeBoardId, boardRole, isLoading, loadedBoardId, hasModel, submit])
+}
+
+
+/**
+ * Renderless mount point for {@link usePendingBoardPrompt}. Placed in every board
+ * chat surface (the pill and the full sheet) so the queued prompt still runs if
+ * the user opens the sheet — which unmounts the pill — before the board is ready.
+ */
+export const PendingPromptRunner = ({ boardId }: { boardId: string }) => {
+  usePendingBoardPrompt(boardId)
+  return null
 }

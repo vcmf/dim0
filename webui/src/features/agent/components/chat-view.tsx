@@ -2,6 +2,7 @@ import { Conversation } from "./chat/conversation"
 import { InputBar } from "./chat/input"
 import { useListChats } from "../api/list-chats"
 import { ChatProvider, useChat } from "../hooks/chat-context"
+import { PendingPromptRunner } from "../hooks/use-pending-board-prompt"
 import { useActiveChatId } from "../hooks/use-chat-messages"
 import { useLocalMessagesStore } from "../store/local-messages-store"
 import { cn } from "@/lib/utils"
@@ -271,6 +272,9 @@ const ChatBody = ({
 
   return (
     <div className={chatClassName}>
+      {/* Board chat sheet: pick up a home-composer prompt if the sheet was opened
+          before the board finished loading (the pill that would run it is unmounted). */}
+      {initialBoardId && <PendingPromptRunner boardId={initialBoardId} />}
       {showHistoricalChats && (
         <HistoryList
           chats={historicalChats}
