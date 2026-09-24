@@ -1,3 +1,9 @@
+## v0.3.100 (2026-09-24)
+
+### Fix
+
+- **webui**: stop thinking dots on finished reasoning steps (#349)
+
 ## v0.3.99 (2026-09-24)
 
 ### Feat
