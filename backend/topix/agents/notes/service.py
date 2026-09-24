@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 
 from topix.datatypes.note.note import Note
-from topix.datatypes.note.style import FontFamily, NodeType, StrokeStyle, Style, TextAlign
+from topix.datatypes.note.style import FontFamily, FontSize, NodeType, StrokeStyle, Style, TextAlign
 from topix.datatypes.property import PositionProperty, SizeProperty
 from topix.datatypes.resource import RichText
 from topix.store.graph import GraphStore
@@ -59,6 +59,15 @@ def build_default_note_style(note_type: NodeType) -> Style:
         style.roughness = 0
         style.roundness = 1
         style.stroke_color = "#00000000"
+    elif note_type == NodeType.APPLET:
+        # Mirrors the webui `createDefaultStyle` applet case (rose-pine card).
+        style.background_color = "#faf4ed"
+        style.font_family = FontFamily.SANS_SERIF
+        style.font_size = FontSize.S
+        style.text_align = TextAlign.LEFT
+        style.roughness = 0
+        style.roundness = 1
+        style.stroke_color = "#00000000"
 
     return style
 
@@ -93,7 +102,8 @@ def get_default_note_size(note_type: NodeType) -> tuple[int, int]:  # noqa: C901
         return 560, 360
     if note_type == NodeType.WIDGET:
         return 800, 500
-    if note_type == NodeType.MINI_APP:
+    if note_type in {NodeType.MINI_APP, NodeType.APPLET}:
+        # Keep in sync with DEFAULT_MINI_APP_* / DEFAULT_APPLET_* in webui note.ts.
         # Tablet-portrait proportions; paired with the 1200px auto-grow
         # cap in webui's MiniAppView, a max-grown card reads at 1:1.67
         # instead of a thin column.

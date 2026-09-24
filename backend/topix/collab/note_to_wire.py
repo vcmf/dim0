@@ -20,7 +20,7 @@ DEG_TO_RAD = math.pi / 180.0
 
 # IMPORTANT: keep in sync with webui/src/features/board/harness/convert/
 # node-type.ts (`DIM0_TO_CANVAS`). Four Dim0 enum values are renamed for
-# canvas-harness's built-in shapes; the remaining 14 entries are 1:1 (built-in
+# canvas-harness's built-in shapes; the rest are 1:1 (built-in
 # names or custom `defineNode` registrations on the client). A drift here
 # breaks WS rendering for peers — agent-generated rectangles render
 # invisible on the receiver because canvas-harness has no built-in
@@ -48,6 +48,7 @@ _DIM0_TO_CANVAS_TYPE: dict[str, str] = {
     "code-sandbox": "code-sandbox",
     "widget": "widget",
     "mini-app": "mini-app",
+    "applet": "applet",
     # Identity — built-in in canvas-harness 0.2.0.
     "ink": "ink",
 }
@@ -65,7 +66,7 @@ _CANVAS_TO_DIM0_TYPE: dict[str, str] = {v: k for k, v in _DIM0_TO_CANVAS_TYPE.it
 # IMPORTANT: keep in sync with webui/.../convert/note-to-node.ts
 # (`AUTOFIT_DISABLED_TYPES`).
 _AUTOFIT_DISABLED_CANVAS_TYPES: frozenset[str] = frozenset({
-    "folder", "sheet", "code-sandbox", "widget", "mini-app", "document", "ink",
+    "folder", "sheet", "code-sandbox", "widget", "mini-app", "applet", "document", "ink",
 })
 
 

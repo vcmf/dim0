@@ -574,6 +574,54 @@ async def test_node_add_wire_type_rect_maps_back_to_rectangle():
     assert note.style.type == "rectangle"
 
 
+def _applet_add_op(data: dict) -> dict:
+    """Build a toolbar-shaped applet `node.add` op with the given `data` block."""
+    return {
+        "type": "node.add",
+        "node": {
+            "id": "a1",
+            "type": "applet",
+            "x": 0, "y": 0, "w": 300, "h": 220, "z": 0,
+            "angle": 0,
+            "content": "<Widget state={{ count: 0 }}>{count}</Widget>",
+            "data": data,
+        },
+    }
+
+
+async def test_node_add_persists_applet():
+    """An applet created on a synced board persists as `applet`.
+
+    Regression: `NodeType` had no `applet`, so `Note.model_validate` rejected
+    every applet add — the relay refused the op and the node was never stored.
+    """
+    store = _RecordingGraphStore()
+    op = _applet_add_op({"noteType": "note", "styleType": "applet", "version": 1})
+
+    results = await apply_batch(graph_store=store, board_id="b1", user_id="u1", ops=[op])
+
+    assert results[0].applied is True
+    [note] = store.add_notes_calls[0]
+    assert note.style.type == "applet"
+    assert note.content.markdown.startswith("<Widget")
+
+
+async def test_node_add_applet_without_style_type_is_not_a_rectangle():
+    """Wire `type="applet"` with no `data.styleType` maps back to `applet`.
+
+    Regression: `applet` was missing from the wire type map, so the fallback
+    found nothing and the note silently defaulted to `rectangle`.
+    """
+    store = _RecordingGraphStore()
+    op = _applet_add_op({"noteType": "note", "version": 1})
+
+    results = await apply_batch(graph_store=store, board_id="b1", user_id="u1", ops=[op])
+
+    assert results[0].applied is True
+    [note] = store.add_notes_calls[0]
+    assert note.style.type == "applet"
+
+
 async def test_node_add_persists_style_roundness_from_wire():
     """A pasted node with `roundness: 0` keeps that value through `node.add`.
 

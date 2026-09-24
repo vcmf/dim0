@@ -31,6 +31,7 @@ class NodeType(StrEnum):
     WIDGET = "widget"
     MINI_APP = "mini-app"
     INK = "ink"
+    APPLET = "applet"
 
 
 class StrokeStyle(StrEnum):

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from topix.agents.notes.service import build_default_note_style, build_note, get_default_note_size
-from topix.datatypes.note.style import NodeType, Style
+from topix.datatypes.note.style import FontFamily, FontSize, NodeType, Style
 from topix.utils.colors import BLUE_200, TAILWIND_200_ADAPTED
 from topix.utils.graph.text_measure import estimate_node_size
 
@@ -62,6 +62,7 @@ def test_sheet_is_sharp_and_flat():
         (NodeType.SLIDE, 2),
         (NodeType.CODE_SANDBOX, 1),
         (NodeType.WIDGET, 1),
+        (NodeType.APPLET, 1),
     ],
 )
 def test_custom_nodes_keep_their_roundness(note_type, expected_roundness):
@@ -71,8 +72,22 @@ def test_custom_nodes_keep_their_roundness(note_type, expected_roundness):
 
 def test_code_sandbox_and_widget_use_rose_pine_fill():
     """Code/widget cards keep their bespoke rose-pine background, not the palette."""
-    for note_type in (NodeType.CODE_SANDBOX, NodeType.WIDGET):
+    for note_type in (NodeType.CODE_SANDBOX, NodeType.WIDGET, NodeType.APPLET):
         assert build_default_note_style(note_type).background_color == "#faf4ed"
+
+
+def test_applet_style_matches_frontend_card():
+    """Applets mirror webui `createDefaultStyle`: sans-serif S, borderless, flat."""
+    style = build_default_note_style(NodeType.APPLET)
+    assert style.font_family == FontFamily.SANS_SERIF
+    assert style.font_size == FontSize.S
+    assert style.stroke_color == _TRANSPARENT
+    assert style.roughness == 0
+
+
+def test_applet_default_size_matches_frontend():
+    """Applets default to 720x440 (DEFAULT_APPLET_* in webui note.ts), not the rectangle stub."""
+    assert get_default_note_size(NodeType.APPLET) == (720, 440)
 
 
 # --- build_note content-fit sizing ------------------------------------------
