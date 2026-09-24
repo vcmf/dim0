@@ -30,6 +30,21 @@ from topix.datatypes.resource import RichText
 from topix.mini_app import compile_mini_app_source
 from topix.store.graph import GraphStore
 
+# Types this agent can't author: `applet` source is a JSX grammar only the
+# browser agent is taught (and validates), so a backend write would persist a
+# broken node. The enum still carries it because synced boards persist applets.
+_AGENT_UNSUPPORTED_NOTE_TYPES: frozenset[NodeType] = frozenset({NodeType.APPLET})
+
+
+def _reject_unsupported_note_type(note_type: NodeType) -> None:
+    """Refuse note types this agent can't author, pointing it at `mini-app` instead."""
+    if note_type in _AGENT_UNSUPPORTED_NOTE_TYPES:
+        raise ValueError(
+            f'note_type="{note_type.value}" is not supported by this tool. For a chart, '
+            'dashboard or other interactive artifact, call `learn_generate_mini_app` and '
+            'write the JSX with note_type="mini-app".'
+        )
+
 
 async def _validate_mini_app_content(content: str) -> None:
     """Reject a mini-app write whose source can't compile.
@@ -95,6 +110,7 @@ def create_write_note_tool(  # noqa: C901 — branching is the whole job (create
             note_id (str | None): Optional existing note id. Omit to create a new note.
 
         """
+        _reject_unsupported_note_type(note_type)
         # mini-app notes are sandbox-rendered React; reject malformed
         # JSX before persisting so the agent can correct in one tool
         # round-trip (the error message includes line/col from sucrase).
@@ -205,6 +221,7 @@ def create_create_note_tool(
             note_type (NodeType): Visual note shape to create, such as rectangle or sheet.
 
         """
+        _reject_unsupported_note_type(note_type)
         note = await build_note(
             graph_store=graph_store,
             graph_uid=graph_uid,

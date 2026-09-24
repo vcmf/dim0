@@ -70,13 +70,28 @@ _CLIENT_NODE_TYPE_TS = (
 )
 
 
+_TS_ENTRY = re.compile(r"""^\s*(["']?)([\w-]+)\1\s*:\s*(["'])([\w-]+)\3\s*,?\s*(//.*)?$""")
+
+
 def _client_dim0_to_canvas() -> dict[str, str]:
-    """Parse `DIM0_TO_CANVAS` out of the client's node-type.ts."""
+    """Parse `DIM0_TO_CANVAS` out of the client's node-type.ts.
+
+    Strict: every non-blank, non-comment line in the object must be a
+    `key: "value"` entry (either quote style). Anything else fails the test
+    instead of being skipped, so a format change can't hide a missing type.
+    """
     source = _CLIENT_NODE_TYPE_TS.read_text()
     body = re.search(r"const DIM0_TO_CANVAS[^=]*=\s*\{(.*?)\n\}", source, re.S)
     assert body, "DIM0_TO_CANVAS not found in node-type.ts"
-    pairs = re.findall(r'^\s*"?([\w-]+)"?\s*:\s*"([\w-]+)"', body.group(1), re.M)
-    return dict(pairs)
+    entries: dict[str, str] = {}
+    for line in body.group(1).splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("//"):
+            continue
+        match = _TS_ENTRY.match(line)
+        assert match, f"unparseable DIM0_TO_CANVAS entry: {stripped!r}"
+        entries[match.group(2)] = match.group(4)
+    return entries
 
 
 @pytest.mark.skipif(not _CLIENT_NODE_TYPE_TS.exists(), reason="webui/ not checked out")
