@@ -1,17 +1,11 @@
 import { useState, type MouseEvent } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { cn } from "@/lib/utils"
-import {
-  ChevronRightIcon,
-  FolderIcon,
-  NotepadIcon,
-  CodeFileIcon,
-  StockWidgetIcon,
-  type AppIconComponent,
-} from "@/components/icons"
+import { ChevronRightIcon } from "@/components/icons"
 import { IconPropertyView } from "@/components/icons/icon-property-view"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { type BoardContentItem, type BoardContentKind } from "@/features/board/api/list-board-contents"
+import { type BoardContentItem } from "@/features/board/api/list-board-contents"
+import { BOARD_CONTENT_KIND_ICONS } from "@/features/board/utils/board-content-kind-icons"
 import { nodeSurfacePath } from "@/features/board/utils/node-surface-url"
 import { trimText } from "@/lib/common"
 import { UNTITLED_LABEL } from "@/features/board/const"
@@ -22,21 +16,13 @@ const INDENT_PX_PER_LEVEL = 12
 const BASE_PADDING_PX = 8
 
 
-const ICON_BY_KIND: Record<BoardContentKind, AppIconComponent> = {
-  folder: FolderIcon,
-  sheet: NotepadIcon,
-  "code-sandbox": CodeFileIcon,
-  widget: StockWidgetIcon,
-}
-
-
 type BoardTreeNodeProps = {
   boardId: string
   item: BoardContentItem
   depth: number
   /**
    * Closest folder ancestor of this row in the sidebar lineage. Threaded
-   * down so when the user clicks a leaf (sheet/code/widget) we can scope
+   * down so when the user clicks a leaf (sheet/code/applet) we can scope
    * the canvas to the matching folder — otherwise the URL keeps an
    * unrelated `root_id` and the background canvas drifts away from the
    * note the panel just opened.
@@ -55,7 +41,7 @@ type BoardTreeNodeProps = {
    */
   treeContents: BoardContentItem[]
   /**
-   * Id of the currently-open surface (sheet/code-sandbox/widget) or scoped
+   * Id of the currently-open surface (sheet/code-sandbox/applet) or scoped
    * folder for this board, from the URL — computed once by the board row and
    * threaded down. The matching row renders active (highlight + filled kind
    * icon). `null`/absent when this board isn't the one on screen.
@@ -65,7 +51,7 @@ type BoardTreeNodeProps = {
 
 
 /**
- * Recursive sidebar row for a board's surface node (sheet/folder/code-sandbox/widget).
+ * Recursive sidebar row for a board's surface node (sheet/folder/code-sandbox/applet).
  * Folders and sheets are both expandable — sheets reveal sub-pages
  * (`parent_id` of another note) on disclosure; folders reveal their
  * canvas children. The kind icon morphs to a chevron on row-hover so
@@ -87,7 +73,7 @@ export function BoardTreeNode({
   const isSheet = item.kind === "sheet"
   const isExpandable = isFolder || isSheet
   const isActive = !!activeId && item.id === activeId
-  const KindIcon = ICON_BY_KIND[item.kind]
+  const KindIcon = BOARD_CONTENT_KIND_ICONS[item.kind]
   const customIcon = item.iconData ?? null
 
   const visualDepth = Math.min(depth, MAX_VISUAL_DEPTH)
@@ -116,7 +102,7 @@ export function BoardTreeNode({
     // nodeSurfacePath); only the board param name (`id` vs `boardId`) differs.
     // Conditional `params` can't be expressed in TanStack's typed navigate,
     // hence the cast.
-    if (item.kind === "sheet" || item.kind === "code-sandbox" || item.kind === "widget") {
+    if (item.kind !== "folder") {
       navigate({
         to: nodeSurfacePath(item.kind, local),
         params: local ? { boardId, noteId: item.id } : { id: boardId, noteId: item.id },
@@ -125,12 +111,11 @@ export function BoardTreeNode({
       } as any)
       return
     }
-    // Folder (or fallback): stay on the board route, scope the canvas via root_id.
+    // Folder: stay on the board route, scope the canvas via root_id.
     navigate({
       to: local ? "/local/$boardId" : "/boards/$id",
       params: local ? { boardId } : { id: boardId },
-      search: (prev: Record<string, unknown>) =>
-        item.kind === "folder" ? { ...prev, root_id: item.id } : prev,
+      search: (prev: Record<string, unknown>) => ({ ...prev, root_id: item.id }),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any)
   }

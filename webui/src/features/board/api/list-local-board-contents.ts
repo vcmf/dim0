@@ -2,20 +2,12 @@ import { useQuery } from "@tanstack/react-query"
 import { getLocalStores } from "@/features/local-stores"
 import { BoardPersistence } from "@/features/board/persist/local/board-persistence"
 import type { NoteNodeData } from "@/features/board/harness/convert/note-to-node"
-import type { BoardContentItem, BoardContentKind } from "./list-board-contents"
-
-
-const SURFACE_KINDS = new Set<BoardContentKind>([
-  "sheet",
-  "folder",
-  "code-sandbox",
-  "widget",
-])
+import { isBoardContentKind, type BoardContentItem } from "./list-board-contents"
 
 
 /**
- * Reconstruct a local board's surface-node hierarchy (sheet / folder /
- * code-sandbox / widget) from the on-device store — the client analog of the
+ * Reconstruct a local board's surface-node hierarchy (`BOARD_CONTENT_KINDS`)
+ * from the on-device store — the client analog of the
  * synced `/boards/:id/contents` projection (select by `style.type`, echo
  * parent / label / icon).
  *
@@ -36,8 +28,8 @@ export async function listLocalBoardContents(boardId: string): Promise<BoardCont
     // Prefer the display `styleType`, but fall back to the canonical `node.type`:
     // agent-authored surfaces (built via the mutator, not the convert layer) set
     // only `node.type`, so without this they'd be missing from the tree/picker.
-    const kind = (data?.styleType ?? node.type) as BoardContentKind | undefined
-    if (!kind || !SURFACE_KINDS.has(kind)) continue
+    const kind = data?.styleType ?? node.type
+    if (!isBoardContentKind(kind)) continue
     // label is `RichText` at runtime; fall back to a plain string defensively.
     const label =
       typeof data?.label === "string" ? data.label : (data?.label?.markdown ?? null)
