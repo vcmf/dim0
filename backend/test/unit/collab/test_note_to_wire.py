@@ -7,6 +7,10 @@ vocabulary, not Dim0's enum values. Four entries are renamed
 1:1 with either built-in shapes or client-registered custom defs.
 """
 
+import re
+
+from pathlib import Path
+
 import pytest
 
 from topix.collab.note_to_wire import (
@@ -35,7 +39,7 @@ RENAMES = [
 ]
 
 
-# All 14 types where the Dim0 enum string matches the canvas-harness
+# Types where the Dim0 enum string matches the canvas-harness
 # built-in / custom-def string verbatim. Listed explicitly so a future
 # rename or custom-def addition surfaces here.
 IDENTITY = [
@@ -53,7 +57,40 @@ IDENTITY = [
     (NodeType.SHEET, "sheet"),
     (NodeType.CODE_SANDBOX, "code-sandbox"),
     (NodeType.WIDGET, "widget"),
+    (NodeType.APPLET, "applet"),
 ]
+
+
+# The client's Dim0 → canvas type table — the source of truth for which node
+# types the UI can create. Read from the monorepo so a new client type can't
+# ship without server support.
+_CLIENT_NODE_TYPE_TS = (
+    Path(__file__).resolve().parents[4]
+    / "webui/src/features/board/harness/convert/node-type.ts"
+)
+
+
+def _client_dim0_to_canvas() -> dict[str, str]:
+    """Parse `DIM0_TO_CANVAS` out of the client's node-type.ts."""
+    source = _CLIENT_NODE_TYPE_TS.read_text()
+    body = re.search(r"const DIM0_TO_CANVAS[^=]*=\s*\{(.*?)\n\}", source, re.S)
+    assert body, "DIM0_TO_CANVAS not found in node-type.ts"
+    pairs = re.findall(r'^\s*"?([\w-]+)"?\s*:\s*"([\w-]+)"', body.group(1), re.M)
+    return dict(pairs)
+
+
+@pytest.mark.skipif(not _CLIENT_NODE_TYPE_TS.exists(), reason="webui/ not checked out")
+def test_server_knows_every_client_node_type() -> None:
+    """Every node type the client can create is a server NodeType with the same wire name.
+
+    Regression: the client shipped `applet` but the server enum/map didn't, so
+    synced applets were rejected (or persisted as rectangles) on every add.
+    """
+    client = _client_dim0_to_canvas()
+    assert len(client) > 10, "parser matched too few entries — node-type.ts format changed?"
+    server_types = {t.value for t in NodeType}
+    assert set(client) - server_types == set(), "client types missing from NodeType"
+    assert {k: v for k, v in client.items() if _DIM0_TO_CANVAS_TYPE.get(k) != v} == {}
 
 
 @pytest.mark.parametrize(("dim0_type", "expected"), RENAMES)
@@ -74,7 +111,7 @@ def test_wire_type_applies_renames(dim0_type: NodeType, expected: str) -> None:
 def test_wire_type_passes_through_built_ins_and_custom_defs(
     dim0_type: NodeType, expected: str,
 ) -> None:
-    """14 Dim0 enum values where the canvas-harness name matches verbatim."""
+    """Dim0 enum values where the canvas-harness name matches verbatim."""
     note = _note_with_style_type(dim0_type)
     wire = note_to_wire_node(note)
     assert wire["type"] == expected
@@ -232,12 +269,13 @@ AUTOFIT_DISABLED = [
     NodeType.CODE_SANDBOX,
     NodeType.WIDGET,
     NodeType.MINI_APP,
+    NodeType.APPLET,
 ]
 
 
 @pytest.mark.parametrize("dim0_type", AUTOFIT_DISABLED)
 def test_wire_disables_autofit_for_preview_types(dim0_type: NodeType) -> None:
-    """Sheet/code-sandbox/widget/mini-app/folder ship `style.autoFit = False`.
+    """Sheet/code-sandbox/widget/mini-app/applet/folder ship `style.autoFit = False`.
 
     Without it, an agent-created sheet reaches peers with autoFit unset
     (defaults on in the lib) and the node auto-grows to fit the entire
