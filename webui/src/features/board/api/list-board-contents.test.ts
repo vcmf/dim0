@@ -10,7 +10,8 @@ describe("isBoardContentKind", () => {
   })
 
   it("rejects deprecated custom types, plain shapes, and empty input", () => {
-    for (const kind of ["widget", "mini-app", "rect", "note", "document", "", null, undefined]) {
+    // Shapes by both names: display `styleType` ("rectangle") and canvas `type` ("rect").
+    for (const kind of ["widget", "mini-app", "rectangle", "rect", "ellipse", "note", "document", "", null, undefined]) {
       expect(isBoardContentKind(kind)).toBe(false)
     }
   })
