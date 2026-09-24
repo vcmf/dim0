@@ -167,6 +167,14 @@ async def update_graph(
     return await store.update_graph(graph_uid=graph_id, data=body.data)
 
 
+# Node kinds listed in the board sidebar tree: the custom surface nodes, minus
+# the deprecated widget / mini-app. Keep in sync with `BOARD_CONTENT_KINDS` in
+# webui `features/board/api/list-board-contents.ts`.
+_BOARD_CONTENT_KINDS: frozenset[NodeType] = frozenset({
+    NodeType.SHEET, NodeType.FOLDER, NodeType.CODE_SANDBOX, NodeType.APPLET,
+})
+
+
 @router.get("/{graph_id}/contents/", include_in_schema=False)
 @router.get("/{graph_id}/contents")
 @with_standard_response
@@ -178,17 +186,16 @@ async def list_board_contents(
     _: Annotated[None, Depends(verify_board_read_access)],
     parent_id: Annotated[str | None, Query(description="Folder ID to list children of; omit for top level")] = None,
 ):
-    """List a board's surface-kind nodes (sheet/folder/code-sandbox/widget) at one level."""
+    """List a board's sidebar-tree nodes (`_BOARD_CONTENT_KINDS`) at one level."""
     store: GraphStore = request.app.graph_store
     graph = await store.get_graph(graph_uid=graph_id, root_id=parent_id)
     if not graph:
         return {"items": []}
 
-    surface_kinds = {"sheet", "folder", "code-sandbox", "widget"}
     items = []
     for node in graph.nodes:
         kind = node.style.type if node.style else None
-        if kind not in surface_kinds:
+        if kind not in _BOARD_CONTENT_KINDS:
             continue
         # Serialize the inner icon value only (drop the IconProperty wrapper)
         # so the response matches the frontend's IconProperty["icon"] shape

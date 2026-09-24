@@ -4,7 +4,23 @@ import { apiFetch } from "@/api"
 import type { IconProperty } from "@/features/newsfeed/types/properties"
 
 
-export type BoardContentKind = "sheet" | "folder" | "code-sandbox" | "widget"
+/**
+ * Node kinds listed in the board sidebar tree: the custom surface nodes, minus
+ * the deprecated `widget` / `mini-app`. Keep in sync with `_BOARD_CONTENT_KINDS`
+ * in backend `api/router/boards.py`.
+ */
+export const BOARD_CONTENT_KINDS = ["sheet", "folder", "code-sandbox", "applet"] as const
+
+
+export type BoardContentKind = (typeof BOARD_CONTENT_KINDS)[number]
+
+
+const BOARD_CONTENT_KIND_SET: ReadonlySet<string> = new Set(BOARD_CONTENT_KINDS)
+
+
+/** Whether a node kind (display `styleType` or canvas `type`) belongs in the sidebar tree. */
+export const isBoardContentKind = (kind: string | null | undefined): kind is BoardContentKind =>
+  kind != null && BOARD_CONTENT_KIND_SET.has(kind)
 
 
 export interface BoardContentItem {
@@ -35,7 +51,7 @@ interface ListBoardContentsResponse {
 
 
 /**
- * Fetch the surface-kind nodes (sheet/folder/code-sandbox/widget) of a board
+ * Fetch the surface-kind nodes (`BOARD_CONTENT_KINDS`) of a board
  * at a single hierarchy level.
  */
 export async function listBoardContents(

@@ -123,6 +123,7 @@ import type { AppIconComponent, AppIconName } from "./types"
 
 export const AddIcon = createPhosphorIcon(PlusGlyphIcon)
 export const AlertIcon = createPhosphorIcon(WarningCircleIcon)
+export const AppletIcon = createPhosphorIcon(ChartLineIcon)
 export const ArticleSummaryIcon = createPhosphorIcon(ArticleIcon)
 export const ArrowCollapseIcon = createPhosphorIcon(CaretDownIcon)
 export const ArrowExpandIcon = createPhosphorIcon(CaretRightIcon)

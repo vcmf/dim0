@@ -8,9 +8,15 @@ const batch = (ops: unknown[]): OpBatch => ({ id: "b", origin: "local", ops } as
 
 
 describe("affectsSurfaceTree", () => {
-  it("is true when a surface node (sheet/folder/code-sandbox/widget) is added", () => {
-    for (const styleType of ["sheet", "folder", "code-sandbox", "widget"]) {
+  it("is true when a surface node (sheet/folder/code-sandbox/applet) is added", () => {
+    for (const styleType of ["sheet", "folder", "code-sandbox", "applet"]) {
       expect(affectsSurfaceTree(batch([{ type: "node.add", node: { id: "n", data: { styleType } } }]))).toBe(true)
+    }
+  })
+
+  it("is false when a deprecated widget / mini-app is added (not listed in the tree)", () => {
+    for (const styleType of ["widget", "mini-app"]) {
+      expect(affectsSurfaceTree(batch([{ type: "node.add", node: { id: "n", data: { styleType } } }]))).toBe(false)
     }
   })
 

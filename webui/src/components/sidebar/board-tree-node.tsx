@@ -2,11 +2,11 @@ import { useState, type MouseEvent } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { cn } from "@/lib/utils"
 import {
+  AppletIcon,
   ChevronRightIcon,
   FolderIcon,
   NotepadIcon,
   CodeFileIcon,
-  StockWidgetIcon,
   type AppIconComponent,
 } from "@/components/icons"
 import { IconPropertyView } from "@/components/icons/icon-property-view"
@@ -26,7 +26,7 @@ const ICON_BY_KIND: Record<BoardContentKind, AppIconComponent> = {
   folder: FolderIcon,
   sheet: NotepadIcon,
   "code-sandbox": CodeFileIcon,
-  widget: StockWidgetIcon,
+  applet: AppletIcon,
 }
 
 
@@ -36,7 +36,7 @@ type BoardTreeNodeProps = {
   depth: number
   /**
    * Closest folder ancestor of this row in the sidebar lineage. Threaded
-   * down so when the user clicks a leaf (sheet/code/widget) we can scope
+   * down so when the user clicks a leaf (sheet/code/applet) we can scope
    * the canvas to the matching folder — otherwise the URL keeps an
    * unrelated `root_id` and the background canvas drifts away from the
    * note the panel just opened.
@@ -55,7 +55,7 @@ type BoardTreeNodeProps = {
    */
   treeContents: BoardContentItem[]
   /**
-   * Id of the currently-open surface (sheet/code-sandbox/widget) or scoped
+   * Id of the currently-open surface (sheet/code-sandbox/applet) or scoped
    * folder for this board, from the URL — computed once by the board row and
    * threaded down. The matching row renders active (highlight + filled kind
    * icon). `null`/absent when this board isn't the one on screen.
@@ -65,7 +65,7 @@ type BoardTreeNodeProps = {
 
 
 /**
- * Recursive sidebar row for a board's surface node (sheet/folder/code-sandbox/widget).
+ * Recursive sidebar row for a board's surface node (sheet/folder/code-sandbox/applet).
  * Folders and sheets are both expandable — sheets reveal sub-pages
  * (`parent_id` of another note) on disclosure; folders reveal their
  * canvas children. The kind icon morphs to a chevron on row-hover so
@@ -116,7 +116,7 @@ export function BoardTreeNode({
     // nodeSurfacePath); only the board param name (`id` vs `boardId`) differs.
     // Conditional `params` can't be expressed in TanStack's typed navigate,
     // hence the cast.
-    if (item.kind === "sheet" || item.kind === "code-sandbox" || item.kind === "widget") {
+    if (item.kind !== "folder") {
       navigate({
         to: nodeSurfacePath(item.kind, local),
         params: local ? { boardId, noteId: item.id } : { id: boardId, noteId: item.id },
