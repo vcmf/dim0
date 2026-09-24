@@ -1,6 +1,7 @@
 export {
   AddIcon,
   AlertIcon,
+  AppletIcon,
   ArticleSummaryIcon,
   ArrowCollapseIcon,
   ArrowExpandIcon,

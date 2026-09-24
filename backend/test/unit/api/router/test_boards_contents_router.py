@@ -111,3 +111,25 @@ def test_list_board_contents_serializes_emoji_variant_unchanged():
 
     items = response.json()["data"]["items"]
     assert items[0]["icon_data"] == {"type": "emoji", "emoji": "🎯"}
+
+
+def test_list_board_contents_lists_custom_surfaces_but_not_deprecated_types():
+    """Applets join sheet/folder/code-sandbox; deprecated widget/mini-app and plain shapes stay out."""
+    store = _FakeGraphStore()
+    graph_uid = "g-1"
+    nodes = [
+        Note(id=f"n-{t.value}", graph_uid=graph_uid, style=Style(type=t))
+        for t in (
+            NodeType.SHEET, NodeType.FOLDER, NodeType.CODE_SANDBOX, NodeType.APPLET,
+            NodeType.WIDGET, NodeType.MINI_APP, NodeType.RECTANGLE,
+        )
+    ]
+    store.metadata[graph_uid] = Graph(uid=graph_uid, label="Board", visibility="public")
+    store.graphs[graph_uid] = Graph(uid=graph_uid, label="Board", visibility="public", nodes=nodes)
+    client = _build_client(store)
+
+    response = client.get(f"/boards/{graph_uid}/contents")
+
+    assert response.status_code == 200
+    kinds = sorted(item["kind"] for item in response.json()["data"]["items"])
+    assert kinds == ["applet", "code-sandbox", "folder", "sheet"]

@@ -12,13 +12,14 @@ import { ConfirmDeleteBoardAlert } from "./confirm-delete-board"
 import { BoardTreeNode } from "./board-tree-node"
 import { BoardOfflineAction } from "./board-offline-action"
 import { useLocalBoardContents } from "@/features/board/api/list-local-board-contents"
+import { isBoardContentKind } from "@/features/board/api/list-board-contents"
 import { useBoardOfflineStatus } from "@/features/board/api/board-offline-status"
 import { nodeSurfaceKindFromPath } from "@/features/board/utils/node-surface-url"
 import { useState, type MouseEvent } from "react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip"
 
 /**
- * The open surface (sheet/code-sandbox/widget) — or scoped folder — node id for
+ * The open surface (sheet/code-sandbox/applet) — or scoped folder — node id for
  * `boardId`, read from the URL. Drives the sidebar tree's active-row highlight;
  * `null` unless this is the board on screen. A tree-rendered surface `noteId`
  * wins over a folder `root_id` (highlight the note, not its parent); a mini-app
@@ -36,7 +37,7 @@ function useActiveTreeId(boardId: string): string | null {
   if (openBoardId !== boardId) return null
 
   const kind = nodeSurfaceKindFromPath(pathname)
-  const surfaceInTree = kind === "sheet" || kind === "code-sandbox" || kind === "widget"
+  const surfaceInTree = isBoardContentKind(kind)
   return (surfaceInTree ? params.noteId : undefined) ?? rootId ?? null
 }
 
