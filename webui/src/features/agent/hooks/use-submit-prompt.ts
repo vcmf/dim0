@@ -10,6 +10,8 @@ import { useSendMessage } from "../api/send-message"
 import { useDescribeChat } from "../api/describe-chat"
 import { useCreateBoard } from "@/features/board/api/create-board"
 import { useDescribeBoard } from "@/features/board/api/describe-board"
+import { isLocalAgentOnSynced } from "../local/local-agent-flag"
+import { usePendingPromptStore } from "../store/pending-prompt-store"
 import { ChatUrl } from "@/routes"
 import { generateUuid, trimText } from "@/lib/common"
 import type { SendMessageRequestPayload } from "../api/types"
@@ -42,6 +44,7 @@ export const useSubmitPrompt = () => {
   const useDeepResearch = useChatStore((s) => s.useDeepResearch)
   const setUseDeepResearch = useChatStore((s) => s.setUseDeepResearch)
   const rootId = useBoardAppStore((s) => s.rootId) ?? undefined
+  const setPendingPrompt = usePendingPromptStore((s) => s.setPending)
 
   const { createChatAsync } = useCreateChat()
   const { updateChatAsync } = useUpdateChat()
@@ -73,13 +76,19 @@ export const useSubmitPrompt = () => {
 
       // When the home composer submits, spin up a fresh board first so the new
       // chat lives inside it. Skipped if a board is already attached or we're
-      // continuing an existing chat.
+      // continuing an existing chat. Creation errors (incl. BOARD_LIMIT_REACHED)
+      // propagate so the composer can open the limit dialog.
       let createdBoardId: string | undefined
       if (autoCreateBoard && createNewChat && !attachedBoardId && !boardRouteId) {
-        try {
-          createdBoardId = await createBoardAsync()
-        } catch {
-          // The mutation surfaces its own toast (e.g. plan-limit reached).
+        createdBoardId = await createBoardAsync()
+
+        // Synced boards run the browser agent, which only renders its own local
+        // transcript — a server-agent turn started here would be invisible there.
+        // So hand the prompt to the board's assistant instead of sending it.
+        if (isLocalAgentOnSynced()) {
+          setUseDeepResearch(false) // backend-only; not available on the browser engine
+          setPendingPrompt(createdBoardId, trimmed)
+          void navigate({ to: "/boards/$id", params: { id: createdBoardId } })
           return
         }
       }
@@ -166,6 +175,7 @@ export const useSubmitPrompt = () => {
       describeChatAsync,
       createBoardAsync,
       describeBoardAsync,
+      setPendingPrompt,
       navigate,
     ]
   )

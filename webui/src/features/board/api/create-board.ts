@@ -57,9 +57,9 @@ export const useCreateBoard = () => {
       // Fast-fail before the network call. Counts OWNED boards only (shared-with-me
       // don't count — mirrors the backend synced-board cap + useIsBoardCreationLimited).
       // Keep the toast here: this mutation has several callers (dashboard card,
-      // save-as-note, composer) that rely on it for feedback. The sidebar pre-gates
-      // and shows its own dialog, so it reaches this branch only in a rare stale-count
-      // race (toast + dialog both fire then, an accepted edge).
+      // save-as-note) that rely on it for feedback. The sidebar and the home
+      // composer pre-gate and show their own dialog, so they reach this branch only
+      // in a rare stale-count race (toast + dialog both fire then, an accepted edge).
       if (isBoardCreationLimited(userPlan, countOwnedBoards(boards))) {
         toast.error(`You've reached your plan's board limit (${boardLimitForPlan(userPlan)}). Upgrade for more.`)
         throw new Error(BOARD_LIMIT_REACHED)

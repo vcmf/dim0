@@ -5,6 +5,8 @@ import { listLocalChats, loadMessages, saveMessages } from "./chat-persist"
 
 type LocalMessagesState = {
   boardId: string | null
+  /** The board whose chat list has finished loading (null while `openBoard` is in flight). */
+  loadedBoardId: string | null
   /** Current chat. Null means a fresh, not-yet-persisted chat. */
   chatUid: string | null
   messages: ChatMessage[]
@@ -34,21 +36,29 @@ type LocalMessagesState = {
  */
 export const useLocalMessagesStore = create<LocalMessagesState>((set, get) => ({
   boardId: null,
+  loadedBoardId: null,
   chatUid: null,
   messages: [],
   chats: [],
 
   openBoard: async (boardId) => {
-    set({ boardId, chatUid: null, messages: [], chats: [] })
-    const chats = await listLocalChats(boardId)
-    // Guard against a newer openBoard racing this load.
-    if (get().boardId !== boardId) return
-    const latest = chats[0]
-    if (latest) {
-      const messages = await loadMessages(latest.id)
-      if (get().boardId === boardId) set({ chats, chatUid: latest.id, messages })
-    } else {
-      set({ chats })
+    set({ boardId, loadedBoardId: null, chatUid: null, messages: [], chats: [] })
+    try {
+      const chats = await listLocalChats(boardId)
+      // Guard against a newer openBoard racing this load.
+      if (get().boardId !== boardId) return
+      const latest = chats[0]
+      if (latest) {
+        const messages = await loadMessages(latest.id)
+        if (get().boardId === boardId) set({ chats, chatUid: latest.id, messages, loadedBoardId: boardId })
+      } else {
+        set({ chats, loadedBoardId: boardId })
+      }
+    } catch (err) {
+      // Storage failure: fall back to a fresh chat, but still mark the board
+      // loaded so waiters (the queued home prompt) aren't stuck forever.
+      console.error("[local-messages] openBoard failed", err)
+      if (get().boardId === boardId) set({ loadedBoardId: boardId })
     }
   },
 
@@ -72,5 +82,5 @@ export const useLocalMessagesStore = create<LocalMessagesState>((set, get) => ({
     if (get().boardId === boardId) set({ chats })
   },
 
-  reset: () => set({ boardId: null, chatUid: null, messages: [], chats: [] }),
+  reset: () => set({ boardId: null, loadedBoardId: null, chatUid: null, messages: [], chats: [] }),
 }))

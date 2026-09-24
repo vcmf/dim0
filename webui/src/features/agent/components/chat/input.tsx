@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react'
+import { useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import clsx from 'clsx'
 import { useChatStore } from '../../store/chat-store'
 import { SendMessageError } from '../../api/send-message'
@@ -18,13 +18,17 @@ import { StarterPromptPills } from './starter-prompts'
 import { MessageBoardContextChoiceMenu } from './input-settings/message-board-context'
 import { SettingsButton } from '@/features/agent/settings/settings-button'
 import { MemoryButton } from './memory-button'
-import { useIsBoardCreationLimited, FREE_PLAN_BOARD_LIMIT_TOOLTIP } from '@/features/board/lib/board-limit'
+import { boardLimitForPlan, useIsBoardCreationLimited } from '@/features/board/lib/board-limit'
+import { BOARD_LIMIT_REACHED } from '@/features/board/api/create-board'
+import { BoardLimitDialog } from '@/features/board/components/board-limit-dialog'
+import { useLocalBoards } from '@/features/board/local/use-local-boards'
+import { isLocalAgentOnSynced } from '../../local/local-agent-flag'
+import { usePendingPromptStore } from '../../store/pending-prompt-store'
 
 // shadcn/ui
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { AlertIcon } from '@/components/icons'
 import { toast } from 'sonner'
 
@@ -71,6 +75,61 @@ const buildLimitDescription = ({
   return `You've used your plan's AI requests for now. ${resetHint} Upgrade for more headroom.`
 }
 
+
+type ComposerBoardLimitDialogProps = {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** The composer's current text, carried to the local board if chosen. */
+  prompt: string
+  onPromptCarried: () => void
+}
+
+
+/**
+ * The sidebar's board-limit dialog, for the home composer. "Create a local-only
+ * board" creates one and queues the typed prompt so its browser agent runs it on
+ * arrival. Split out so only the home composer pays for `useLocalBoards`.
+ */
+const ComposerBoardLimitDialog = ({ open, onOpenChange, prompt, onPromptCarried }: ComposerBoardLimitDialogProps) => {
+  const navigate = useNavigate()
+  const userPlan = useAppStore((s) => s.userPlan)
+  const setPendingPrompt = usePendingPromptStore((s) => s.setPending)
+  const { createBoard } = useLocalBoards()
+  // Re-entry guard so a rapid double activation can't create two local boards
+  // (mirrors the sidebar's creatingLocalRef).
+  const creatingRef = useRef(false)
+
+  const handleCreateLocal = async () => {
+    if (creatingRef.current) return
+    creatingRef.current = true
+    try {
+      const meta = await createBoard('Untitled board')
+      if (!meta) {
+        toast.error("Couldn't create a board. Please try again.")
+        return
+      }
+      const trimmed = prompt.trim()
+      if (trimmed) {
+        setPendingPrompt(meta.id, trimmed)
+        onPromptCarried()
+      }
+      void navigate({ to: '/local/$boardId', params: { boardId: meta.id } })
+    } finally {
+      creatingRef.current = false
+    }
+  }
+
+  return (
+    <BoardLimitDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      planLimit={boardLimitForPlan(userPlan)}
+      onCreateLocal={() => void handleCreateLocal()}
+    />
+  )
+}
+
+
 /**
  * Input bar with Deep Research confirmation using ONLY `input` state.
  * If `useDeepResearch` is enabled, pressing Enter/Send opens a dialog that:
@@ -106,6 +165,7 @@ export const InputBar = ({
 
   const submit = useChatSubmit()
   const navigate = useNavigate()
+  const [showBoardLimitDialog, setShowBoardLimitDialog] = useState(false)
 
   const isBoardCreationLimited = useIsBoardCreationLimited()
   // Only the home composer (autoCreateBoard) is gated by the limit; existing
@@ -125,6 +185,14 @@ export const InputBar = ({
     const trimmed = text.trim()
     if (!trimmed) return
 
+    // At the plan's synced-board cap, offer the same choice as the sidebar
+    // (upgrade, or a local-only board) instead of creating a board. The text
+    // stays in the composer so nothing is lost if the dialog is dismissed.
+    if (showBoardLimitGate) {
+      setShowBoardLimitDialog(true)
+      return
+    }
+
     setInput('')
 
     try {
@@ -136,6 +204,15 @@ export const InputBar = ({
         autoCreateBoard,
       })
     } catch (error) {
+      if (error instanceof Error && error.message === BOARD_LIMIT_REACHED) {
+        // Stale client count or the backend's atomic cap hit: same dialog.
+        setInput(trimmed)
+        setShowBoardLimitDialog(true)
+        return
+      }
+      // Home composer: nothing else shows the prompt (no board/chat was opened),
+      // so put it back rather than lose it to e.g. an offline board create.
+      if (autoCreateBoard) setInput(trimmed)
       if (error instanceof SendMessageError && error.status === 429) {
         setLimitDialogCopy({
           title: "You’ve reached your AI request limit for now.",
@@ -145,13 +222,20 @@ export const InputBar = ({
         const message = error instanceof Error ? error.message : "Could not send message."
         toast.error(message)
       }
-      throw error
+      // Surfaced above (toast / dialog); don't rethrow — every caller is a
+      // fire-and-forget UI handler, so it would only become an unhandled rejection.
     }
   }
 
+  // The home composer hands its prompt to the new board's browser agent, which
+  // has no Deep Research (backend-only), so skip that confirmation there.
+  // The flag is reload-stable, so read localStorage once per mount, not per keystroke.
+  const handsOffToBrowserAgent = useMemo(() => autoCreateBoard && isLocalAgentOnSynced(), [autoCreateBoard])
+  const deepResearchApplies = !local && useDeepResearch && !handsOffToBrowserAgent
+
   const handlePrimarySend = async () => {
     if (isStreaming) return
-    if (!local && useDeepResearch) {
+    if (deepResearchApplies) {
       setShowDRDialog(true)
       return
     }
@@ -163,7 +247,7 @@ export const InputBar = ({
    */
   const handleStarterPromptSelect = async (prompt: string) => {
     if (isStreaming) return
-    if (!local && useDeepResearch) {
+    if (deepResearchApplies) {
       setInput(prompt)
       setShowDRDialog(true)
       return
@@ -215,7 +299,6 @@ export const InputBar = ({
     'bg-card backdrop-blur-md backdrop-saturate-150 supports-[backdrop-filter]:bg-card/70 shadow-md',
     'border-border hover:border-secondary-foreground/50',
     'focus-within:border-secondary-foreground/50 focus-within:ring-4 focus-within:ring-secondary-foreground/10',
-    showBoardLimitGate && 'opacity-60 hover:border-border focus-within:border-border focus-within:ring-0',
   )
   const showStarterPrompts = !chatId && !isStreaming && Boolean(attachedBoardId) && !showBoardLimitGate
 
@@ -234,8 +317,7 @@ export const InputBar = ({
           minRows={1}
           maxRows={15}
           placeholder={placeholder}
-          disabled={showBoardLimitGate}
-          className="flex-1 min-w-0 resize-none border-none outline-none bg-transparent text-base disabled:cursor-not-allowed"
+          className="flex-1 min-w-0 resize-none border-none outline-none bg-transparent text-base"
           autoFocus
         />
       </div>
@@ -253,7 +335,7 @@ export const InputBar = ({
           </span>
           <SendButton
             loadingStatus={isStreaming ? 'loading' : 'loaded'}
-            disabled={isStreaming || showBoardLimitGate}
+            disabled={isStreaming}
             onClick={handlePrimarySend}
             className={commandIconClass}
           />
@@ -275,14 +357,7 @@ export const InputBar = ({
         isFloating ? '' : 'max-w-[900px] mx-auto'
       )}>
         <div className="relative w-full max-w-[800px] mx-auto">
-          {showBoardLimitGate ? (
-            <Tooltip delayDuration={200}>
-              <TooltipTrigger asChild>{inboxBody}</TooltipTrigger>
-              <TooltipContent className="max-w-xs text-center">
-                {FREE_PLAN_BOARD_LIMIT_TOOLTIP}
-              </TooltipContent>
-            </Tooltip>
-          ) : inboxBody}
+          {inboxBody}
 
           <p className="p-1.5 sm:p-2 text-center text-[11px] text-muted-foreground/80 bg-auto">
             AI can make mistakes. Verify important details carefully.
@@ -324,6 +399,15 @@ export const InputBar = ({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {autoCreateBoard && (
+        <ComposerBoardLimitDialog
+          open={showBoardLimitDialog}
+          onOpenChange={setShowBoardLimitDialog}
+          prompt={input}
+          onPromptCarried={() => setInput('')}
+        />
+      )}
 
       <Dialog open={limitDialogCopy !== null} onOpenChange={(open) => {
         if (!open) setLimitDialogCopy(null)
