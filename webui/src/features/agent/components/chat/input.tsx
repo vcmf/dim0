@@ -222,7 +222,8 @@ export const InputBar = ({
         const message = error instanceof Error ? error.message : "Could not send message."
         toast.error(message)
       }
-      throw error
+      // Surfaced above (toast / dialog); don't rethrow — every caller is a
+      // fire-and-forget UI handler, so it would only become an unhandled rejection.
     }
   }
 
