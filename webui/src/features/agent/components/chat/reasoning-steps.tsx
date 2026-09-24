@@ -186,12 +186,15 @@ export const ReasoningStepsView = ({ isStreaming, response, docSources, messageI
 
   return (
     <div className='w-full flex flex-col items-start'>
-      {timelineItems.map((item) => (
+      {timelineItems.map((item, i) => (
         item.type === "reasoning" ? (
           <ReasoningStepRow
             key={item.key}
             step={item.step}
             isStreaming={isStreaming}
+            // Only the trailing step can still be in progress; anything followed
+            // by a later step (tool call / text) has finished.
+            isActive={isStreaming && i === timelineItems.length - 1}
             docSources={docSources}
             messageId={messageId}
           />

@@ -9,15 +9,21 @@ import { linkifyDocTitles, type DocSource } from "../../utils/doc-sources"
 
 /**
  * Renders one raw reasoning text step in the merged assistant timeline.
+ * `isStreaming` is the whole message's flag; `isActive` marks this step as the
+ * one still in progress — only it animates "Thinking", so a reasoning-only step
+ * that a tool call has already followed settles to a static label mid-turn.
+ * Required so no caller silently falls back to "every step animates".
  */
 export const ReasoningStepRow = ({
   step,
   isStreaming,
+  isActive,
   docSources,
   messageId,
 }: {
   step: ReasoningTextStep
   isStreaming?: boolean
+  isActive: boolean
   docSources?: DocSource[]
   messageId?: string
 }) => {
@@ -37,7 +43,9 @@ export const ReasoningStepRow = ({
     [isStreaming, messageId, docSources, step.message],
   )
 
-  if (!isStreaming && step.message === "" && step.reasoning === "") {
+  // An empty step renders nothing once it's no longer in progress — mid-turn
+  // too, so a placeholder a tool call followed doesn't show a contentless "Thought".
+  if (!isActive && step.message === "" && step.reasoning === "") {
     return null
   }
 
@@ -89,9 +97,12 @@ export const ReasoningStepRow = ({
           <MarkdownView content={message} isStreaming={isStreaming} />
         </div>
       ) : isStreaming ? (
+        // Only the in-progress step animates; a finished one settles to a static
+        // label, and its hidden reasoning stays hidden until the turn ends (when
+        // the "Reasoning" expander takes this slot).
         <span className='inline-flex items-center gap-1 font-mono text-sm font-medium text-muted-foreground'>
-          Thinking
-          <ThinkingDots />
+          {isActive ? "Thinking" : "Thought"}
+          {isActive && <ThinkingDots />}
         </span>
       ) : null}
     </div>
