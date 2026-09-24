@@ -2,11 +2,8 @@ import { useEffect } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import type { CanvasStore, OpBatch } from "@canvas-harness/core"
 import type { NoteNodeData } from "../convert/note-to-node"
-import type { BoardContentKind } from "@/features/board/api/list-board-contents"
+import { isBoardContentKind } from "@/features/board/api/list-board-contents"
 import { getBoardPersistenceRef } from "@/features/board/persist/local/board-persistence-ref"
-
-
-const SURFACE_KINDS = new Set<BoardContentKind>(["sheet", "folder", "code-sandbox", "widget"])
 
 
 /**
@@ -23,8 +20,8 @@ export const affectsSurfaceTree = (batch: OpBatch): boolean => {
       // Fall back to `node.type`: agent-authored surfaces set only the canonical
       // type, not the display `styleType`, so keying off styleType alone would
       // skip refreshing the tree when the agent adds/removes a sheet or folder.
-      const kind = ((op.node.data as NoteNodeData | undefined)?.styleType ?? op.node.type) as BoardContentKind | undefined
-      if (kind && SURFACE_KINDS.has(kind)) return true
+      const kind = (op.node.data as NoteNodeData | undefined)?.styleType ?? op.node.type
+      if (isBoardContentKind(kind)) return true
     } else if (op.type === "node.update") {
       // A kind change rides on the node-level `type` (agent surfaces set only the
       // canonical type), so treat that as tree-affecting too — symmetric with the
