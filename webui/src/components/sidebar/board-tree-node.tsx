@@ -1,17 +1,11 @@
 import { useState, type MouseEvent } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { cn } from "@/lib/utils"
-import {
-  AppletIcon,
-  ChevronRightIcon,
-  FolderIcon,
-  NotepadIcon,
-  CodeFileIcon,
-  type AppIconComponent,
-} from "@/components/icons"
+import { ChevronRightIcon } from "@/components/icons"
 import { IconPropertyView } from "@/components/icons/icon-property-view"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { type BoardContentItem, type BoardContentKind } from "@/features/board/api/list-board-contents"
+import { type BoardContentItem } from "@/features/board/api/list-board-contents"
+import { BOARD_CONTENT_KIND_ICONS } from "@/features/board/utils/board-content-kind-icons"
 import { nodeSurfacePath } from "@/features/board/utils/node-surface-url"
 import { trimText } from "@/lib/common"
 import { UNTITLED_LABEL } from "@/features/board/const"
@@ -20,14 +14,6 @@ import { UNTITLED_LABEL } from "@/features/board/const"
 const MAX_VISUAL_DEPTH = 5
 const INDENT_PX_PER_LEVEL = 12
 const BASE_PADDING_PX = 8
-
-
-const ICON_BY_KIND: Record<BoardContentKind, AppIconComponent> = {
-  folder: FolderIcon,
-  sheet: NotepadIcon,
-  "code-sandbox": CodeFileIcon,
-  applet: AppletIcon,
-}
 
 
 type BoardTreeNodeProps = {
@@ -87,7 +73,7 @@ export function BoardTreeNode({
   const isSheet = item.kind === "sheet"
   const isExpandable = isFolder || isSheet
   const isActive = !!activeId && item.id === activeId
-  const KindIcon = ICON_BY_KIND[item.kind]
+  const KindIcon = BOARD_CONTENT_KIND_ICONS[item.kind]
   const customIcon = item.iconData ?? null
 
   const visualDepth = Math.min(depth, MAX_VISUAL_DEPTH)
@@ -125,12 +111,11 @@ export function BoardTreeNode({
       } as any)
       return
     }
-    // Folder (or fallback): stay on the board route, scope the canvas via root_id.
+    // Folder: stay on the board route, scope the canvas via root_id.
     navigate({
       to: local ? "/local/$boardId" : "/boards/$id",
       params: local ? { boardId } : { id: boardId },
-      search: (prev: Record<string, unknown>) =>
-        item.kind === "folder" ? { ...prev, root_id: item.id } : prev,
+      search: (prev: Record<string, unknown>) => ({ ...prev, root_id: item.id }),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any)
   }

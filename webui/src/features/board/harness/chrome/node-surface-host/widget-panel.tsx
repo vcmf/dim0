@@ -8,6 +8,7 @@ import { CodeArea } from "@/features/board/components/flow/code-area"
 import { WidgetIframe } from "@/features/board/components/flow/widget-iframe"
 import { buildWidgetDocument } from "@/features/board/components/flow/widget-document"
 import type { NoteNodeData } from "../../convert/note-to-node"
+import { useBoardAppStore } from "../../store/board-app-store"
 
 
 export type WidgetPanelProps = {
@@ -33,6 +34,14 @@ export const WidgetPanel = memo(function WidgetPanel({
   const store = useCanvasStore()
   const node = useNode(nodeId as NodeId)
   const data = (node?.data ?? {}) as Partial<NoteNodeData>
+  const setActiveSurfaceLabel = useBoardAppStore((s) => s.setActiveSurfaceLabel)
+
+  // A (deprecated) widget isn't a surface kind in the on-device list, so publish
+  // its live title for the unified breadcrumb (which otherwise can't resolve a leaf).
+  useEffect(() => {
+    setActiveSurfaceLabel(data.label?.markdown ?? "")
+    return () => setActiveSurfaceLabel(null)
+  }, [setActiveSurfaceLabel, data.label?.markdown])
 
   const [activeTab, setActiveTab] = useState("rendered")
   const [htmlDraft, setHtmlDraft] = useState(node?.content ?? "")

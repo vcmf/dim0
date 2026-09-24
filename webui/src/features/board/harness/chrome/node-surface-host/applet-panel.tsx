@@ -52,8 +52,9 @@ export const AppletPanel = memo(function AppletPanel({
   const label = data.label?.markdown
   const setActiveSurfaceLabel = useBoardAppStore((s) => s.setActiveSurfaceLabel)
 
-  // An applet isn't a surface kind in the on-device list, so publish its live
-  // title for the unified breadcrumb (which otherwise can't resolve a leaf here).
+  // Applets are in the on-device surface list, so the breadcrumb normally resolves
+  // this leaf from it; publishing the live title covers the gap before that list
+  // loads (or when the node isn't in the replica yet, e.g. just created).
   useEffect(() => {
     setActiveSurfaceLabel(label ?? "")
     return () => setActiveSurfaceLabel(null)
