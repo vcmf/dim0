@@ -1,3 +1,14 @@
+## v0.3.99 (2026-09-24)
+
+### Feat
+
+- **board**: list applets in the board sidebar, drop deprecated widgets (#348)
+
+### Fix
+
+- **backend**: accept applet node type so synced applets persist (#345)
+- **agent**: run the home composer prompt on the new board's browser agent (#344)
+
 ## v0.3.98 (2026-09-22)
 
 ### Feat
