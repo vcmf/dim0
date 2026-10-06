@@ -48,10 +48,14 @@ export type TextAlign = "left" | "center" | "right"
 /**
  * Font size options for the node.
  */
-export type FontSize = "S" | "M" | "L" | "XL"
+export type FontSizePreset = "S" | "M" | "L" | "XL"
 
-// Convert font size to Tailwind CSS class
+/** A preset token or an explicit CSS-pixel size. */
+export type FontSize = FontSizePreset | number
+
+/** Return the legacy Tailwind class for a preset; harness renders numeric sizes inline. */
 export function fontSizeToTwClass(size?: FontSize): string {
+  if (typeof size === "number") return ""
   switch (size) {
     case "S":
       return "text-sm"

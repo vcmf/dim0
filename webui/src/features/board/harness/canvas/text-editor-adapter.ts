@@ -1,7 +1,7 @@
 import {
   FONT_FAMILY_MAP,
-  FONT_SIZE_MAP,
-  LINE_HEIGHT_MAP,
+  getFontSizePx,
+  getLineHeightPx,
   handleEnter,
   insertLink,
   toggleBold,
@@ -55,8 +55,8 @@ export const createHarnessTextareaEditor: EditorAdapterFactory = ({
     ? style.textColor
     : "var(--card-foreground)"
 
-  const fontPx = FONT_SIZE_MAP[fontSize]
-  const lineHeightPx = LINE_HEIGHT_MAP[fontSize]
+  const fontPx = getFontSizePx(fontSize)
+  const lineHeightPx = getLineHeightPx(fontSize)
 
   const screenX = (node.x - camera.x) * camera.z
   const screenY = (node.y - camera.y) * camera.z
