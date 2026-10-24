@@ -14,7 +14,7 @@ import { darkModeDisplayHex } from "@/features/board/lib/colors/dark-variants"
 import { SloppyPresets, StrokeWidthPresets, TRANSPARENT_HEX } from "@/features/board/types/style"
 import type {
   FontFamily,
-  FontSize,
+  FontSizePreset,
   StrokeStyle,
   TextAlign,
 } from "@/features/board/types/style"
@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils"
 import { ColorGrid } from "./color-panel"
 import { ARROWHEAD_OPTIONS, PATH_STYLE_OPTIONS } from "./edge-glyph-options"
 import { ArrowheadGlyph, PathStyleGlyph } from "./edge-glyphs"
+import { FontSizeInput } from "./font-size-input"
 
 
 // canvas-harness's Style augmented with edge-only fields (arrowheads,
@@ -464,22 +465,28 @@ export function StylePanel({
     ),
     fontSize: (
       <Section title="Font size">
-        <ToggleGroup
-          type="single"
-          value={s.fontSize ?? "M"}
-          onValueChange={(v) => v && onStyleChange({ fontSize: v as FontSize })}
-          className="flex gap-2"
-        >
-          {(["S", "M", "L", "XL"] as FontSize[]).map((size) => (
-            <ToggleGroupItem
-              key={size}
-              value={size}
-              className="h-9 w-9 items-center justify-center rounded-md border bg-muted data-[state=on]:bg-secondary-foreground/10 data-[state=on]:text-secondary-foreground"
-            >
-              {size}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
+        <div className="flex flex-wrap items-center gap-2">
+          <ToggleGroup
+            type="single"
+            value={typeof s.fontSize === "string" ? s.fontSize : ""}
+            onValueChange={(v) => v && onStyleChange({ fontSize: v as FontSizePreset })}
+            className="flex gap-2"
+          >
+            {(["S", "M", "L", "XL"] as FontSizePreset[]).map((size) => (
+              <ToggleGroupItem
+                key={size}
+                value={size}
+                className="h-9 w-9 items-center justify-center rounded-md border bg-muted data-[state=on]:bg-secondary-foreground/10 data-[state=on]:text-secondary-foreground"
+              >
+                {size}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+          <FontSizeInput
+            fontSize={s.fontSize ?? "M"}
+            onCommit={(fontSize) => onStyleChange({ fontSize })}
+          />
+        </div>
       </Section>
     ),
     pathStyle: (
