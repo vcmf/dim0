@@ -4,7 +4,6 @@
 from typing import Awaitable
 
 from agents import RunContextWrapper
-from qdrant_client.models import Filter
 
 from topix.agents.datatypes.context import Context
 from topix.agents.datatypes.outputs import MemorySearchOutput
@@ -18,7 +17,7 @@ from topix.store.qdrant.utils import build_filter
 async def mem_search(
     query: str,
     content_store: ContentStore,
-    filters: dict | Filter | None = None,
+    filters: dict | None = None,
     limit: int = 5
 ) -> MemorySearchOutput:
     """Search inside memory with optional filtering.
@@ -29,13 +28,17 @@ async def mem_search(
         filters: Optional filters to apply during the search.
         limit: The maximum number of results to return.
 
-    Returns: A MemorySearchOutput containing the search results.
+    Returns: A MemorySearchOutput containing the search results; empty when
+    `filters` carries no `graph_uid`, since the collection is shared by every
+    user and only a board scope keeps the search to one board.
 
     """
+    if not isinstance(filters, dict) or not filters.get("graph_uid"):
+        return MemorySearchOutput()
     results = await content_store.search(
         query=query,
         limit=limit,
-        filter=build_filter(must=filters) if isinstance(filters, dict) else filters
+        filter=build_filter(must=filters),
     )
     return MemorySearchOutput(
         references=[resource_to_ref_annotation(res.resource) for res in results if res.resource is not None]
