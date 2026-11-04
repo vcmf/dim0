@@ -1,7 +1,7 @@
 [tool.commitizen]
 name = "cz_conventional_commits"
 version_scheme = "semver2"
-version = "0.3.101"
+version = "0.3.102"
 version_files = [
   "VERSION",
   "backend/pyproject.toml:^version = ",

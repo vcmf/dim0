@@ -1,3 +1,9 @@
+## v0.3.102 (2026-11-04)
+
+### Fix
+
+- **backend**: validate chat update fields and scope memory search (#357)
+
 ## v0.3.101 (2026-10-13)
 
 ### Feat
