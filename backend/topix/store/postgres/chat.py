@@ -6,6 +6,11 @@ from typing import Literal
 import asyncpg
 
 from topix.datatypes.chat.chat import Chat
+from topix.store.postgres.columns import ensure_allowed_columns
+
+# Columns a chat update may touch. Keys are interpolated into SQL, so this
+# allowlist is the only thing keeping identifiers safe; extend it deliberately.
+CHAT_UPDATABLE_COLUMNS = frozenset({"label", "graph_uid"})
 
 
 async def create_chat(
@@ -66,13 +71,12 @@ async def update_chat_by_uid(
     uid: str,
     updated_data: dict
 ):
-    """Update non-date chat fields by UID.
+    """Update chat fields by UID; always bumps updated_at.
 
-    Always updates updated_at to now.
+    Raises ValueError if any key is outside CHAT_UPDATABLE_COLUMNS.
     """
-    # Exclude any date fields from being updated manually
-    forbidden_fields = {"created_at", "updated_at", "deleted_at"}
-    data = {k: v for k, v in updated_data.items() if k not in forbidden_fields}
+    ensure_allowed_columns(updated_data, CHAT_UPDATABLE_COLUMNS, "chats")
+    data = dict(updated_data)
 
     # Always set updated_at to now
     data['updated_at'] = datetime.now()

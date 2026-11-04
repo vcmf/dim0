@@ -5,6 +5,19 @@ from datetime import datetime
 import asyncpg
 
 from topix.datatypes.user_billing import UserBilling
+from topix.store.postgres.columns import ensure_allowed_columns
+
+# Columns a billing update/upsert may touch. Keys are interpolated into SQL,
+# so this allowlist is the only thing keeping identifiers safe; extend it deliberately.
+BILLING_UPDATABLE_COLUMNS = frozenset({
+    "plan",
+    "status",
+    "stripe_customer_id",
+    "stripe_subscription_id",
+    "current_period_start",
+    "current_period_end",
+    "cancel_at_period_end",
+})
 
 
 async def create_user_billing(
@@ -120,14 +133,16 @@ async def update_user_billing_by_uid(
     user_uid: str,
     updated_data: dict
 ):
-    """Update user billing information by user UID."""
-    forbidden_fields = {"user_uid", "created_at", "updated_at"}
-    data = {k: v for k, v in updated_data.items() if k not in forbidden_fields}
-    if not data:
+    """Update user billing information by user UID.
+
+    Raises ValueError if any key is outside BILLING_UPDATABLE_COLUMNS.
+    """
+    ensure_allowed_columns(updated_data, BILLING_UPDATABLE_COLUMNS, "user_billing")
+    if not updated_data:
         return
 
-    set_clauses = [f"{k} = ${i + 1}" for i, k in enumerate(data.keys())]
-    values = list(data.values())
+    set_clauses = [f"{k} = ${i + 1}" for i, k in enumerate(updated_data.keys())]
+    values = list(updated_data.values())
 
     set_clauses.append(f"updated_at = ${len(values) + 1}")
     values.append(datetime.now())
@@ -142,26 +157,20 @@ async def upsert_user_billing_by_uid(
     user_uid: str,
     data: dict
 ):
-    """Upsert user billing data by user UID."""
-    allowed_fields = {
-        "plan",
-        "status",
-        "stripe_customer_id",
-        "stripe_subscription_id",
-        "current_period_start",
-        "current_period_end",
-        "cancel_at_period_end",
-    }
-    payload = {k: v for k, v in data.items() if k in allowed_fields}
-    if not payload:
+    """Upsert user billing data by user UID.
+
+    Raises ValueError if any key is outside BILLING_UPDATABLE_COLUMNS.
+    """
+    ensure_allowed_columns(data, BILLING_UPDATABLE_COLUMNS, "user_billing")
+    if not data:
         return
 
-    columns = ["user_uid", *payload.keys()]
-    values = [user_uid, *payload.values()]
+    columns = ["user_uid", *data.keys()]
+    values = [user_uid, *data.values()]
     placeholders = [f"${idx}" for idx in range(1, len(values) + 1)]
 
     update_assignments = ", ".join(
-        [f"{key} = EXCLUDED.{key}" for key in payload.keys()] + ["updated_at = NOW()"]
+        [f"{key} = EXCLUDED.{key}" for key in data.keys()] + ["updated_at = NOW()"]
     )
 
     query = (

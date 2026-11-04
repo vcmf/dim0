@@ -4,6 +4,18 @@ from datetime import datetime
 import asyncpg
 
 from topix.datatypes.user import User
+from topix.store.postgres.columns import ensure_allowed_columns
+
+# Columns the generic user update may touch. Keys are interpolated into SQL,
+# so this allowlist is the only thing keeping identifiers safe. Identity/auth columns (email,
+# google_*, auth_provider, email_verified_at) have dedicated helpers and are
+# deliberately excluded; extend only when a caller needs it.
+USER_UPDATABLE_COLUMNS = frozenset({
+    "name",
+    "username",
+    "password_hash",
+    "password_changed_at",
+})
 
 
 def _build_user_from_row(row: asyncpg.Record) -> User:
@@ -115,17 +127,18 @@ async def get_user_by_google_sub(conn: asyncpg.Connection, google_sub: str) -> U
 
 
 async def update_user_by_uid(conn: asyncpg.Connection, uid: str, updated_data: dict):
-    """Update user information by UID."""
-    # Exclude any date fields from being updated manually
-    forbidden_fields = {"created_at", "updated_at", "deleted_at"}
-    data = {k: v for k, v in updated_data.items() if k not in forbidden_fields}
-    if not data:
+    """Update user information by UID.
+
+    Raises ValueError if any key is outside USER_UPDATABLE_COLUMNS.
+    """
+    ensure_allowed_columns(updated_data, USER_UPDATABLE_COLUMNS, "users")
+    if not updated_data:
         return
 
     # Build dynamic query with positional parameters
-    set_clauses = [f"{k} = ${i + 1}" for i, k in enumerate(data.keys())]
+    set_clauses = [f"{k} = ${i + 1}" for i, k in enumerate(updated_data.keys())]
     set_clause = ', '.join(set_clauses)
-    values = list(data.values())
+    values = list(updated_data.values())
 
     # Always set updated_at to now
     set_clause += f", updated_at = ${len(values) + 1}"

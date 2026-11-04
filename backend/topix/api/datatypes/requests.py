@@ -4,7 +4,7 @@ import logging
 
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from topix.agents.datatypes.tools import AgentToolName
 from topix.agents.datatypes.web_search import WebSearchOption
@@ -155,10 +155,19 @@ class SendMessageRequest(BaseModel):
         return v
 
 
+class ChatUpdateData(BaseModel):
+    """Fields a client may change on a chat. Unknown keys are rejected."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str | None = None
+    graph_uid: str | None = None
+
+
 class ChatUpdateRequest(BaseModel):
     """Request model for updating a chat."""
 
-    data: dict
+    data: ChatUpdateData
 
 
 class MessageUpdateRequest(BaseModel):
