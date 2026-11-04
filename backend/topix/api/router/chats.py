@@ -138,7 +138,7 @@ async def update_chat(
 ):
     """Update an existing chat by its ID."""
     store: ChatStore = request.app.chat_store
-    return await store.update_chat(chat_id, body.data)
+    return await store.update_chat(chat_id, body.data.model_dump(exclude_unset=True))
 
 
 @router.get("/{chat_id}/", include_in_schema=False)
