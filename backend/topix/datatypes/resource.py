@@ -100,5 +100,17 @@ class Resource(BaseModel):
 
 
 def dict_to_embeddable(dct: dict) -> list[str]:
-    """Convert a dict representation of a resource to a list of embeddable strings."""
-    return Resource.model_validate(dct).to_embeddable()
+    """Convert a dict representation of a resource to a list of embeddable strings.
+
+    Note and document payloads validate with their own model: a full dump
+    carries optional properties as `None` (e.g. `ink_data`), which the generic
+    properties model rejects (#359). Neither model has required fields or a
+    `to_embeddable` override, so partial dicts still embed their provided
+    fields; values those models reject (as reads would) now fail here too.
+    """
+    # Local imports: both models subclass `Resource`.
+    from topix.datatypes.file.document import Document
+    from topix.datatypes.note.note import Note
+
+    models: dict[object, type[Resource]] = {"note": Note, "document": Document}
+    return models.get(dct.get("type"), Resource).model_validate(dct).to_embeddable()

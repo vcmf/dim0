@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 import zstandard as zstd
 
+from topix.datatypes.file.document import Document
 from topix.datatypes.note.note import Note
 from topix.datatypes.resource import RichText
 from topix.store import note_revision as note_revision_module
@@ -250,3 +251,14 @@ async def test_pop_latest_note_revision_deletes_consumed_snapshot(monkeypatch) -
 
     assert popped is latest
     assert calls == ["delete"]
+
+
+def test_deserialize_restores_document_snapshots_as_documents() -> None:
+    """A document snapshot restores as `Document`, not a failing `Note` validation."""
+    doc = Document(label=RichText(markdown="report.pdf"))
+    compression, compressed = compress_snapshot(serialize_note_snapshot(doc))
+
+    restored = deserialize_note_snapshot(compression, compressed)
+
+    assert isinstance(restored, Document)
+    assert restored.label.markdown == "report.pdf"
