@@ -1,3 +1,9 @@
+## v0.3.103 (2026-11-18)
+
+### Fix
+
+- **backend**: embed note and document payloads with their model (#360)
+
 ## v0.3.102 (2026-11-04)
 
 ### Fix
