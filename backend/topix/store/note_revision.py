@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 import asyncpg
 import zstandard as zstd
 
+from topix.datatypes.file.document import Document
 from topix.datatypes.note.note import Note
 from topix.store.postgres.note_revision import (
     NoteRevisionRecord,
@@ -59,10 +60,15 @@ def decompress_snapshot(compression: str, snapshot_compressed: bytes) -> bytes:
 
 
 def deserialize_note_snapshot(compression: str, snapshot_compressed: bytes) -> Note:
-    """Deserialize a compressed snapshot back into a note model."""
+    """Deserialize a compressed snapshot back into its note model.
+
+    Document snapshots (`type: document`, a Note subclass) restore as
+    `Document`; validating them as `Note` fails its `type` literal.
+    """
     snapshot_bytes = decompress_snapshot(compression, snapshot_compressed)
     snapshot_dict = json.loads(snapshot_bytes.decode("utf-8"))
-    return Note.model_validate(snapshot_dict)
+    model = Document if snapshot_dict.get("type") == "document" else Note
+    return model.model_validate(snapshot_dict)
 
 
 class NoteRevisionStore:
