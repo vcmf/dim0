@@ -10,6 +10,7 @@ class WebSearchOption(StrEnum):
     PERPLEXITY = "perplexity"
     LINKUP = "linkup"
     EXA = "exa"
+    KEENABLE = "keenable"
 
 
 class WebSearchContextSize(StrEnum):

@@ -6,8 +6,8 @@ import { isKeylessSearchEngine } from "@/features/agent/engine/services/kinds"
 const STORAGE_KEY = "dim0.byok"
 
 
-/** Web-search providers, including the explicitly selected keyless Parallel option. */
-export type SearchEngine = "perplexity" | "tavily" | "linkup" | "exa" | "parallel"
+/** Web-search providers, including the explicitly selected keyless options. */
+export type SearchEngine = "perplexity" | "tavily" | "linkup" | "exa" | "parallel" | "keenable"
 
 
 const DEFAULT_SEARCH_ENGINE: SearchEngine = "perplexity"

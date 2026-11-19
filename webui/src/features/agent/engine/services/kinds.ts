@@ -27,7 +27,7 @@ export type ServiceMode = "byok" | "managed" | "keyless" | "off"
  * next one is an entry here plus its client in `parallel-search.ts`, not a new
  * branch in the resolver.
  */
-export const KEYLESS_SEARCH_ENGINES = ["parallel"] as const
+export const KEYLESS_SEARCH_ENGINES = ["parallel", "keenable"] as const
 
 
 export type KeylessSearchEngine = (typeof KEYLESS_SEARCH_ENGINES)[number]

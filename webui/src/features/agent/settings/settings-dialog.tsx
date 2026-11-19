@@ -39,6 +39,7 @@ const SEARCH_ENGINES: { id: SearchEngine; label: string; placeholder: string }[]
   { id: "linkup", label: "Linkup", placeholder: "lk-…" },
   { id: "exa", label: "Exa", placeholder: "exa-…" },
   { id: "parallel", label: "Parallel (keyless)", placeholder: "" },
+  { id: "keenable", label: "Keenable (keyless)", placeholder: "" },
 ]
 
 const fieldClass =
@@ -388,7 +389,7 @@ function SearchPane() {
       {isKeylessSearchEngine(engine) ? (
         <p className="text-xs text-muted-foreground">
           Free for light use, with rate limits. No search API key and no sign-in needed — this device calls
-          Parallel directly, so it also works on a local board. Model inference is configured separately.
+          the selected provider directly, so it also works on a local board. Model inference is configured separately.
         </p>
       ) : (
         <>

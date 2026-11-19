@@ -29,6 +29,7 @@ from pydantic import BaseModel, ValidationError
 from topix.agents.assistant.auto_model import classify_auto_model_complexity
 from topix.agents.assistant.code import execute_code
 from topix.agents.websearch.parallel import UpstreamSearchError, search_parallel
+from topix.agents.websearch.keenable import search_keenable
 from topix.agents.websearch.tools import (
     fetch_content,
     search_exa,
@@ -391,11 +392,12 @@ _SEARCH_FNS = {
     "linkup": search_linkup,
     "exa": search_exa,
     "parallel": search_parallel,
+    "keenable": search_keenable,
 }
 
 # Engines that need no key at all — ours or the caller's. Adding the next one is
 # a single entry here plus its `_SEARCH_FNS` function.
-KEYLESS_SEARCH_ENGINES = frozenset({"parallel"})
+KEYLESS_SEARCH_ENGINES = frozenset({"parallel", "keenable"})
 
 
 class AiSearchRequest(BaseModel):

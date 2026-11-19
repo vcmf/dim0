@@ -539,6 +539,7 @@ def _select_options() -> tuple[Literal["assistant", "deep_research"], str, str]:
             {"name": "Linkup", "value": "linkup"},
             {"name": "Perplexity", "value": "perplexity"},
             {"name": "Tavily", "value": "tavily"},
+            {"name": "Keenable", "value": "keenable"},
         ],
         qmark="?",
         pointer="❯",
