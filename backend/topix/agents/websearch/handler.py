@@ -11,6 +11,7 @@ from topix.agents.datatypes.tools import AgentToolName
 from topix.agents.datatypes.web_search import WebSearchContextSize, WebSearchOption
 from topix.agents.tool_handler import ToolHandler
 from topix.agents.websearch.openai import OpenAIWebSearch
+from topix.agents.websearch.keenable import search_keenable
 from topix.agents.websearch.tools import search_exa, search_linkup, search_perplexity, search_tavily
 from topix.agents.websearch.web_summarize import WebSummarize
 from topix.datatypes.recurrence import Recurrence
@@ -115,6 +116,8 @@ class WebSearchHandler:
                     search_func = search_perplexity
                 case WebSearchOption.EXA:
                     search_func = search_exa
+                case WebSearchOption.KEENABLE:
+                    search_func = search_keenable
                 case _:
                     raise ValueError(f"Unknown search engine: {search_engine}")
 

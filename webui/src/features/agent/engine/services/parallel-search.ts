@@ -96,9 +96,47 @@ export const parallelSearchPost =
   }
 
 
+const KEENABLE_PUBLIC_URL = "https://api.keenable.ai/v1/search/public"
+const KEENABLE_TITLE = "Dim0"
+
+type KeenableSource = { url?: unknown; title?: unknown; snippet?: unknown; description?: unknown }
+
+/** A `SearchPost` that calls Keenable's public search endpoint and returns the `/ai/search` shape. */
+export const keenableSearchPost =
+  (fetchImpl?: FetchFn): SearchPost =>
+  async (body) => {
+    const doFetch = fetchImpl ?? (isTauri() ? tauriFetch : browserFetch)
+    const res = await doFetch(KEENABLE_PUBLIC_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-Keenable-Title": KEENABLE_TITLE,
+      },
+      body: JSON.stringify({ query: body.query }),
+    })
+    if (!res.ok) throw new KeylessUpstreamError(`Keenable search failed: ${res.status}`)
+    const payload = (await res.json()) as { results?: KeenableSource[] }
+    const results = (payload.results ?? [])
+      .map((source) => ({
+        url: typeof source.url === "string" ? source.url : "",
+        title: typeof source.title === "string" ? source.title : "",
+        content:
+          typeof source.snippet === "string" && source.snippet
+            ? source.snippet
+            : typeof source.description === "string"
+              ? source.description
+              : "",
+      }))
+      .filter((r) => r.url)
+    return { answer: "", results }
+  }
+
+
 /** Keyless engines the client can call directly, keyed by engine id. */
 const DIRECT_KEYLESS_SEARCH: Record<string, () => SearchPost> = {
   parallel: () => parallelSearchPost(),
+  keenable: () => keenableSearchPost(),
 }
 
 
