@@ -1,9 +1,9 @@
 """Classes representing the style of a node in a graph."""
 
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from topix.utils.colors import BLUE_200
 
@@ -69,6 +69,10 @@ class FontSize(StrEnum):
     XL = "XL"
 
 
+ExplicitFontSize = Annotated[float, Field(ge=8, le=256, allow_inf_nan=False)]
+FontSizeValue = FontSize | ExplicitFontSize
+
+
 class FontFamily(StrEnum):
     """Enumeration for font families."""
 
@@ -116,7 +120,7 @@ class Style(BaseModel):
     roundness: float = 0.0
     opacity: float = 100
     group_ids: list[str] = []
-    font_size: FontSize = FontSize.M
+    font_size: FontSizeValue = FontSize.M
     font_family: FontFamily = FontFamily.HANDWRITING
     text_align: TextAlign = TextAlign.CENTER
     text_color: str = "#000000"
@@ -156,7 +160,7 @@ class LinkStyle(Style):
     opacity: float = 100
     group_ids: list[str] = []
     font_family: FontFamily = FontFamily.HANDWRITING
-    font_size: FontSize = FontSize.M
+    font_size: FontSizeValue = FontSize.M
     text_align: TextAlign = TextAlign.CENTER
     text_color: str = "#000000"
     text_style: str | None = "normal"

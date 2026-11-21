@@ -9,6 +9,9 @@ from topix.utils.graph.text_measure import (
     CONTENT_HEIGHT_BUFFER,
     CONTENT_SIZED_TYPES,
     MAX_ESTIMATED_HEIGHT,
+    MAX_FONT_SIZE_PX,
+    MIN_FONT_SIZE_PX,
+    NUMERIC_LINE_HEIGHT_RATIO,
     estimate_markdown_height,
     estimate_node_height,
 )
@@ -54,6 +57,29 @@ def test_larger_font_is_taller():
     small = estimate_markdown_height("hello", 300, FontSize.S)
     large = estimate_markdown_height("hello", 300, FontSize.XL)
     assert large > small
+
+
+def test_numeric_font_size_is_supported():
+    """An explicit pixel size is measured proportionally, beyond XL."""
+    assert estimate_markdown_height("hello", 300, 72) == 90 + CONTENT_HEIGHT_BUFFER
+
+
+def test_numeric_font_size_is_bounded():
+    """Explicit sizes are clamped to the same safe range as canvas-harness."""
+    assert (
+        estimate_markdown_height("h", 300, 1)
+        == MIN_FONT_SIZE_PX * NUMERIC_LINE_HEIGHT_RATIO + CONTENT_HEIGHT_BUFFER
+    )
+    assert (
+        estimate_markdown_height("h", 300, 999)
+        == MAX_FONT_SIZE_PX * NUMERIC_LINE_HEIGHT_RATIO + CONTENT_HEIGHT_BUFFER
+    )
+
+
+@pytest.mark.parametrize("font_size", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_font_size_falls_back_to_medium(font_size):
+    """Non-finite sizes cannot propagate into layout geometry."""
+    assert estimate_markdown_height("hello", 300, font_size) == _ONE_LINE_M
 
 
 def test_inline_markers_do_not_inflate_height():
